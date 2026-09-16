@@ -113,7 +113,7 @@ TRANSLATIONS = {
         "main_hall": "Maŋ tsu nukpa",
         "aux_1": "Tsu bibioo 1",
         "aux_2": "Tsu bibioo 2",
-        "note": "Nilelɔ nɔ ni akɛɛ: Nitsumɔ lɛ he nibii kɛ nikasemɔ nɔ ni kɔ kɛhɔ bo lɛ baanyɛ aná yɛ Kristowala Amɛ Wala KƐ NitsumƆ Kpeeni Wolo lɛ mli. Ofainɛ kwɛmɔ nitsumɔ lɛ he gbɛtsɔɔmɔi ni yɔɔ Kristowala Amɛ Wala KƐ NitsumƆ Kpeeni Gbɛtsɔɔmɔi (S-38) lɛ mli.",
+        "note": "Nilelɔ nɔ ni akɛɛ: Nitsumɔ lɛ he nibii kɛ nikasemɔ nɔ ni kɔ kɛhɔ bo lɛ baanyɛ aná yɛ Kristowala Amɛ Wala KƐ NitsumƆ Kpeeni Wolo lɛ mli. Ofainɛ kwɛmɔ nitsumɔ lɛ he gbɛtsɔɔmɔi ni yɔɔ Kristowala AmƐ Wala KƐ NitsumƆ Kpeeni Gbɛtsɔɔmɔi (S-38) lɛ mli.",
         "form_code": "S-89-Ga 11/23",
     },
 }
@@ -481,41 +481,29 @@ elif menu == "Create/Edit Schedule":
             st.subheader(title_text)
 
             if meeting_type == "Midweek Meeting":
-                st.markdown("### 🔹 Opening")
-                for part in ["Chairman", "Opening Prayer"]:
-                    assignments[part] = st.selectbox(
-                        part, ["-- Unassigned --"] + student_names, key=part
-                    )
-
-                st.markdown("### 📖 Treasures from God's Word")
-                for part in ["Treasures Talk", "Digging Gems", "Bible Reading"]:
-                    assignments[part] = st.selectbox(
-                        part, ["-- Unassigned --"] + student_names, key=part
-                    )
-
-                st.markdown("### 🎯 Apply Yourself to the Field Ministry")
-                ministry_parts = (
+                st.markdown("### 🔹 Opening & Treasures")
+                # Use parsed parts if found from PDF, otherwise display standard defaults
+                dynamic_parts = (
                     parsed_assignments
                     if parsed_assignments
                     else [
+                        "Chairman",
+                        "Opening Prayer",
+                        "Treasures Talk",
+                        "Digging Gems",
+                        "Bible Reading",
                         "Initial Presentation",
                         "Making Disciples",
                         "Explaining Beliefs",
+                        "Living Part 1",
+                        "Living Part 2",
+                        "Conductor",
+                        "Reader",
+                        "Closing Prayer",
                     ]
                 )
-                for part in ministry_parts:
-                    assignments[part] = st.selectbox(
-                        part, ["-- Unassigned --"] + student_names, key=part
-                    )
 
-                st.markdown("### 💡 Living as Christians")
-                for part in [
-                    "Living Part 1",
-                    "Living Part 2",
-                    "Conductor",
-                    "Reader",
-                    "Closing Prayer",
-                ]:
+                for part in dynamic_parts:
                     assignments[part] = st.selectbox(
                         part, ["-- Unassigned --"] + student_names, key=part
                     )
@@ -635,7 +623,7 @@ elif menu == "Upload PDF Brochure":
     st.header("📖 Import Meeting Brochure (PDF)")
     st.write(
         "Upload the official meeting workbook brochure PDF. "
-        "The app will scan for date ranges and parse individual assignment blocks."
+        "The parser will extract the exact assignment titles and minute durations (e.g., '3 min', '5 min') from the pages."
     )
 
     uploaded_pdf = st.file_uploader("Choose PDF file", type=["pdf"])
@@ -645,41 +633,62 @@ elif menu == "Upload PDF Brochure":
         extracted_text = ""
 
         for i, page in enumerate(reader.pages):
-            extracted_text += f"\n--- Page {i+1} ---\n" + page.extract_text()
+            extracted_text += f"\n--- Page {i+1} ---\n" + (
+                page.extract_text() or ""
+            )
 
         st.session_state["extracted_brochure_text"] = extracted_text
 
-        # Flexible Date Matcher (handles text months, numbers, hyphens, en-dashes)
+        # 1. Search for weeks/dates headers
         date_pattern = r"([A-Z]+\s+\d{1,2}\s*[–—\-]\s*\d{1,2}|\d{1,2}/\d{1,2}\s*[–—\-]\s*\d{1,2})"
         found_weeks = re.findall(date_pattern, extracted_text, re.IGNORECASE)
-
-        # Fallback block tokenizer if strict regex fails
         if not found_weeks:
-            # Look for lines that resemble headings or split by pages/sections
-            lines = [
-                line.strip()
-                for line in extracted_text.split("\n")
-                if len(line.strip()) > 5
-            ]
-            found_weeks = [
-                f"Section/Page Block {i+1}" for i in range(min(10, len(lines)))
-            ]
+            found_weeks = [f"Workbook Page {i+1}" for i in range(len(reader.pages))]
 
         unique_weeks = list(dict.fromkeys(found_weeks))
         st.session_state["available_weeks"] = unique_weeks
 
-        # Dynamic assignment generator per week block
+        # 2. Advanced assignment & time duration pattern extractor (matches lines with 'min' or numbers)
         weeks_data = {}
+        lines = extracted_text.split("\n")
+
+        current_week = unique_weeks[0]
+        parsed_parts_for_current_week = []
+
+        for line in lines:
+            line_str = line.strip()
+            # Check if line contains a week header change
+            for wk in unique_weeks:
+                if wk.lower() in line_str.lower():
+                    if parsed_parts_for_current_week:
+                        weeks_data[current_week] = parsed_parts_for_current_week
+                    current_week = wk
+                    parsed_parts_for_current_week = []
+                    break
+
+            # Look for assignment lines that typically have timing (e.g., "(3 min)", "— 4 min", etc.)
+            if re.search(r"(\(?\d+\s*min\.?\)?|\bmin\b)", line_str, re.IGNORECASE) and len(line_str) > 6:
+                if line_str not in parsed_parts_for_current_week:
+                    parsed_parts_for_current_week.append(line_str)
+
+        # Fallback if specific line-items weren't isolated by time markers
         for wk in unique_weeks:
-            weeks_data[wk] = [
-                f"Initial Call ({wk})",
-                f"Returning Visit ({wk})",
-                f"Making Disciples ({wk})",
-            ]
+            if wk not in weeks_data or not weeks_data[wk]:
+                weeks_data[wk] = [
+                    f"Chairman & Opening (1 min)",
+                    f"Treasures Talk (10 min)",
+                    f"Digging for Spiritual Gems (4 min)",
+                    f"Bible Reading (4 min)",
+                    f"Initial Presentation (3 min)",
+                    f"Making Disciples (5 min)",
+                    f"Living Part 1 (15 min)",
+                    f"Congregation Bible Study (30 min)",
+                ]
+
         st.session_state["brochure_weeks_data"] = weeks_data
 
         st.success(
-            f"Successfully parsed {len(unique_weeks)} meeting blocks from the PDF!"
+            f"Successfully extracted schedule sections and assignment times across {len(unique_weeks)} entries!"
         )
 
         with st.expander("View Extracted Raw Text"):
