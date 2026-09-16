@@ -9,7 +9,7 @@ it directly. `data` uses the same shape as that script's data.json:
   "weeks": [{
     "heading": "...", "chairman": "...", "opening_song": "...", "opening_prayer": "...",
     "treasures": [{"title", "min", "name"} x3],
-    "ministry": [{"title", "min", "name", "assistant"?}, ...],
+    "ministry": [{"title", "min", "name", "assistant"?, "name2"?, "assistant2"?}, ...],
     "middle_song": "...",
     "living": [{"title", "min", "name"}, ...],
     "cbs": {"title", "min", "name"},
@@ -113,8 +113,12 @@ def fill_s140(template_bytes, data, widen=True):
         _S(trs[b], 0, w.get("heading", ""))
         _S(trs[b], 2, w.get("chairman", ""))
 
-        _S(blk["group"], 0, data.get("group_label", "GROUP"))
-        _S(blk["group"], 1, "")
+        if w.get("aux"):
+            # keep the form's "Asa 2 Ŋaawolɔ:" label and write the counselor beside it
+            _S(blk["group"], 1, w.get("aux_counselor", ""))
+        else:
+            _S(blk["group"], 0, data.get("group_label", "GROUP"))
+            _S(blk["group"], 1, "")
         _S(blk["group"], 2, "")
 
         _S(blk["opening_song"], 1, w.get("opening_song", ""))
@@ -129,7 +133,7 @@ def fill_s140(template_bytes, data, widen=True):
             tr = trs[b + OFF["treasures"] + k]
             _S(tr, 1, _part(n, item))
             if len(_cells(tr)) >= 5:
-                _S(tr, 3, "")
+                _S(tr, 3, item.get("name2", ""))
                 _S(tr, 4, item.get("name", ""))
             else:
                 _S(tr, 2, item.get("name", ""))
@@ -147,8 +151,11 @@ def fill_s140(template_bytes, data, widen=True):
             names = item.get("name", "")
             if item.get("assistant"):
                 names = "%s/%s" % (names, item["assistant"])
-            _S(tr, 3, "")
-            _S(tr, 4, names)
+            aux_names = item.get("name2", "")
+            if aux_names and item.get("assistant2"):
+                aux_names = "%s/%s" % (aux_names, item["assistant2"])
+            _S(tr, 3, aux_names)  # Asa 2 = auxiliary classroom
+            _S(tr, 4, names)      # Asa 1 = main hall
             n += 1
         drop += slots[len(ministry):]
 
