@@ -1,13 +1,26 @@
-from datetime import date
+# -*- coding: utf-8 -*-
+"""Meeting Scheduler: midweek/weekend assignments, S-89 slips and S-140 export."""
+
+from contextlib import contextmanager
+from datetime import date, datetime
 import io
+import json
+from pathlib import Path
 import re
 import sqlite3
+import unicodedata
+from xml.sax.saxutils import escape as xml_escape
+
 import pandas as pd
 import pypdf
 from reportlab.lib import colors
+from reportlab.lib.fonts import addMapping
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
+    KeepTogether,
     PageBreak,
     Paragraph,
     SimpleDocTemplate,
@@ -17,78 +30,103 @@ from reportlab.platypus import (
 )
 import streamlit as st
 
-# --- STREAMLIT PAGE CONFIG & DARK MODE STYLING ---
-st.set_page_config(
-    page_title="Meeting Scheduler", page_icon="📅", layout="wide"
-)
+from s140 import S140Error, fill_s140
 
+st.set_page_config(page_title="Meeting Scheduler", page_icon="📅", layout="wide")
+
+# Colours live in .streamlit/config.toml; only the stat cards need custom CSS.
 st.markdown(
     """
     <style>
-    .stApp {
-        background-color: #0e1117;
-        color: #ffffff;
-    }
     .status-panel {
         background-color: #161b22;
         border: 1px solid #30363d;
         border-radius: 6px;
         padding: 15px;
         text-align: center;
-        color: #8b949e;
-        font-size: 14px;
     }
-    div.stButton > button {
-        background-color: #21262d;
-        color: #c9d1d9;
-        border: 1px solid #30363d;
-        border-radius: 6px;
-        width: 100%;
-        font-weight: 500;
-        transition: all 0.2s ease-in-out;
-    }
-    div.stButton > button:hover {
-        background-color: #30363d;
-        border-color: #8b949e;
-        color: #ffffff;
-    }
+    .status-panel p { margin: 0; color: #8b949e; font-weight: bold; }
+    .status-panel h3 { margin-top: 10px; }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# --- DATABASE SETUP ---
-DB_FILE = "meeting_scheduler.db"
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+APP_DIR = Path(__file__).parent
+DB_FILE = APP_DIR / "meeting_scheduler.db"
 
+MIDWEEK = "Midweek Meeting"
+WEEKEND = "Weekend Meeting"
+MEETING_TYPES = [MIDWEEK, WEEKEND]
+CATEGORIES = ["Brother", "Sister"]
 
-def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS students (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            gender TEXT,
-            privileges TEXT
-        )
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS schedules (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            meeting_date TEXT,
-            meeting_type TEXT,
-            part_name TEXT,
-            assigned_person TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
+PRIVILEGES = [
+    "Chairman",
+    "Prayer",
+    "Treasures Talk",
+    "Spiritual Gems",
+    "Bible Reading",
+    "Initial Presentation",
+    "Making Disciples",
+    "Explaining Beliefs",
+    "Student Talk",
+    "Living Part",
+    "Bible Study Conductor",
+    "Reader",
+    "Public Talk",
+    "Watchtower Conductor",
+    "Watchtower Reader",
+]
+# Privilege names used by the first version of the app.
+LEGACY_PRIVILEGES = {
+    "Talk": ["Treasures Talk", "Spiritual Gems", "Student Talk", "Living Part"],
+}
 
+# role -> (privileges that qualify, brothers only)
+ROLE_RULES = {
+    "Chairman": ({"Chairman"}, True),
+    "Prayer": ({"Prayer"}, True),
+    "Treasures Talk": ({"Treasures Talk"}, True),
+    "Spiritual Gems": ({"Spiritual Gems"}, True),
+    "Bible Reading": ({"Bible Reading"}, True),
+    "Initial Presentation": ({"Initial Presentation"}, False),
+    "Making Disciples": ({"Making Disciples"}, False),
+    "Explaining Beliefs": ({"Explaining Beliefs"}, False),
+    "Student Talk": ({"Student Talk"}, True),
+    "Living Part": ({"Living Part"}, True),
+    "Bible Study Conductor": ({"Bible Study Conductor"}, True),
+    "Reader": ({"Reader"}, True),
+    "Public Talk": ({"Public Talk"}, True),
+    "Watchtower Conductor": ({"Watchtower Conductor"}, True),
+    "Watchtower Reader": ({"Watchtower Reader"}, True),
+}
+ROLES = list(ROLE_RULES)
+STUDENT_ROLES = {
+    "Bible Reading",
+    "Initial Presentation",
+    "Making Disciples",
+    "Explaining Beliefs",
+    "Student Talk",
+}
+ASSISTANT_ROLES = {"Initial Presentation", "Making Disciples", "Explaining Beliefs"}
 
-init_db()
+SECTIONS = ["Opening", "Treasures", "Ministry", "Living", "Closing", "Weekend"]
+SECTION_TITLES = {
+    "Opening": "🔹 Opening",
+    "Treasures": "💎 Treasures From God's Word",
+    "Ministry": "🌾 Apply Yourself to the Field Ministry",
+    "Living": "🏠 Living as Christians",
+    "Closing": "🙏 Closing",
+    "Weekend": "🏛️ Weekend Meeting",
+}
 
+GA_CHARS = "ɛɔŋƐƆŊ"
 
-# --- LANGUAGE TEMPLATES (ENGLISH & GA) ---
+# NOTE: the Ga wording below only has its casing fixed. Replace it with the
+# exact text printed on the official Ga S-89 so the slips match the paper form.
 TRANSLATIONS = {
     "English": {
         "slip_title": "OUR CHRISTIAN LIFE AND MINISTRY\nMEETING ASSIGNMENT",
@@ -100,12 +138,17 @@ TRANSLATIONS = {
         "main_hall": "Main hall",
         "aux_1": "Auxiliary classroom 1",
         "aux_2": "Auxiliary classroom 2",
-        "note": "Note to student: The source material and study point for your assignment can be found in the Life and Ministry Meeting Workbook. Please review the instructions for the part as outlined in Instructions for Our Christian Life and Ministry Meeting (S-38).",
+        "note": (
+            "Note to student: The source material and study point for your"
+            " assignment can be found in the Life and Ministry Meeting Workbook."
+            " Please review the instructions for the part as outlined in"
+            " Instructions for Our Christian Life and Ministry Meeting (S-38)."
+        ),
         "form_code": "S-89-E 11/23",
     },
     "Ga": {
         "slip_title": "KRISTOWALA AMƐ WALA KƐ NITSUMƆ\nKPEENI NITSUMƆ",
-        "name": "Gbɛ̀i:",
+        "name": "Gbɛi:",
         "assistant": "Mɔ ni yeo boa:",
         "date": "Gbi:",
         "part_no": "Nitsumɔ akara:",
@@ -113,598 +156,1293 @@ TRANSLATIONS = {
         "main_hall": "Maŋ tsu nukpa",
         "aux_1": "Tsu bibioo 1",
         "aux_2": "Tsu bibioo 2",
-        "note": "Nilelɔ nɔ ni akɛɛ: Nitsumɔ lɛ he nibii kɛ nikasemɔ nɔ ni kɔ kɛhɔ bo lɛ baanyɛ aná yɛ Kristowala Amɛ Wala KƐ NitsumƆ Kpeeni Wolo lɛ mli. Ofainɛ kwɛmɔ nitsumɔ lɛ he gbɛtsɔɔmɔi ni yɔɔ Kristowala AmƐ Wala KƐ NitsumƆ Kpeeni Gbɛtsɔɔmɔi (S-38) lɛ mli.",
+        "note": (
+            "Nilelɔ nɔ ni akɛɛ: Nitsumɔ lɛ he nibii kɛ nikasemɔ nɔ ni kɔ kɛhɔ bo"
+            " lɛ baanyɛ aná yɛ Kristowala Amɛ Wala kɛ Nitsumɔ Kpeeni Wolo lɛ mli."
+            " Ofainɛ kwɛmɔ nitsumɔ lɛ he gbɛtsɔɔmɔi ni yɔɔ Kristowala Amɛ Wala kɛ"
+            " Nitsumɔ Kpeeni Gbɛtsɔɔmɔi (S-38) lɛ mli."
+        ),
         "form_code": "S-89-Ga 11/23",
     },
 }
+TRANSLATIONS = {
+    lang: {k: unicodedata.normalize("NFC", v) for k, v in strings.items()}
+    for lang, strings in TRANSLATIONS.items()
+}
 
 
-# --- HELPER FUNCTIONS ---
-def get_students():
+# =============================================================================
+# SMALL HELPERS
+# =============================================================================
+def nfc(text):
+    return unicodedata.normalize("NFC", text or "").strip()
+
+
+def fmt_date(iso, short=False):
+    try:
+        d = datetime.strptime(str(iso), "%Y-%m-%d").date()
+    except ValueError:
+        return str(iso)
+    return f"{d.day} {d:%b}" if short else f"{d.day} {d:%B %Y}"
+
+
+def parse_privileges(value):
+    """Turn the stored comma string into a clean list, upgrading legacy names."""
+    result = []
+    for item in (value or "").split(","):
+        item = item.strip()
+        for p in LEGACY_PRIVILEGES.get(item, [item]):
+            if p in PRIVILEGES and p not in result:
+                result.append(p)
+    return result
+
+
+def infer_role(title, section=None):
+    t = (title or "").lower()
+    if "chairman" in t:
+        return "Chairman"
+    if "prayer" in t:
+        return "Prayer"
+    if "watchtower" in t and "reader" in t:
+        return "Watchtower Reader"
+    if "watchtower" in t:
+        return "Watchtower Conductor"
+    if "public talk" in t:
+        return "Public Talk"
+    if "reader" in t:
+        return "Reader"
+    if "bible study" in t or "conductor" in t:
+        return "Bible Study Conductor"
+    if "bible reading" in t:
+        return "Bible Reading"
+    if "gems" in t:
+        return "Spiritual Gems"
+    if "treasures" in t:
+        return "Treasures Talk"
+    if "living" in t:
+        return "Living Part"
+    if "disciple" in t:
+        return "Making Disciples"
+    if "explaining" in t or "belief" in t:
+        return "Explaining Beliefs"
+    if "presentation" in t or "conversation" in t or "following up" in t:
+        return "Initial Presentation"
+    if section == "Ministry":
+        return "Student Talk" if "talk" in t else "Initial Presentation"
+    if section == "Living":
+        return "Living Part"
+    return "Living Part"
+
+
+def default_section(role, meeting_type=MIDWEEK):
+    if meeting_type == WEEKEND:
+        return "Weekend"
+    if role in ("Chairman",):
+        return "Opening"
+    if role in ("Treasures Talk", "Spiritual Gems", "Bible Reading"):
+        return "Treasures"
+    if role in STUDENT_ROLES:
+        return "Ministry"
+    return "Living"
+
+
+def make_slot(title, role, section, part_no=None, minutes=None):
+    return {
+        "part_no": part_no,
+        "title": nfc(title),
+        "role": role,
+        "section": section,
+        "minutes": minutes,
+        "student_part": role in STUDENT_ROLES,
+        "needs_assistant": role in ASSISTANT_ROLES,
+    }
+
+
+def slot_label(slot):
+    label = slot["title"]
+    if slot.get("minutes") and "min" not in label.lower():
+        label += f" ({slot['minutes']} min)"
+    return f"{slot['part_no']}. {label}" if slot.get("part_no") else label
+
+
+def slot_match_key(slot):
+    """Used to carry names across when the parts list is swapped."""
+    if slot.get("part_no"):
+        return (slot["role"], slot["part_no"])
+    return (slot["role"], slot["title"].lower())
+
+
+# =============================================================================
+# DATABASE
+# =============================================================================
+@contextmanager
+def get_conn():
     conn = sqlite3.connect(DB_FILE)
-    df = pd.read_sql("SELECT * FROM students", conn)
-    conn.close()
+    conn.execute("PRAGMA foreign_keys = ON")
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _add_missing_columns(conn, table, columns):
+    existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    for name, ddl in columns.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+
+
+def init_db():
+    with get_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS students (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                gender TEXT,
+                privileges TEXT
+            )""")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS schedules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                meeting_date TEXT,
+                meeting_type TEXT,
+                part_name TEXT,
+                assigned_person TEXT
+            )""")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS meetings (
+                meeting_date TEXT NOT NULL,
+                meeting_type TEXT NOT NULL,
+                heading TEXT,
+                opening_song TEXT,
+                middle_song TEXT,
+                closing_song TEXT,
+                PRIMARY KEY (meeting_date, meeting_type)
+            )""")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )""")
+        # Upgrade databases created by the first version of the app.
+        _add_missing_columns(conn, "students", {"active": "INTEGER DEFAULT 1"})
+        _add_missing_columns(conn, "schedules", {
+            "part_no": "INTEGER",
+            "minutes": "INTEGER",
+            "section": "TEXT",
+            "role": "TEXT",
+            "student_part": "INTEGER DEFAULT 0",
+            "needs_assistant": "INTEGER DEFAULT 0",
+            "student_id": "INTEGER",
+            "assistant_id": "INTEGER",
+            "assistant_name": "TEXT",
+            "sort_order": "INTEGER DEFAULT 0",
+        })
+        conn.execute("UPDATE students SET active = 1 WHERE active IS NULL")
+        conn.execute("""
+            UPDATE schedules
+               SET student_id = (SELECT s.id FROM students s
+                                  WHERE s.name = schedules.assigned_person LIMIT 1)
+             WHERE student_id IS NULL AND assigned_person IS NOT NULL""")
+        legacy = conn.execute(
+            "SELECT id, part_name, meeting_type FROM schedules WHERE role IS NULL"
+        ).fetchall()
+        for row_id, part_name, meeting_type in legacy:
+            role = infer_role(part_name)
+            section = default_section(role, meeting_type)
+            if role == "Prayer" and meeting_type != WEEKEND:
+                section = "Closing" if "clos" in (part_name or "").lower() else "Opening"
+            conn.execute(
+                """UPDATE schedules SET role = ?, section = COALESCE(section, ?),
+                       student_part = ?, needs_assistant = ?, sort_order = id
+                   WHERE id = ?""",
+                (role, section, int(role in STUDENT_ROLES),
+                 int(role in ASSISTANT_ROLES), row_id),
+            )
+
+
+def get_setting(key, default=""):
+    with get_conn() as conn:
+        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    return row[0] if row else default
+
+
+def set_setting(key, value):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+
+
+def get_students(active_only=False):
+    query = "SELECT id, name, gender, privileges, active FROM students"
+    if active_only:
+        query += " WHERE active = 1"
+    with get_conn() as conn:
+        df = pd.read_sql(query + " ORDER BY name COLLATE NOCASE", conn)
+    df["privilege_list"] = df["privileges"].apply(parse_privileges)
     return df
 
 
 def add_student(name, gender, privileges):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO students (name, gender, privileges) VALUES (?, ?, ?)",
-        (name, gender, privileges),
-    )
-    conn.commit()
-    conn.close()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO students (name, gender, privileges, active) VALUES (?, ?, ?, 1)",
+            (nfc(name), gender, ", ".join(privileges)),
+        )
+
+
+def update_student(student_id, name, gender, privileges, active):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE students SET name = ?, gender = ?, privileges = ?, active = ? WHERE id = ?",
+            (nfc(name), gender, ", ".join(privileges), int(active), student_id),
+        )
+        # keep the name snapshot on old schedules in step with the rename
+        conn.execute("UPDATE schedules SET assigned_person = ? WHERE student_id = ?",
+                     (nfc(name), student_id))
+        conn.execute("UPDATE schedules SET assistant_name = ? WHERE assistant_id = ?",
+                     (nfc(name), student_id))
+
+
+def student_usage_count(student_id):
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) FROM schedules WHERE student_id = ? OR assistant_id = ?",
+            (student_id, student_id),
+        ).fetchone()[0]
 
 
 def delete_student(student_id):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM students WHERE id = ?", (student_id,))
-    conn.commit()
-    conn.close()
+    with get_conn() as conn:
+        conn.execute("DELETE FROM students WHERE id = ?", (student_id,))
 
 
 def get_schedules():
-    conn = sqlite3.connect(DB_FILE)
-    df = pd.read_sql("SELECT * FROM schedules", conn)
-    conn.close()
+    with get_conn() as conn:
+        df = pd.read_sql(
+            """
+            SELECT sc.id, sc.meeting_date, sc.meeting_type, sc.part_no, sc.part_name,
+                   sc.minutes, sc.section, sc.role, sc.student_part, sc.needs_assistant,
+                   sc.student_id, sc.assistant_id, sc.sort_order,
+                   COALESCE(s.name, sc.assigned_person) AS person,
+                   COALESCE(a.name, sc.assistant_name) AS assistant
+              FROM schedules sc
+              LEFT JOIN students s ON s.id = sc.student_id
+              LEFT JOIN students a ON a.id = sc.assistant_id
+             ORDER BY sc.meeting_date DESC, sc.meeting_type, sc.sort_order, sc.id
+            """,
+            conn,
+        )
+    # NaN is truthy, so turn missing names into None for simple `or` checks.
+    for col in ("person", "assistant"):
+        df[col] = df[col].astype(object).where(df[col].notna(), None)
     return df
 
 
-def save_schedule(meeting_date, meeting_type, assignments):
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    for part_name, person in assignments.items():
-        cursor.execute(
-            """
-                INSERT INTO schedules (meeting_date, meeting_type, part_name, assigned_person)
-                VALUES (?, ?, ?, ?)
-            """,
-            (str(meeting_date), meeting_type, part_name, person),
+def saved_meetings(schedules_df):
+    """[(date, type), ...] newest first."""
+    if schedules_df.empty:
+        return []
+    pairs = schedules_df[["meeting_date", "meeting_type"]].drop_duplicates()
+    return list(pairs.itertuples(index=False, name=None))
+
+
+def meeting_label(pair):
+    return f"{fmt_date(pair[0])} · {pair[1]}"
+
+
+def load_schedule(meeting_date, meeting_type, schedules_df=None):
+    df = get_schedules() if schedules_df is None else schedules_df
+    rows = df[(df["meeting_date"] == str(meeting_date)) & (df["meeting_type"] == meeting_type)]
+    slots, picks = [], {}
+    for _, r in rows.iterrows():
+        role = r["role"] or infer_role(r["part_name"])
+        part_no = int(r["part_no"]) if pd.notna(r["part_no"]) else None
+        minutes = int(r["minutes"]) if pd.notna(r["minutes"]) else None
+        section = r["section"] or default_section(role, meeting_type)
+        slot = make_slot(r["part_name"], role, section, part_no, minutes)
+        slots.append(slot)
+        sid = int(r["student_id"]) if pd.notna(r["student_id"]) else None
+        aid = int(r["assistant_id"]) if pd.notna(r["assistant_id"]) else None
+        picks[slot_match_key(slot)] = (sid, aid)
+    return slots, picks
+
+
+def get_meeting_meta(meeting_date, meeting_type):
+    with get_conn() as conn:
+        row = conn.execute(
+            """SELECT heading, opening_song, middle_song, closing_song FROM meetings
+               WHERE meeting_date = ? AND meeting_type = ?""",
+            (str(meeting_date), meeting_type),
+        ).fetchone()
+    keys = ["heading", "opening_song", "middle_song", "closing_song"]
+    return dict(zip(keys, row)) if row else {k: "" for k in keys}
+
+
+def save_schedule(meeting_date, meeting_type, slots, picks, meta, names):
+    """Replace everything stored for this date + meeting type."""
+    rows = []
+    for order, slot in enumerate(slots):
+        sid, aid = picks.get(order, (None, None))
+        rows.append((
+            str(meeting_date), meeting_type, slot["part_no"], slot["title"],
+            slot.get("minutes"), slot["section"], slot["role"],
+            int(slot["student_part"]), int(slot["needs_assistant"]),
+            sid, names.get(sid), aid, names.get(aid), order,
+        ))
+    with get_conn() as conn:
+        conn.execute("DELETE FROM schedules WHERE meeting_date = ? AND meeting_type = ?",
+                     (str(meeting_date), meeting_type))
+        conn.executemany(
+            """INSERT INTO schedules (meeting_date, meeting_type, part_no, part_name,
+                   minutes, section, role, student_part, needs_assistant, student_id,
+                   assigned_person, assistant_id, assistant_name, sort_order)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows,
         )
-    conn.commit()
-    conn.close()
+        conn.execute(
+            """INSERT INTO meetings (meeting_date, meeting_type, heading, opening_song,
+                   middle_song, closing_song) VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(meeting_date, meeting_type) DO UPDATE SET
+                   heading = excluded.heading, opening_song = excluded.opening_song,
+                   middle_song = excluded.middle_song, closing_song = excluded.closing_song""",
+            (str(meeting_date), meeting_type, meta.get("heading", ""),
+             meta.get("opening_song", ""), meta.get("middle_song", ""),
+             meta.get("closing_song", "")),
+        )
 
 
-def generate_pdf_slips(meeting_date, filtered_df, lang_dict):
+def delete_schedule(meeting_date, meeting_type):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM schedules WHERE meeting_date = ? AND meeting_type = ?",
+                     (str(meeting_date), meeting_type))
+        conn.execute("DELETE FROM meetings WHERE meeting_date = ? AND meeting_type = ?",
+                     (str(meeting_date), meeting_type))
+
+
+def last_assignment_dates(exclude_date):
+    """student_id -> most recent meeting date they had a part or assisted."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT pid, MAX(meeting_date) FROM (
+                   SELECT student_id AS pid, meeting_date FROM schedules
+                    WHERE student_id IS NOT NULL AND meeting_date != ?
+                   UNION ALL
+                   SELECT assistant_id, meeting_date FROM schedules
+                    WHERE assistant_id IS NOT NULL AND meeting_date != ?
+               ) GROUP BY pid""",
+            (str(exclude_date), str(exclude_date)),
+        ).fetchall()
+    return {pid: d for pid, d in rows}
+
+
+# =============================================================================
+# DEFAULT PART LISTS
+# =============================================================================
+def default_midweek_parts():
+    """The numbered parts only (what a brochure would supply)."""
+    return [
+        make_slot("Treasures Talk", "Treasures Talk", "Treasures", 1, 10),
+        make_slot("Spiritual Gems", "Spiritual Gems", "Treasures", 2, 10),
+        make_slot("Bible Reading", "Bible Reading", "Treasures", 3, 4),
+        make_slot("Initial Presentation", "Initial Presentation", "Ministry", 4, 3),
+        make_slot("Making Disciples", "Making Disciples", "Ministry", 5, 4),
+        make_slot("Explaining Your Beliefs", "Explaining Beliefs", "Ministry", 6, 5),
+        make_slot("Living Part", "Living Part", "Living", 7, 15),
+        make_slot("Congregation Bible Study", "Bible Study Conductor", "Living", 8, 30),
+    ]
+
+
+def build_midweek_slots(parts):
+    """Wrap the numbered parts with the fixed roles every week needs."""
+    slots = [
+        make_slot("Chairman", "Chairman", "Opening"),
+        make_slot("Opening Prayer", "Prayer", "Opening"),
+    ]
+    reader_added = False
+    for part in parts:
+        slots.append(dict(part))
+        if part["role"] == "Bible Study Conductor":
+            slots.append(make_slot("Congregation Bible Study Reader", "Reader", "Living"))
+            reader_added = True
+    if not reader_added:
+        slots.append(make_slot("Congregation Bible Study Reader", "Reader", "Living"))
+    slots.append(make_slot("Closing Prayer", "Prayer", "Closing"))
+    return slots
+
+
+def default_weekend_slots():
+    return [
+        make_slot("Chairman", "Chairman", "Weekend"),
+        make_slot("Opening Prayer", "Prayer", "Weekend"),
+        make_slot("Public Talk Speaker", "Public Talk", "Weekend"),
+        make_slot("Watchtower Conductor", "Watchtower Conductor", "Weekend"),
+        make_slot("Watchtower Reader", "Watchtower Reader", "Weekend"),
+        make_slot("Closing Prayer", "Prayer", "Weekend"),
+    ]
+
+
+# =============================================================================
+# BROCHURE PARSER
+# =============================================================================
+MONTHS = ("JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|"
+          "SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER")
+# Week headings are printed in capitals, e.g. "SEPTEMBER 29–OCTOBER 5".
+WEEK_RE = re.compile(
+    rf"\b(?:{MONTHS})\s+\d{{1,2}}\s*[-–—]\s*(?:(?:{MONTHS})\s+)?\d{{1,2}}\b"
+)
+# "4. Starting a Conversation (3 min.)" - the duration may sit on the next line.
+PART_RE = re.compile(
+    r"^[ \t]*(\d{1,2})\.[ \t]+([^\n]{2,90}?)[ \t]*\n?[ \t]*"
+    r"\((?:(\d{1,2})[ \t]*min\.?|min\.?[ \t]*(\d{1,2}))\)",
+    re.MULTILINE | re.IGNORECASE,
+)
+SONG_RE = re.compile(r"\b(?:Song|Lala)\s+(\d{1,3})\b", re.IGNORECASE)
+HEADING_RES = {
+    "Treasures": re.compile(r"TREASURES FROM GOD", re.IGNORECASE),
+    "Ministry": re.compile(r"APPLY YOURSELF TO THE FIELD MINISTRY", re.IGNORECASE),
+    "Living": re.compile(r"LIVING AS CHRISTIANS", re.IGNORECASE),
+}
+
+
+def _classify(part_no, title, minutes, section):
+    if section is None:
+        # No English headings found (e.g. another language): guess from numbers.
+        if part_no <= 3:
+            section = "Treasures"
+        elif minutes is not None and minutes >= 30 or "bible study" in title.lower():
+            section = "Living"
+        else:
+            section = None  # decided by the caller
+    if section == "Treasures":
+        role = {1: "Treasures Talk", 2: "Spiritual Gems"}.get(part_no, "Bible Reading")
+    elif section == "Living":
+        is_cbs = "bible study" in title.lower() or (minutes or 0) >= 30
+        role = "Bible Study Conductor" if is_cbs else "Living Part"
+    elif section == "Ministry":
+        role = infer_role(title, "Ministry")
+        if role not in STUDENT_ROLES:
+            role = "Student Talk" if "talk" in title.lower() else "Initial Presentation"
+    else:
+        role = None
+    return section, role
+
+
+def _parse_week(text):
+    heading_hits = sorted(
+        (m.start(), name) for name, rx in HEADING_RES.items() for m in rx.finditer(text)
+    )
+    parts, seen = [], set()
+    in_living = False
+    for m in PART_RE.finditer(text):
+        part_no = int(m.group(1))
+        if part_no in seen:
+            continue
+        seen.add(part_no)
+        title = re.sub(r"\s+", " ", m.group(2)).strip(" .–—-\"“”")
+        minutes = int(m.group(3) or m.group(4))
+        section = None
+        for pos, name in heading_hits:
+            if pos < m.start():
+                section = name
+        section, role = _classify(part_no, title, minutes, section)
+        if section is None:
+            # Heuristic: short parts after 3 are student parts until a longer one.
+            if not in_living and minutes <= 5:
+                section = "Ministry"
+            else:
+                in_living = True
+                section = "Living"
+            section, role = _classify(part_no, title, minutes, section)
+        parts.append(make_slot(title, role, section, part_no, minutes))
+    parts.sort(key=lambda p: p["part_no"])
+    songs = SONG_RE.findall(text)[:3]
+    return parts, songs
+
+
+@st.cache_data(show_spinner="Reading brochure…")
+def parse_brochure(pdf_bytes):
+    reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+    pages = [nfc(page.extract_text() or "") for page in reader.pages]
+    full_text = "\n".join(pages)
+
+    chunks = {}
+    matches = list(WEEK_RE.finditer(full_text))
+    if matches:
+        for i, m in enumerate(matches):
+            label = re.sub(r"\s*[-–—]\s*", "–", re.sub(r"\s+", " ", m.group(0)))
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(full_text)
+            chunks[label] = chunks.get(label, "") + "\n" + full_text[m.start():end]
+    else:
+        for i, text in enumerate(pages):
+            chunks[f"Workbook page {i + 1}"] = text
+
+    weeks, empty = {}, []
+    for label, text in chunks.items():
+        parts, songs = _parse_week(text)
+        if parts:
+            weeks[label] = {"parts": parts, "songs": songs}
+        else:
+            empty.append(label)
+    raw = "\n".join(f"--- Page {i + 1} ---\n{t}" for i, t in enumerate(pages))
+    return weeks, empty, raw
+
+
+# =============================================================================
+# PDF OUTPUT
+# =============================================================================
+FONT_DIR = APP_DIR / "fonts"
+FONT_CANDIDATES = [
+    (FONT_DIR / "DejaVuSans.ttf", FONT_DIR / "DejaVuSans-Bold.ttf"),
+    (FONT_DIR / "NotoSans-Regular.ttf", FONT_DIR / "NotoSans-Bold.ttf"),
+    (Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+     Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")),
+    (Path("/System/Library/Fonts/Supplemental/Arial Unicode.ttf"), None),
+    (Path("/Library/Fonts/Arial Unicode.ttf"), None),
+    (Path("C:/Windows/Fonts/arial.ttf"), Path("C:/Windows/Fonts/arialbd.ttf")),
+]
+
+
+def _load_font(name, path):
+    """Register a TTF only if it has ɛ, ɔ and ŋ."""
+    if not path or not path.exists():
+        return False
+    try:
+        font = TTFont(name, str(path))
+    except Exception:
+        return False
+    if not all(ord(c) in font.face.charToGlyph for c in GA_CHARS):
+        return False
+    pdfmetrics.registerFont(font)
+    return True
+
+
+@st.cache_resource
+def register_fonts():
+    """Returns (regular, bold, supports_ga)."""
+    for regular, bold in FONT_CANDIDATES:
+        if _load_font("SlipFont", regular):
+            bold_name = "SlipFont-Bold" if _load_font("SlipFont-Bold", bold) else "SlipFont"
+            addMapping("SlipFont", 0, 0, "SlipFont")
+            addMapping("SlipFont", 1, 0, bold_name)
+            addMapping("SlipFont", 0, 1, "SlipFont")
+            addMapping("SlipFont", 1, 1, bold_name)
+            return "SlipFont", bold_name, True
+    return "Helvetica", "Helvetica-Bold", False
+
+
+def generate_slips_pdf(slip_rows, lang, hall_key):
+    """slip_rows: dicts with person, assistant, part_no, part_name, meeting_date."""
+    regular, bold, _ = register_fonts()
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        rightMargin=18,
-        leftMargin=18,
-        topMargin=18,
-        bottomMargin=18,
-    )
-    story = []
-    styles = getSampleStyleSheet()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=18, leftMargin=18,
+                            topMargin=18, bottomMargin=18)
+    header_style = ParagraphStyle("SlipHeader", fontSize=8, leading=10,
+                                  alignment=1, fontName=bold)
+    field_style = ParagraphStyle("SlipField", fontSize=9, leading=12, fontName=regular)
+    note_style = ParagraphStyle("SlipNote", fontSize=6.5, leading=8.5, fontName=regular)
 
-    header_style = ParagraphStyle(
-        "SlipHeader",
-        parent=styles["Normal"],
-        fontSize=8,
-        leading=10,
-        alignment=1,
-        fontName="Helvetica-Bold",
-    )
-    field_style = ParagraphStyle(
-        "SlipField",
-        parent=styles["Normal"],
-        fontSize=9,
-        leading=12,
-        fontName="Helvetica",
-    )
-    note_style = ParagraphStyle(
-        "SlipNote",
-        parent=styles["Normal"],
-        fontSize=6.5,
-        leading=8.5,
-        fontName="Helvetica",
-    )
+    def slip(row):
+        filled = row is not None
+        row = row or {}
 
-    def create_single_slip_flowables(row):
-        assigned_name = row["assigned_person"] if row is not None else ""
-        part_name = row["part_name"] if row is not None else ""
+        def tick(key):
+            return "[X]" if filled and key == hall_key else "[&nbsp;&nbsp;]"
 
-        elements = [
-            Paragraph(
-                lang_dict["slip_title"].replace("\n", "<br/>"), header_style
-            ),
+        name = xml_escape(row.get("person") or "")
+        assistant = xml_escape(row.get("assistant") or "") or "_" * 25
+        when = fmt_date(row["meeting_date"]) if row.get("meeting_date") else ""
+        part_no = row.get("part_no")
+        part = str(part_no) if part_no else xml_escape(row.get("part_name") or "")
+        return [
+            Paragraph(xml_escape(lang["slip_title"]).replace("\n", "<br/>"), header_style),
             Spacer(1, 6),
-            Paragraph(
-                f"<b>{lang_dict['name']}</b> {assigned_name}", field_style
-            ),
+            Paragraph(f"<b>{xml_escape(lang['name'])}</b> {name}", field_style),
+            Spacer(1, 3),
+            Paragraph(f"<b>{xml_escape(lang['assistant'])}</b> {assistant}", field_style),
             Spacer(1, 3),
             Paragraph(
-                f"<b>{lang_dict['assistant']}</b> _________________________",
-                field_style,
-            ),
-            Spacer(1, 3),
-            Paragraph(
-                f"<b>{lang_dict['date']}</b> {meeting_date}"
-                f" &nbsp;&nbsp;&nbsp;&nbsp; <b>{lang_dict['part_no']}</b>"
-                f" {part_name}",
+                f"<b>{xml_escape(lang['date'])}</b> {when}&nbsp;&nbsp;&nbsp;&nbsp;"
+                f"<b>{xml_escape(lang['part_no'])}</b> {part}",
                 field_style,
             ),
             Spacer(1, 4),
-            Paragraph(f"<b>{lang_dict['to_be_given']}</b>", field_style),
+            Paragraph(f"<b>{xml_escape(lang['to_be_given'])}</b>", field_style),
             Paragraph(
-                f"[ &nbsp; ]"
-                f" {lang_dict['main_hall']}&nbsp;&nbsp;&nbsp;&nbsp;[ &nbsp; ]"
-                f" {lang_dict['aux_1']}<br/>[ &nbsp; ] {lang_dict['aux_2']}",
+                f"{tick('main_hall')} {xml_escape(lang['main_hall'])}<br/>"
+                f"{tick('aux_1')} {xml_escape(lang['aux_1'])}<br/>"
+                f"{tick('aux_2')} {xml_escape(lang['aux_2'])}",
                 field_style,
             ),
             Spacer(1, 4),
-            Paragraph(lang_dict["note"], note_style),
+            Paragraph(xml_escape(lang["note"]), note_style),
             Spacer(1, 2),
-            Paragraph(
-                f"<font color='gray'>{lang_dict['form_code']}</font>",
-                note_style,
-            ),
-        ]
-        return elements
-
-    rows_list = [row for _, row in filtered_df.iterrows()]
-    while len(rows_list) % 4 != 0:
-        rows_list.append(None)
-
-    for i in range(0, len(rows_list), 4):
-        batch = rows_list[i : i + 4]
-        grid_data = [
-            [
-                create_single_slip_flowables(batch[0]),
-                create_single_slip_flowables(batch[1]),
-            ],
-            [
-                create_single_slip_flowables(batch[2]),
-                create_single_slip_flowables(batch[3]),
-            ],
+            Paragraph(f"<font color='gray'>{xml_escape(lang['form_code'])}</font>", note_style),
         ]
 
-        slip_table = Table(grid_data, colWidths=[270, 270], rowHeights=[385, 385])
-        slip_table.setStyle(
-            TableStyle([
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.dashed),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 10),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-                ("TOPPADDING", (0, 0), (-1, -1), 10),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
-            ])
+    rows = list(slip_rows)
+    while len(rows) % 4:
+        rows.append(None)  # spare blank slips fill the page
+
+    story = []
+    for i in range(0, len(rows), 4):
+        batch = rows[i:i + 4]
+        table = Table(
+            [[slip(batch[0]), slip(batch[1])], [slip(batch[2]), slip(batch[3])]],
+            colWidths=[270, 270],
+            rowHeights=[385, 385],
         )
-
-        story.append(slip_table)
-        if i + 4 < len(rows_list):
+        table.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey, 1, (3, 3)),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 10),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+            ("TOPPADDING", (0, 0), (-1, -1), 10),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+        ]))
+        story.append(table)
+        if i + 4 < len(rows):
             story.append(PageBreak())
-
     doc.build(story)
-    buffer.seek(0)
-    return buffer
+    return buffer.getvalue()
 
 
-# --- NAVIGATION SESSION STATE SETUP ---
+def generate_schedule_pdf(meetings, schedules_df):
+    """One printable block per (date, type)."""
+    regular, bold, _ = register_fonts()
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=36, leftMargin=36,
+                            topMargin=36, bottomMargin=36)
+    title_style = ParagraphStyle("T", fontName=bold, fontSize=12, leading=15, spaceAfter=4)
+    sub_style = ParagraphStyle("S", fontName=regular, fontSize=9, leading=11,
+                               textColor=colors.grey, spaceAfter=6)
+    cell_style = ParagraphStyle("C", fontName=regular, fontSize=9, leading=11)
+    sec_style = ParagraphStyle("H", fontName=bold, fontSize=9, leading=11,
+                               textColor=colors.white)
+    story = []
+    for meeting_date, meeting_type in meetings:
+        rows = schedules_df[(schedules_df["meeting_date"] == meeting_date)
+                            & (schedules_df["meeting_type"] == meeting_type)]
+        meta = get_meeting_meta(meeting_date, meeting_type)
+        block = [Paragraph(xml_escape(f"{meeting_type} — {fmt_date(meeting_date)}"), title_style)]
+        if meta.get("heading"):
+            block.append(Paragraph(xml_escape(meta["heading"]), sub_style))
+        data, style = [], [
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LINEBELOW", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]
+        current = None
+        for _, r in rows.iterrows():
+            section = r["section"] or ""
+            if section != current:
+                current = section
+                data.append([Paragraph(xml_escape(SECTION_TITLES.get(section, section)
+                                                  .split(" ", 1)[-1]), sec_style), ""])
+                style += [("SPAN", (0, len(data) - 1), (1, len(data) - 1)),
+                          ("BACKGROUND", (0, len(data) - 1), (1, len(data) - 1),
+                           colors.HexColor("#30363d"))]
+            slot = make_slot(r["part_name"], r["role"] or "", section,
+                             int(r["part_no"]) if pd.notna(r["part_no"]) else None,
+                             int(r["minutes"]) if pd.notna(r["minutes"]) else None)
+            who = r["person"] or "—"
+            if r["assistant"]:
+                who += f" / {r['assistant']}"
+            data.append([Paragraph(xml_escape(slot_label(slot)), cell_style),
+                         Paragraph(xml_escape(who), cell_style)])
+        table = Table(data, colWidths=[300, 223])
+        table.setStyle(TableStyle(style))
+        block += [table, Spacer(1, 18)]
+        story.append(KeepTogether(block))
+    doc.build(story)
+    return buffer.getvalue()
+
+
+def build_s140_data(meetings, schedules_df, congregation, group_label):
+    """Shape saved midweek meetings like the S-140 filler's data.json."""
+    weeks, skipped = [], []
+    for meeting_date, meeting_type in sorted(meetings):
+        rows = schedules_df[(schedules_df["meeting_date"] == meeting_date)
+                            & (schedules_df["meeting_type"] == meeting_type)]
+        meta = get_meeting_meta(meeting_date, meeting_type)
+        week = {
+            "heading": meta.get("heading") or fmt_date(meeting_date).upper(),
+            "chairman": "", "opening_prayer": "", "closing_prayer": "",
+            "opening_song": meta.get("opening_song") or "",
+            "middle_song": meta.get("middle_song") or "",
+            "closing_song": meta.get("closing_song") or "",
+            "treasures": [], "ministry": [], "living": [],
+        }
+        reader = ""
+        for _, r in rows.iterrows():
+            title = re.sub(r"\s*\(\s*\d+\s*min\.?\s*\)\s*$", "", r["part_name"] or "",
+                           flags=re.IGNORECASE)
+            item = {"title": title,
+                    "min": str(int(r["minutes"])) if pd.notna(r["minutes"]) else "",
+                    "name": r["person"] or ""}
+            role, section = r["role"], r["section"]
+            if role == "Chairman":
+                week["chairman"] = item["name"]
+            elif role == "Prayer":
+                key = "closing_prayer" if section == "Closing" else "opening_prayer"
+                week[key] = item["name"]
+            elif role == "Reader":
+                reader = item["name"]
+            elif role == "Bible Study Conductor":
+                week["cbs"] = item
+            elif section == "Treasures":
+                week["treasures"].append(item)
+            elif section == "Ministry":
+                if r["assistant"]:
+                    item["assistant"] = r["assistant"]
+                week["ministry"].append(item)
+            elif section == "Living":
+                week["living"].append(item)
+        if "cbs" in week and reader:
+            week["cbs"]["name"] = f"{week['cbs']['name']}/{reader}"
+        if "cbs" not in week or len(week["treasures"]) != 3:
+            skipped.append(meeting_date)
+            continue
+        weeks.append(week)
+    data = {"congregation": congregation, "group_label": group_label, "weeks": weeks}
+    return data, skipped
+
+
+# =============================================================================
+# ASSIGNMENT PICKER HELPERS
+# =============================================================================
+def eligible_ids(role, students, show_all):
+    active = students[students["active"] == 1]
+    if show_all or role not in ROLE_RULES:
+        return active["id"].tolist()
+    privileges, brothers_only = ROLE_RULES[role]
+    mask = active["privilege_list"].apply(lambda p: bool(privileges & set(p)))
+    if brothers_only:
+        mask &= active["gender"] == "Brother"
+    return active[mask]["id"].tolist()
+
+
+def ordered_options(ids, last_dates, keep=None):
+    """Least recently used first, with the current pick always included."""
+    ids = list(dict.fromkeys(ids))
+    if keep is not None and keep not in ids:
+        ids.append(keep)
+    ids.sort(key=lambda i: last_dates.get(i) or "")
+    return [None] + ids
+
+
+def person_label_factory(students, last_dates):
+    names = dict(zip(students["id"], students["name"]))
+    inactive = set(students[students["active"] != 1]["id"])
+
+    def label(pid):
+        if pid is None:
+            return "-- Unassigned --"
+        last = last_dates.get(pid)
+        suffix = f"last: {fmt_date(last, short=True)}" if last else "no parts yet"
+        flag = " · inactive" if pid in inactive else ""
+        return f"{names.get(pid, '?')} ({suffix}{flag})"
+
+    return label
+
+
+# =============================================================================
+# APP
+# =============================================================================
+init_db()
+FONT_REGULAR, FONT_BOLD, FONT_SUPPORTS_GA = register_fonts()
+
+
+def go(page, **state):
+    st.session_state["menu"] = page
+    for k, v in state.items():
+        st.session_state[k] = v
+    st.rerun()
+
+
 if "menu" not in st.session_state:
     st.session_state["menu"] = "Dashboard"
 
-selected_lang = st.sidebar.selectbox(
-    "Language Template", list(TRANSLATIONS.keys())
-)
+selected_lang = st.sidebar.selectbox("Slip language", list(TRANSLATIONS))
 t = TRANSLATIONS[selected_lang]
-
+if selected_lang != "English" and not FONT_SUPPORTS_GA:
+    st.sidebar.warning(
+        "No font with ɛ, ɔ and ŋ was found, so Ga slips will show boxes. "
+        "Put DejaVuSans.ttf and DejaVuSans-Bold.ttf in a 'fonts' folder next to app.py."
+    )
 st.sidebar.markdown("---")
-if st.sidebar.button("🏠 Back to Dashboard"):
-    st.session_state["menu"] = "Dashboard"
-    st.rerun()
+if st.sidebar.button("🏠 Back to Dashboard", width="stretch"):
+    go("Dashboard")
 
-students_df = get_students()
 menu = st.session_state["menu"]
+students_df = get_students()
 
-# --- DASHBOARD CONTROL PANEL ---
+# -----------------------------------------------------------------------------
 if menu == "Dashboard":
-    st.title("📅 Meeting Scheduler Control Panel")
-    st.write(
-        "Select an option below to manage assignments, participants, or view"
-        " schedules."
-    )
+    st.title("📅 Meeting Scheduler")
+    st.write("Manage assignments and participants, and print slips and schedules.")
     st.markdown("---")
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if st.button("View Current Schedule", use_container_width=True):
-            st.session_state["menu"] = "View Schedules"
-            st.rerun()
-    with col2:
-        if st.button("Create Next Schedule", use_container_width=True):
-            st.session_state["menu"] = "Create/Edit Schedule"
-            st.rerun()
-    with col3:
-        if st.button("Modify Current Schedule", use_container_width=True):
-            st.session_state["menu"] = "Create/Edit Schedule"
-            st.rerun()
+    c1, c2, c3 = st.columns(3)
+    if c1.button("📋 View Schedules & Slips", width="stretch"):
+        go("View Schedules")
+    if c2.button("📝 Create Schedule", width="stretch"):
+        go("Schedule", schedule_mode="Create new")
+    if c3.button("✏️ Modify Schedule", width="stretch"):
+        go("Schedule", schedule_mode="Edit saved")
 
-    col4, col5, col6 = st.columns(3)
-    with col4:
-        if st.button("View Assignment Slips", use_container_width=True):
-            st.session_state["menu"] = "View Schedules"
-            st.rerun()
-    with col5:
-        if st.button("Upload PDF Brochure", use_container_width=True):
-            st.session_state["menu"] = "Upload PDF Brochure"
-            st.rerun()
-    with col6:
-        if st.button("Edit Student File", use_container_width=True):
-            st.session_state["menu"] = "Manage Participants"
-            st.rerun()
+    c4, c5, c6 = st.columns(3)
+    if c4.button("📖 Upload Workbook PDF", width="stretch"):
+        go("Upload PDF Brochure")
+    if c5.button("👥 Manage Participants", width="stretch"):
+        go("Manage Participants")
+    if c6.button("📤 Export (CSV / S-140)", width="stretch"):
+        go("Export")
 
-    col7, col8, col9 = st.columns(3)
-    with col7:
-        if st.button("Export Data (CSV)", use_container_width=True):
-            st.session_state["menu"] = "Export"
-            st.rerun()
-    with col8:
-        if st.button("Manage Participants", use_container_width=True):
-            st.session_state["menu"] = "Manage Participants"
-            st.rerun()
-    with col9:
-        if st.button("Exit / Reset Session", use_container_width=True):
-            st.success("Session reset.")
+    if st.button("🔄 Reset session (clears uploaded brochure and filters)"):
+        st.session_state.clear()
+        st.rerun()
 
     st.markdown("---")
-
     schedules_df = get_schedules()
-    latest_date = (
-        schedules_df["meeting_date"].max()
-        if not schedules_df.empty
-        else "Blank"
-    )
+    today = date.today().isoformat()
+    upcoming = sorted(d for d in schedules_df["meeting_date"].unique() if d >= today)
+    focus_date = upcoming[0] if upcoming else (
+        schedules_df["meeting_date"].max() if not schedules_df.empty else None)
+    focus_label = "Next Meeting" if upcoming else "Latest Schedule"
+    open_parts = 0
+    if focus_date:
+        focus_rows = schedules_df[schedules_df["meeting_date"] == focus_date]
+        open_parts = int(focus_rows["student_id"].isna().sum()) + int(
+            ((focus_rows["needs_assistant"] == 1) & focus_rows["assistant_id"].isna()).sum()
+        )
+    active_count = int((students_df["active"] == 1).sum())
+    open_color = "#3fb950" if open_parts == 0 else "#d29922"
 
-    stat_col1, stat_col2, stat_col3 = st.columns(3)
-    with stat_col1:
-        st.markdown(
-            f"""
-            <div class="status-panel">
-                <p style="margin: 0; color: #8b949e; font-weight: bold;">Current Schedule</p>
-                <h3 style="color: #c9d1d9; margin-top: 10px;">{latest_date}</h3>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with stat_col2:
-        st.markdown(
-            """
-            <div class="status-panel">
-                <p style="margin: 0; color: #8b949e; font-weight: bold;">System Status</p>
-                <h3 style="color: #3fb950; margin-top: 10px;">Active & Secure</h3>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with stat_col3:
-        total_students = len(students_df) if not students_df.empty else 0
-        st.markdown(
-            f"""
-            <div class="status-panel">
-                <p style="margin: 0; color: #8b949e; font-weight: bold;">Total Participants</p>
-                <h3 style="color: #58a6ff; margin-top: 10px;">{total_students} Registered</h3>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    s1, s2, s3 = st.columns(3)
+    s1.markdown(f"""<div class="status-panel"><p>{focus_label}</p>
+        <h3 style="color:#c9d1d9;">{fmt_date(focus_date) if focus_date else "None yet"}</h3>
+        </div>""", unsafe_allow_html=True)
+    s2.markdown(f"""<div class="status-panel"><p>Open Slots ({focus_label.lower()})</p>
+        <h3 style="color:{open_color};">{open_parts if focus_date else "—"}</h3>
+        </div>""", unsafe_allow_html=True)
+    s3.markdown(f"""<div class="status-panel"><p>Active Participants</p>
+        <h3 style="color:#58a6ff;">{active_count}</h3></div>""", unsafe_allow_html=True)
 
+# -----------------------------------------------------------------------------
 elif menu == "Manage Participants":
-    st.header("👥 Participant File")
+    st.header("👥 Participants")
+    tab_add, tab_edit, tab_list = st.tabs(["Add", "Edit / deactivate", "List"])
 
-    with st.form("add_student_form", clear_on_submit=True):
-        st.subheader("Add New Participant")
-        name = st.text_input("Full Name")
-        gender = st.selectbox("Category", ["Brother", "Sister"])
-        privileges = st.multiselect(
-            "Assigned Privileges",
-            [
-                "Chairman",
-                "Prayer",
-                "Bible Reading",
-                "Initial Presentation",
-                "Making Disciples",
-                "Explaining Beliefs",
-                "Talk",
-                "Reader",
-            ],
-        )
-        submitted = st.form_submit_button("Add Participant")
-        if submitted and name:
-            add_student(name, gender, ", ".join(privileges))
-            st.success(f"Successfully added {name}!")
-            st.rerun()
-
-    st.subheader("Current List")
-    if not students_df.empty:
-        st.dataframe(students_df, use_container_width=True)
-
-        student_to_delete = st.selectbox(
-            "Select Participant to Delete",
-            students_df["id"].tolist(),
-            format_func=lambda x: students_df.loc[
-                students_df["id"] == x, "name"
-            ].values[0],
-        )
-        if st.button("Delete Selected Participant"):
-            delete_student(student_to_delete)
-            st.warning("Participant deleted.")
-            st.rerun()
-    else:
-        st.info("No participants added yet.")
-
-elif menu == "Create/Edit Schedule":
-    st.header("📝 Create Meeting Schedule")
-
-    meeting_type = st.selectbox(
-        "Meeting Type", ["Midweek Meeting", "Weekend Meeting"]
-    )
-
-    selected_imported_week = None
-    parsed_assignments = []
-    if (
-        "available_weeks" in st.session_state
-        and st.session_state["available_weeks"]
-    ):
-        use_import = st.checkbox("Auto-fill details from uploaded PDF brochure")
-        if use_import:
-            selected_imported_week = st.selectbox(
-                "Select Week from Brochure", st.session_state["available_weeks"]
-            )
-            if (
-                "brochure_weeks_data" in st.session_state
-                and selected_imported_week
-                in st.session_state["brochure_weeks_data"]
-            ):
-                parsed_assignments = st.session_state["brochure_weeks_data"][
-                    selected_imported_week
-                ]
-
-    meeting_date = st.date_input("Meeting Date", value=date.today())
-
-    if students_df.empty:
-        st.warning(
-            "Please add participants in the 'Manage Participants' tab first."
-        )
-    else:
-        student_names = students_df["name"].tolist()
-        assignments = {}
-
-        with st.form("schedule_form"):
-            title_text = f"Assign Parts for {meeting_type}"
-            if selected_imported_week:
-                title_text += f" ({selected_imported_week})"
-            st.subheader(title_text)
-
-            if meeting_type == "Midweek Meeting":
-                st.markdown("### 🔹 Opening & Treasures")
-                # Use parsed parts if found from PDF, otherwise display standard defaults
-                dynamic_parts = (
-                    parsed_assignments
-                    if parsed_assignments
-                    else [
-                        "Chairman",
-                        "Opening Prayer",
-                        "Treasures Talk",
-                        "Digging Gems",
-                        "Bible Reading",
-                        "Initial Presentation",
-                        "Making Disciples",
-                        "Explaining Beliefs",
-                        "Living Part 1",
-                        "Living Part 2",
-                        "Conductor",
-                        "Reader",
-                        "Closing Prayer",
-                    ]
-                )
-
-                for part in dynamic_parts:
-                    assignments[part] = st.selectbox(
-                        part, ["-- Unassigned --"] + student_names, key=part
-                    )
-            else:
-                st.markdown("### 🏛️ Weekend Meeting Parts")
-                for part in [
-                    "Chairman",
-                    "Opening Prayer / Song",
-                    "Public Talk Speaker",
-                    "Watchtower Conductor",
-                    "Watchtower Reader",
-                    "Closing Prayer",
-                ]:
-                    assignments[part] = st.selectbox(
-                        part, ["-- Unassigned --"] + student_names, key=part
-                    )
-
-            submitted = st.form_submit_button("Save Schedule")
-            if submitted:
-                valid_assignments = {
-                    k: v
-                    for k, v in assignments.items()
-                    if v != "-- Unassigned --"
-                }
-                chosen_people = list(valid_assignments.values())
-
-                duplicates = set([
-                    person
-                    for person in chosen_people
-                    if chosen_people.count(person) > 1
-                ])
-
-                existing_schedules = get_schedules()
-                already_booked = []
-                if not existing_schedules.empty:
-                    date_matches = existing_schedules[
-                        existing_schedules["meeting_date"] == str(meeting_date)
-                    ]
-                    booked_people_on_date = date_matches[
-                        "assigned_person"
-                    ].tolist()
-                    already_booked = [
-                        p for p in chosen_people if p in booked_people_on_date
-                    ]
-
-                if duplicates:
-                    st.error(
-                        "⚠️ Scheduling Conflict: The following person is"
-                        f" assigned to multiple parts this week: {', '.join(duplicates)}"
-                    )
-                elif already_booked:
-                    st.error(
-                        "⚠️ Scheduling Conflict: The following person is"
-                        f" already assigned on {meeting_date}: {', '.join(already_booked)}"
-                    )
+    with tab_add:
+        with st.form("add_student_form", clear_on_submit=True):
+            name = st.text_input("Full name")
+            gender = st.selectbox("Category", CATEGORIES)
+            privileges = st.multiselect("Privileges", PRIVILEGES)
+            if st.form_submit_button("Add participant"):
+                if not nfc(name):
+                    st.error("Enter a name.")
                 else:
-                    save_schedule(meeting_date, meeting_type, valid_assignments)
-                    st.success(f"Schedule for {meeting_date} saved successfully!")
+                    if nfc(name).lower() in students_df["name"].str.lower().tolist():
+                        st.warning(f"There is already someone called {name}; added anyway.")
+                    add_student(name, gender, privileges)
+                    st.success(f"Added {name}.")
+                    st.rerun()
 
-elif menu == "View Schedules":
-    st.header("📋 View Saved Schedules")
+    with tab_edit:
+        if students_df.empty:
+            st.info("No participants yet.")
+        else:
+            names = dict(zip(students_df["id"], students_df["name"]))
+            sid = st.selectbox(
+                "Participant", students_df["id"].tolist(),
+                format_func=lambda i: names[i]
+                + ("" if students_df.loc[students_df["id"] == i, "active"].iloc[0] == 1
+                   else " (inactive)"),
+            )
+            row = students_df[students_df["id"] == sid].iloc[0]
+            with st.form(f"edit_student_{sid}"):
+                e_name = st.text_input("Full name", row["name"])
+                e_gender = st.selectbox(
+                    "Category", CATEGORIES,
+                    index=CATEGORIES.index(row["gender"]) if row["gender"] in CATEGORIES else 0,
+                )
+                e_priv = st.multiselect("Privileges", PRIVILEGES, default=row["privilege_list"])
+                e_active = st.checkbox("Active (shown when assigning parts)",
+                                       value=bool(row["active"]))
+                if st.form_submit_button("Save changes"):
+                    if not nfc(e_name):
+                        st.error("Name can't be empty.")
+                    else:
+                        update_student(sid, e_name, e_gender, e_priv, e_active)
+                        st.success("Saved. Existing schedules show the updated name.")
+                        st.rerun()
+
+            used = student_usage_count(sid)
+            with st.expander("Delete permanently"):
+                if used:
+                    st.info(
+                        f"{row['name']} appears in {used} saved assignment(s). "
+                        "Untick 'Active' instead so the history stays intact."
+                    )
+                elif st.button("Delete participant", type="primary"):
+                    delete_student(sid)
+                    st.warning("Participant deleted.")
+                    st.rerun()
+
+    with tab_list:
+        if students_df.empty:
+            st.info("No participants yet.")
+        else:
+            last = last_assignment_dates(exclude_date="")
+            view = students_df.assign(
+                last_assignment=students_df["id"].map(
+                    lambda i: fmt_date(last[i]) if i in last else ""),
+                status=students_df["active"].map({1: "Active"}).fillna("Inactive"),
+                privileges=students_df["privilege_list"].apply(", ".join),
+            )[["name", "gender", "privileges", "last_assignment", "status"]]
+            st.dataframe(view, width="stretch", hide_index=True)
+
+# -----------------------------------------------------------------------------
+elif menu == "Schedule":
+    st.header("📝 Create or Edit a Schedule")
     schedules_df = get_schedules()
+    meetings = saved_meetings(schedules_df)
 
-    if not schedules_df.empty:
-        selected_date = st.selectbox(
-            "Select Meeting Date", schedules_df["meeting_date"].unique()
+    mode = st.radio("Mode", ["Create new", "Edit saved"], horizontal=True,
+                    key="schedule_mode")
+    if mode == "Edit saved":
+        if not meetings:
+            st.info("No saved schedules yet.")
+            st.stop()
+        if st.session_state.get("edit_meeting") not in meetings:
+            st.session_state.pop("edit_meeting", None)
+        meeting_date, meeting_type = st.selectbox(
+            "Saved schedule", meetings, format_func=meeting_label, key="edit_meeting")
+    else:
+        c1, c2 = st.columns(2)
+        meeting_type = c1.selectbox("Meeting type", MEETING_TYPES)
+        meeting_date = c2.date_input("Meeting date", value=date.today()).isoformat()
+
+    saved_slots, saved_picks = load_schedule(meeting_date, meeting_type, schedules_df)
+    meta = get_meeting_meta(meeting_date, meeting_type)
+    if saved_slots and mode == "Create new":
+        st.info("A schedule is already saved for this date. It's loaded below, "
+                "and saving will replace it.")
+
+    brochure = st.session_state.get("brochure_weeks", {})
+    source = "saved" if saved_slots else "default"
+    slots = saved_slots or (
+        build_midweek_slots(default_midweek_parts())
+        if meeting_type == MIDWEEK else default_weekend_slots())
+
+    if meeting_type == MIDWEEK and brochure:
+        use_brochure = st.checkbox(
+            "Use parts from the uploaded workbook", value=not saved_slots,
+            help="Names already picked carry over when the part number and role match.",
         )
-        filtered_df = schedules_df[
-            schedules_df["meeting_date"] == selected_date
+        if use_brochure:
+            week = st.selectbox("Workbook week", list(brochure))
+            slots = build_midweek_slots(brochure[week]["parts"])
+            source = f"brochure:{week}"
+            songs = brochure[week].get("songs", [])
+            if not saved_slots:
+                meta = {
+                    "heading": week,
+                    "opening_song": f"Song {songs[0]}" if len(songs) > 0 else "",
+                    "middle_song": f"Song {songs[1]}" if len(songs) > 1 else "",
+                    "closing_song": f"Song {songs[2]}" if len(songs) > 2 else "",
+                }
+    elif meeting_type == MIDWEEK:
+        st.caption("Tip: upload the workbook PDF to fill in this week's real part titles.")
+
+    active = students_df[students_df["active"] == 1]
+    if active.empty:
+        st.warning("Add participants under 'Manage Participants' first.")
+        st.stop()
+
+    show_all = st.checkbox("Show everyone in every list (ignore privileges and category)")
+    last_dates = last_assignment_dates(meeting_date)
+    label = person_label_factory(students_df, last_dates)
+    categories = dict(zip(students_df["id"], students_df["gender"]))
+    names = dict(zip(students_df["id"], students_df["name"]))
+
+    ns = f"{meeting_date}|{meeting_type}|{source}"
+    with st.expander("Meeting details (used on the S-140)", expanded=False):
+        m1, m2 = st.columns(2)
+        meta_in = {
+            "heading": m1.text_input("Heading", meta.get("heading", ""), key=f"{ns}|heading"),
+            "opening_song": m2.text_input("Opening song", meta.get("opening_song", ""),
+                                          key=f"{ns}|song1"),
+            "middle_song": m1.text_input("Middle song", meta.get("middle_song", ""),
+                                         key=f"{ns}|song2"),
+            "closing_song": m2.text_input("Closing song", meta.get("closing_song", ""),
+                                          key=f"{ns}|song3"),
+        }
+
+    picks, current_section = {}, None
+    for i, slot in enumerate(slots):
+        if slot["section"] != current_section:
+            current_section = slot["section"]
+            st.markdown(f"#### {SECTION_TITLES.get(current_section, current_section)}")
+        pre_sid, pre_aid = saved_picks.get(slot_match_key(slot), (None, None))
+        options = ordered_options(eligible_ids(slot["role"], students_df, show_all),
+                                  last_dates, keep=pre_sid)
+        cols = st.columns([3, 2]) if slot["needs_assistant"] else [st.container()]
+        sid = cols[0].selectbox(
+            slot_label(slot), options, index=options.index(pre_sid),
+            format_func=label, key=f"{ns}|{i}|student",
+        )
+        aid = None
+        if slot["needs_assistant"]:
+            pool = active["id"].tolist()
+            if sid is not None and not show_all:
+                pool = [p for p in pool if categories.get(p) == categories.get(sid)]
+            pool = [p for p in pool if p != sid]
+            a_options = ordered_options(pool, last_dates, keep=pre_aid)
+            aid = cols[1].selectbox(
+                "Assistant", a_options, index=a_options.index(pre_aid),
+                format_func=label, key=f"{ns}|{i}|assistant",
+            )
+        picks[i] = (sid, aid)
+
+    st.markdown("---")
+    b1, b2 = st.columns([1, 1])
+    if b1.button("💾 Save schedule", type="primary", width="stretch"):
+        errors, warnings = [], []
+        usage = {}
+        for i, (sid, aid) in picks.items():
+            if sid is not None and sid == aid:
+                errors.append(f"{names[sid]} is both student and assistant on "
+                              f"'{slot_label(slots[i])}'.")
+            for pid in (sid, aid):
+                if pid is not None:
+                    usage.setdefault(pid, []).append(slots[i]["title"])
+            if sid and aid and categories.get(sid) != categories.get(aid):
+                warnings.append(f"'{slot_label(slots[i])}': student and assistant "
+                                "are in different categories.")
+        for pid, parts in usage.items():
+            if len(parts) > 1:
+                warnings.append(f"{names[pid]} has {len(parts)} parts: {', '.join(parts)}.")
+        other_type = WEEKEND if meeting_type == MIDWEEK else MIDWEEK
+        _, other_picks = load_schedule(meeting_date, other_type, schedules_df)
+        other_people = {p for pair in other_picks.values() for p in pair if p}
+        for pid in set(usage) & other_people:
+            warnings.append(f"{names[pid]} also has a part in the {other_type} on this date.")
+
+        if errors:
+            for e in errors:
+                st.error(f"⚠️ {e}")
+        else:
+            save_schedule(meeting_date, meeting_type, slots, picks, meta_in, names)
+            st.success(f"Saved {meeting_type} for {fmt_date(meeting_date)}.")
+            for w in warnings:
+                st.warning(f"Check: {w}")
+
+    if saved_slots and b2.button("🗑️ Delete this schedule", width="stretch"):
+        st.session_state["confirm_delete"] = (meeting_date, meeting_type)
+    if st.session_state.get("confirm_delete") == (meeting_date, meeting_type):
+        st.error(f"Delete the {meeting_type} for {fmt_date(meeting_date)}?")
+        y, n = st.columns(2)
+        if y.button("Yes, delete", type="primary"):
+            delete_schedule(meeting_date, meeting_type)
+            st.session_state.pop("confirm_delete")
+            st.rerun()
+        if n.button("Cancel"):
+            st.session_state.pop("confirm_delete")
+            st.rerun()
+
+# -----------------------------------------------------------------------------
+elif menu == "View Schedules":
+    st.header("📋 Saved Schedules")
+    schedules_df = get_schedules()
+    meetings = saved_meetings(schedules_df)
+    if not meetings:
+        st.info("No schedules have been created yet.")
+        st.stop()
+
+    selected = st.selectbox("Meeting", meetings, format_func=meeting_label)
+    meeting_date, meeting_type = selected
+    rows = schedules_df[(schedules_df["meeting_date"] == meeting_date)
+                        & (schedules_df["meeting_type"] == meeting_type)]
+    meta = get_meeting_meta(meeting_date, meeting_type)
+    if meta.get("heading"):
+        st.caption(meta["heading"])
+
+    table = pd.DataFrame({
+        "Part": [slot_label(make_slot(r.part_name, r.role or "", r.section,
+                                      int(r.part_no) if pd.notna(r.part_no) else None,
+                                      int(r.minutes) if pd.notna(r.minutes) else None))
+                 for r in rows.itertuples()],
+        "Assigned to": rows["person"].fillna("— unassigned —").tolist(),
+        "Assistant": [
+            (r.assistant or "— needed —") if r.needs_assistant == 1 else ""
+            for r in rows.itertuples()
+        ],
+    })
+    st.dataframe(table, width="stretch", hide_index=True)
+    if st.button("✏️ Edit this schedule"):
+        go("Schedule", schedule_mode="Edit saved", edit_meeting=selected)
+
+    st.divider()
+    st.subheader("🧾 S-89 assignment slips")
+    student_rows = rows[(rows["student_part"] == 1) & rows["person"].notna()]
+    if student_rows.empty:
+        st.info("No student parts are assigned for this meeting, so there are no slips to print.")
+    else:
+        halls = {"main_hall": t["main_hall"], "aux_1": t["aux_1"], "aux_2": t["aux_2"]}
+        hall_key = st.radio("Mark 'to be given in' as", list(halls),
+                            format_func=halls.get, horizontal=True)
+        slip_rows = [
+            {"person": r.person, "assistant": r.assistant,
+             "part_no": int(r.part_no) if pd.notna(r.part_no) else None,
+             "part_name": r.part_name, "meeting_date": meeting_date}
+            for r in student_rows.itertuples()
         ]
-
-        meeting_type = (
-            filtered_df["meeting_type"].iloc[0]
-            if not filtered_df.empty
-            else "Midweek Meeting"
-        )
-
-        st.subheader(f"Schedule for: {selected_date} ({meeting_type})")
-
-        assignment_dict = dict(
-            zip(filtered_df["part_name"], filtered_df["assigned_person"])
-        )
-
-        st.markdown("### 📋 Program Assignments")
-        for part_name, person in assignment_dict.items():
-            st.write(f"- **{part_name}:** {person}")
-
-        st.divider()
-
-        pdf_data = generate_pdf_slips(selected_date, filtered_df, t)
         st.download_button(
-            label=f"📄 Download Exact S-89 Slips PDF ({selected_lang})",
-            data=pdf_data,
-            file_name=f"S89_assignment_slips_{selected_date}.pdf",
+            f"📄 Download {len(slip_rows)} slip(s) ({selected_lang})",
+            data=generate_slips_pdf(slip_rows, t, hall_key),
+            file_name=f"S89_slips_{meeting_date}_{selected_lang}.pdf",
             mime="application/pdf",
         )
 
-        if st.button("🖨️ Open Print View"):
-            print_html = f"""
-                <h3>Meeting Schedule - {selected_date}</h3>
-                <hr>
-                <table style="width:100%; border-collapse: collapse;">
-                    <tr>
-                        <th style="text-align:left; border-bottom:1px solid #30363d; padding: 6px;">Part</th>
-                        <th style="text-align:left; border-bottom:1px solid #30363d; padding: 6px;">Assigned To</th>
-                    </tr>
-            """
-            for index, row in filtered_df.iterrows():
-                print_html += f"<tr><td style='padding: 6px;'>{row['part_name']}</td><td style='padding: 6px;'>{row['assigned_person']}</td></tr>"
-            print_html += "</table>"
-            st.markdown(print_html, unsafe_allow_html=True)
-            st.info("Tip: Press Ctrl+P (or Cmd+P) to print this view.")
-    else:
-        st.info("No schedules have been created yet.")
+    st.divider()
+    st.subheader("🖨️ Printable schedule")
+    chosen = st.multiselect("Meetings to include", meetings, default=[selected],
+                            format_func=meeting_label)
+    if chosen:
+        chosen = sorted(chosen)
+        st.download_button(
+            "📄 Download schedule PDF",
+            data=generate_schedule_pdf(chosen, schedules_df),
+            file_name=f"schedule_{chosen[0][0]}_to_{chosen[-1][0]}.pdf",
+            mime="application/pdf",
+        )
 
+# -----------------------------------------------------------------------------
 elif menu == "Upload PDF Brochure":
-    st.header("📖 Import Meeting Brochure (PDF)")
+    st.header("📖 Import Meeting Workbook (PDF)")
     st.write(
-        "Upload the official meeting workbook brochure PDF. "
-        "The parser will extract the exact assignment titles and minute durations (e.g., '3 min', '5 min') from the pages."
+        "Upload the Life and Ministry Meeting Workbook PDF. Numbered parts with "
+        "their minutes are read for each week, and you can correct them below."
     )
-
     uploaded_pdf = st.file_uploader("Choose PDF file", type=["pdf"])
 
     if uploaded_pdf is not None:
-        reader = pypdf.PdfReader(uploaded_pdf)
-        extracted_text = ""
+        weeks, empty, raw_text = parse_brochure(uploaded_pdf.getvalue())
+        file_id = f"{uploaded_pdf.name}:{uploaded_pdf.size}"
+        if st.session_state.get("brochure_file") != file_id:
+            st.session_state["brochure_file"] = file_id
+            st.session_state["brochure_weeks"] = weeks
 
-        for i, page in enumerate(reader.pages):
-            extracted_text += f"\n--- Page {i+1} ---\n" + (
-                page.extract_text() or ""
+        if not weeks:
+            st.error(
+                "No numbered parts with durations were found. The PDF may be scanned, "
+                "or laid out differently. Schedules will use the standard part list."
             )
+        else:
+            st.success(f"Found parts for {len(weeks)} week(s).")
+            if empty:
+                st.warning("No parts found under: " + ", ".join(empty))
+            if not any(WEEK_RE.search(w) for w in weeks):
+                st.info("No English week headings were found, so weeks are listed by page. "
+                        "Section guesses are based on part numbers and durations; "
+                        "check them below.")
 
-        st.session_state["extracted_brochure_text"] = extracted_text
+            stored = st.session_state["brochure_weeks"]
+            week = st.selectbox("Review week", list(stored))
+            editor_df = pd.DataFrame(stored[week]["parts"])[
+                ["part_no", "title", "minutes", "section", "role"]]
+            edited = st.data_editor(
+                editor_df, key=f"editor|{file_id}|{week}", width="stretch",
+                hide_index=True, num_rows="dynamic",
+                column_config={
+                    "part_no": st.column_config.NumberColumn("No.", min_value=1, step=1),
+                    "title": st.column_config.TextColumn("Title", required=True),
+                    "minutes": st.column_config.NumberColumn("Min", min_value=1, step=1),
+                    "section": st.column_config.SelectboxColumn(
+                        "Section", options=["Treasures", "Ministry", "Living"], required=True),
+                    "role": st.column_config.SelectboxColumn(
+                        "Role", options=ROLES, required=True),
+                },
+            )
+            if st.button("Save corrections for this week"):
+                clean = edited.dropna(subset=["title", "section", "role"])
+                stored[week]["parts"] = sorted(
+                    (make_slot(r.title, r.role, r.section,
+                               int(r.part_no) if pd.notna(r.part_no) else None,
+                               int(r.minutes) if pd.notna(r.minutes) else None)
+                     for r in clean.itertuples()),
+                    key=lambda p: p["part_no"] or 99,
+                )
+                st.success("Saved. Use 'Create Schedule' to assign this week.")
 
-        # 1. Search for weeks/dates headers
-        date_pattern = r"([A-Z]+\s+\d{1,2}\s*[–—\-]\s*\d{1,2}|\d{1,2}/\d{1,2}\s*[–—\-]\s*\d{1,2})"
-        found_weeks = re.findall(date_pattern, extracted_text, re.IGNORECASE)
-        if not found_weeks:
-            found_weeks = [f"Workbook Page {i+1}" for i in range(len(reader.pages))]
+        with st.expander("View extracted raw text"):
+            st.text_area("Raw text", raw_text, height=350)
 
-        unique_weeks = list(dict.fromkeys(found_weeks))
-        st.session_state["available_weeks"] = unique_weeks
-
-        # 2. Advanced assignment & time duration pattern extractor (matches lines with 'min' or numbers)
-        weeks_data = {}
-        lines = extracted_text.split("\n")
-
-        current_week = unique_weeks[0]
-        parsed_parts_for_current_week = []
-
-        for line in lines:
-            line_str = line.strip()
-            # Check if line contains a week header change
-            for wk in unique_weeks:
-                if wk.lower() in line_str.lower():
-                    if parsed_parts_for_current_week:
-                        weeks_data[current_week] = parsed_parts_for_current_week
-                    current_week = wk
-                    parsed_parts_for_current_week = []
-                    break
-
-            # Look for assignment lines that typically have timing (e.g., "(3 min)", "— 4 min", etc.)
-            if re.search(r"(\(?\d+\s*min\.?\)?|\bmin\b)", line_str, re.IGNORECASE) and len(line_str) > 6:
-                if line_str not in parsed_parts_for_current_week:
-                    parsed_parts_for_current_week.append(line_str)
-
-        # Fallback if specific line-items weren't isolated by time markers
-        for wk in unique_weeks:
-            if wk not in weeks_data or not weeks_data[wk]:
-                weeks_data[wk] = [
-                    f"Chairman & Opening (1 min)",
-                    f"Treasures Talk (10 min)",
-                    f"Digging for Spiritual Gems (4 min)",
-                    f"Bible Reading (4 min)",
-                    f"Initial Presentation (3 min)",
-                    f"Making Disciples (5 min)",
-                    f"Living Part 1 (15 min)",
-                    f"Congregation Bible Study (30 min)",
-                ]
-
-        st.session_state["brochure_weeks_data"] = weeks_data
-
-        st.success(
-            f"Successfully extracted schedule sections and assignment times across {len(unique_weeks)} entries!"
-        )
-
-        with st.expander("View Extracted Raw Text"):
-            st.text_area("Raw Text Preview", extracted_text, height=350)
-
+# -----------------------------------------------------------------------------
 elif menu == "Export":
-    st.header("📤 Export Data")
+    st.header("📤 Export")
     schedules_df = get_schedules()
+    if schedules_df.empty:
+        st.info("No schedule data to export yet.")
+        st.stop()
 
-    if not schedules_df.empty:
-        csv = schedules_df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="Download Schedule as CSV",
-            data=csv,
-            file_name="meeting_schedule.csv",
-            mime="text/csv",
-        )
-    else:
-        st.info("No schedule data available for export.")
+    st.subheader("CSV")
+    csv_df = schedules_df[["meeting_date", "meeting_type", "part_no", "part_name",
+                           "minutes", "section", "role", "person", "assistant"]]
+    st.download_button(
+        "Download all schedules as CSV",
+        data=csv_df.to_csv(index=False).encode("utf-8-sig"),  # BOM keeps ɛ/ɔ right in Excel
+        file_name="meeting_schedule.csv",
+        mime="text/csv",
+    )
+
+    st.divider()
+    st.subheader("S-140 (Word)")
+    midweek = [m for m in saved_meetings(schedules_df) if m[1] == MIDWEEK]
+    if not midweek:
+        st.info("Save at least one midweek schedule first.")
+        st.stop()
+    months = sorted({m[0][:7] for m in midweek}, reverse=True)
+    month = st.selectbox(
+        "Month", months,
+        format_func=lambda ym: datetime.strptime(ym, "%Y-%m").strftime("%B %Y"))
+    month_meetings = sorted(m for m in midweek if m[0].startswith(month))
+    st.caption("Weeks: " + ", ".join(fmt_date(m[0]) for m in month_meetings))
+
+    c1, c2 = st.columns(2)
+    congregation = c1.text_input("Congregation name", get_setting("congregation"))
+    group_label = c2.text_input("Group label", get_setting("group_label", "GROUP"))
+    template = st.file_uploader("Blank S-140 template (.docx)", type=["docx"])
+    widen = st.checkbox("Widen title and name columns", value=True)
+
+    data, skipped = build_s140_data(month_meetings, schedules_df, congregation, group_label)
+    if skipped:
+        st.warning("Skipped (need 3 Treasures parts and a Bible Study): "
+                   + ", ".join(fmt_date(d) for d in skipped))
+
+    col_a, col_b = st.columns(2)
+    col_b.download_button(
+        "Download data.json", data=json.dumps(data, ensure_ascii=False, indent=2),
+        file_name="data.json", mime="application/json", width="stretch",
+    )
+    if template is not None and data["weeks"]:
+        set_setting("congregation", congregation)
+        set_setting("group_label", group_label)
+        try:
+            docx_bytes = fill_s140(template.getvalue(), data, widen=widen)
+        except (S140Error, KeyError, IndexError) as exc:
+            st.error(f"Couldn't fill the template: {exc}")
+        else:
+            month_name = datetime.strptime(month, "%Y-%m").strftime("%B %Y")
+            col_a.download_button(
+                f"📄 Download {month_name}.docx", data=docx_bytes,
+                file_name=f"{month_name}.docx", width="stretch",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
