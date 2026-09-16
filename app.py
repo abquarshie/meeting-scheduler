@@ -80,6 +80,7 @@ PRIVILEGES = [
     "Bible Study Conductor",
     "Reader",
     "Aux Classroom Counselor",
+    "Weekend Chairman",
     "Public Talk",
     "Watchtower Conductor",
     "Watchtower Reader",
@@ -104,6 +105,7 @@ ROLE_RULES = {
     "Bible Study Conductor": ({"Bible Study Conductor"}, True),
     "Reader": ({"Reader"}, True),
     "Aux Classroom Counselor": ({"Aux Classroom Counselor"}, True),
+    "Weekend Chairman": ({"Weekend Chairman"}, True),
     "Public Talk": ({"Public Talk"}, True),
     "Watchtower Conductor": ({"Watchtower Conductor"}, True),
     "Watchtower Reader": ({"Watchtower Reader"}, True),
@@ -397,7 +399,11 @@ def init_db():
             "hall": "TEXT DEFAULT 'main_hall'",
             "visitor": "TEXT",
         })
-        _add_missing_columns(conn, "meetings", {"aux": "INTEGER"})
+        _add_missing_columns(conn, "meetings", {
+            "aux": "INTEGER",
+            "talk_number": "TEXT",
+            "talk_title": "TEXT",
+        })
         conn.execute("""
             CREATE TABLE IF NOT EXISTS unavailable (
                 student_id INTEGER NOT NULL,
@@ -426,6 +432,9 @@ def init_db():
                 (role, section, int(role in STUDENT_ROLES),
                  int(role in ASSISTANT_ROLES), row_id),
             )
+        # the weekend meeting has its own chairman role
+        conn.execute("""UPDATE schedules SET role = 'Weekend Chairman'
+                         WHERE meeting_type = ? AND role = 'Chairman'""", (WEEKEND,))
 
 
 def get_setting(key, default=""):
@@ -576,14 +585,30 @@ def load_schedule(meeting_date, meeting_type, schedules_df=None):
 def get_meeting_meta(meeting_date, meeting_type):
     with get_conn() as conn:
         row = conn.execute(
-            """SELECT heading, opening_song, middle_song, closing_song, aux FROM meetings
+            """SELECT heading, opening_song, middle_song, closing_song, aux,
+                      talk_number, talk_title FROM meetings
                WHERE meeting_date = ? AND meeting_type = ?""",
             (str(meeting_date), meeting_type),
         ).fetchone()
-    keys = ["heading", "opening_song", "middle_song", "closing_song", "aux"]
-    meta = dict(zip(keys, row)) if row else {k: "" for k in keys[:-1]}
-    meta.setdefault("aux", None)
+    keys = ["heading", "opening_song", "middle_song", "closing_song", "aux",
+            "talk_number", "talk_title"]
+    meta = dict(zip(keys, row)) if row else {k: "" for k in keys}
+    if not row:
+        meta["aux"] = None
+    for k in ("heading", "opening_song", "middle_song", "closing_song",
+              "talk_number", "talk_title"):
+        meta[k] = meta.get(k) or ""
     return meta
+
+
+def talk_text(meta):
+    """'No. 12 — “Title”' or whichever part is filled in."""
+    parts = []
+    if meta.get("talk_number"):
+        parts.append(f"No. {meta['talk_number']}")
+    if meta.get("talk_title"):
+        parts.append(f"“{meta['talk_title']}”")
+    return " — ".join(parts)
 
 
 def save_schedule(meeting_date, meeting_type, slots, picks, meta, names):
@@ -610,14 +635,17 @@ def save_schedule(meeting_date, meeting_type, slots, picks, meta, names):
         )
         conn.execute(
             """INSERT INTO meetings (meeting_date, meeting_type, heading, opening_song,
-                   middle_song, closing_song, aux) VALUES (?, ?, ?, ?, ?, ?, ?)
+                   middle_song, closing_song, aux, talk_number, talk_title)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(meeting_date, meeting_type) DO UPDATE SET
                    heading = excluded.heading, opening_song = excluded.opening_song,
                    middle_song = excluded.middle_song, closing_song = excluded.closing_song,
-                   aux = excluded.aux""",
+                   aux = excluded.aux, talk_number = excluded.talk_number,
+                   talk_title = excluded.talk_title""",
             (str(meeting_date), meeting_type, meta.get("heading", ""),
              meta.get("opening_song", ""), meta.get("middle_song", ""),
-             meta.get("closing_song", ""), int(bool(meta.get("aux")))),
+             meta.get("closing_song", ""), int(bool(meta.get("aux"))),
+             meta.get("talk_number", ""), meta.get("talk_title", "")),
         )
 
 
@@ -749,7 +777,7 @@ def build_midweek_slots(parts):
 
 def default_weekend_slots():
     return [
-        make_slot("Chairman", "Chairman", "Weekend"),
+        make_slot("Chairman", "Weekend Chairman", "Weekend"),
         make_slot("Opening Prayer", "Prayer", "Weekend"),
         {**make_slot("Public Talk Speaker", "Public Talk", "Weekend"), "allow_visitor": True},
         make_slot("Watchtower Conductor", "Watchtower Conductor", "Weekend"),
@@ -1028,6 +1056,10 @@ def generate_schedule_pdf(meetings, schedules_df):
                 who += f" / {r['assistant']}"
             data.append([Paragraph(xml_escape(slot_label(slot)), cell_style),
                          Paragraph(xml_escape(who), cell_style)])
+            if r["role"] == "Public Talk" and talk_text(meta):
+                data.append([Paragraph("<i>" + xml_escape(talk_text(meta)) + "</i>",
+                                       cell_style), ""])
+                style.append(("SPAN", (0, len(data) - 1), (1, len(data) - 1)))
         table = Table(data, colWidths=[300, 223])
         table.setStyle(TableStyle(style))
         block += [table, Spacer(1, 18)]
@@ -1535,6 +1567,20 @@ elif menu == "Schedule":
             "aux": aux_on,
         }
 
+    talk_in = {"talk_number": meta.get("talk_number", ""),
+               "talk_title": meta.get("talk_title", "")}
+
+    def talk_inputs():
+        with st.container(border=True):
+            st.markdown("**🎤 Public talk**")
+            t1, t2 = st.columns([1, 4])
+            talk_in["talk_number"] = nfc(t1.text_input(
+                "Talk no.", talk_in["talk_number"], key=f"{ns}|talkno",
+                placeholder="e.g. 12"))
+            talk_in["talk_title"] = apply_ga_substitutes(nfc(t2.text_input(
+                "Talk title", talk_in["talk_title"], key=f"{ns}|talktitle",
+                placeholder="Title of the public talk")))
+
     picks, current_section = {}, None
     for i, slot in enumerate(slots):
         if slot["section"] != current_section:
@@ -1559,6 +1605,7 @@ elif menu == "Schedule":
                                     placeholder="Name — Congregation")
                 picks[i] = (None, None)
                 picks[i + 10000] = apply_ga_substitutes(nfc(vis))
+                talk_inputs()
                 continue
 
         role_dates = last_role_dates(slot["role"])
@@ -1587,6 +1634,8 @@ elif menu == "Schedule":
                 format_func=a_label, key=f"{wkey}|assistant",
             )
         picks[i] = (sid, aid)
+        if slot["role"] == "Public Talk":
+            talk_inputs()
 
     st.markdown("---")
     b1, b2 = st.columns([1, 1])
@@ -1620,6 +1669,7 @@ elif menu == "Schedule":
             for e in errors:
                 st.error(f"⚠️ {e}")
         else:
+            meta_in.update(talk_in)
             save_schedule(meeting_date, meeting_type, slots, picks, meta_in, names)
             st.success(f"Saved {meeting_type} for {fmt_date(meeting_date)}.")
             for w in warnings:
@@ -1654,6 +1704,8 @@ elif menu == "View Schedules":
     meta = get_meeting_meta(meeting_date, meeting_type)
     if meta.get("heading"):
         st.caption(meta["heading"])
+    if meeting_type == WEEKEND:
+        st.markdown(f"**Public talk:** {talk_text(meta) or '— title not entered —'}")
 
     table = pd.DataFrame({
         "Part": [slot_label(make_slot(r.part_name, r.role or "", r.section,
@@ -1699,7 +1751,7 @@ elif menu == "View Schedules":
     st.caption("One message per person. Tap to expand, copy, and paste into WhatsApp.")
     hall_word = {MAIN_HALL: "the main hall", AUX_HALL: "the auxiliary classroom"}
     reminded = rows[rows["person"].notna()
-                    & (rows["role"] != "Chairman")]
+                    & ~rows["role"].isin(["Chairman", "Weekend Chairman"])]
     if reminded.empty:
         st.info("Assign parts to generate reminders.")
     else:
@@ -1714,6 +1766,8 @@ elif menu == "View Schedules":
             if meta.get("heading"):
                 lines.append(meta["heading"])
             lines.append(f"Part: {part_txt}")
+            if r.role == "Public Talk" and talk_text(meta):
+                lines.append(f"Talk: {talk_text(meta)}")
             if r.hall == AUX_HALL:
                 lines.append(f"Room: {hall_word[AUX_HALL]}")
             if r.assistant and r.needs_assistant == 1:
@@ -1806,7 +1860,14 @@ elif menu == "Export":
         st.stop()
 
     st.subheader("CSV")
-    csv_df = schedules_df[["meeting_date", "meeting_type", "part_no", "part_name",
+    talks = {}
+    for md, mt in saved_meetings(schedules_df):
+        if mt == WEEKEND:
+            talks[(md, mt)] = talk_text(get_meeting_meta(md, mt))
+    schedules_df = schedules_df.assign(talk=[
+        talks.get((r.meeting_date, r.meeting_type), "") if r.role == "Public Talk" else ""
+        for r in schedules_df.itertuples()])
+    csv_df = schedules_df[["meeting_date", "meeting_type", "part_no", "part_name", "talk",
                            "minutes", "section", "role", "hall", "person", "assistant"]]
     st.download_button(
         "Download all schedules as CSV",
