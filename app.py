@@ -76,6 +76,7 @@ PRIVILEGES = [
     "Living Part",
     "Bible Study Conductor",
     "Reader",
+    "Aux Classroom Counselor",
     "Public Talk",
     "Watchtower Conductor",
     "Watchtower Reader",
@@ -99,6 +100,7 @@ ROLE_RULES = {
     "Living Part": ({"Living Part"}, True),
     "Bible Study Conductor": ({"Bible Study Conductor"}, True),
     "Reader": ({"Reader"}, True),
+    "Aux Classroom Counselor": ({"Aux Classroom Counselor"}, True),
     "Public Talk": ({"Public Talk"}, True),
     "Watchtower Conductor": ({"Watchtower Conductor"}, True),
     "Watchtower Reader": ({"Watchtower Reader"}, True),
@@ -112,6 +114,9 @@ STUDENT_ROLES = {
     "Student Talk",
 }
 ASSISTANT_ROLES = {"Initial Presentation", "Making Disciples", "Explaining Beliefs"}
+
+MAIN_HALL, AUX_HALL = "main_hall", "aux_1"
+HALL_NAMES = {MAIN_HALL: "Main hall", AUX_HALL: "Auxiliary classroom"}
 
 SECTIONS = ["Opening", "Treasures", "Ministry", "Living", "Closing", "Weekend"]
 SECTION_TITLES = {
@@ -237,7 +242,7 @@ def infer_role(title, section=None):
 def default_section(role, meeting_type=MIDWEEK):
     if meeting_type == WEEKEND:
         return "Weekend"
-    if role in ("Chairman",):
+    if role in ("Chairman", "Aux Classroom Counselor"):
         return "Opening"
     if role in ("Treasures Talk", "Spiritual Gems", "Bible Reading"):
         return "Treasures"
@@ -246,8 +251,9 @@ def default_section(role, meeting_type=MIDWEEK):
     return "Living"
 
 
-def make_slot(title, role, section, part_no=None, minutes=None):
+def make_slot(title, role, section, part_no=None, minutes=None, hall=MAIN_HALL):
     return {
+        "hall": hall or MAIN_HALL,
         "part_no": part_no,
         "title": nfc(title),
         "role": role,
@@ -262,14 +268,36 @@ def slot_label(slot):
     label = slot["title"]
     if slot.get("minutes") and "min" not in label.lower():
         label += f" ({slot['minutes']} min)"
-    return f"{slot['part_no']}. {label}" if slot.get("part_no") else label
+    label = f"{slot['part_no']}. {label}" if slot.get("part_no") else label
+    if slot.get("hall") == AUX_HALL:
+        label += " · Auxiliary classroom"
+    return label
 
 
 def slot_match_key(slot):
     """Used to carry names across when the parts list is swapped."""
+    hall = slot.get("hall") or MAIN_HALL
     if slot.get("part_no"):
-        return (slot["role"], slot["part_no"])
-    return (slot["role"], slot["title"].lower())
+        return (hall, slot["role"], slot["part_no"])
+    return (hall, slot["role"], slot["title"].lower())
+
+
+def apply_aux(slots, aux_on):
+    """Add (or strip) the auxiliary-classroom counselor and a second slot per student part."""
+    base = [s for s in slots
+            if s.get("hall", MAIN_HALL) == MAIN_HALL and s["role"] != "Aux Classroom Counselor"]
+    if not aux_on:
+        return base
+    out = []
+    for s in base:
+        out.append(s)
+        if s["role"] == "Chairman":
+            out.append(make_slot("Auxiliary Classroom Counselor",
+                                 "Aux Classroom Counselor", s["section"]))
+        if s["student_part"]:
+            out.append(make_slot(s["title"], s["role"], s["section"],
+                                 s["part_no"], s.get("minutes"), hall=AUX_HALL))
+    return out
 
 
 # =============================================================================
@@ -338,7 +366,10 @@ def init_db():
             "assistant_id": "INTEGER",
             "assistant_name": "TEXT",
             "sort_order": "INTEGER DEFAULT 0",
+            "hall": "TEXT DEFAULT 'main_hall'",
         })
+        _add_missing_columns(conn, "meetings", {"aux": "INTEGER"})
+        conn.execute("UPDATE schedules SET hall = 'main_hall' WHERE hall IS NULL")
         conn.execute("UPDATE students SET active = 1 WHERE active IS NULL")
         conn.execute("""
             UPDATE schedules
@@ -428,6 +459,7 @@ def get_schedules():
             SELECT sc.id, sc.meeting_date, sc.meeting_type, sc.part_no, sc.part_name,
                    sc.minutes, sc.section, sc.role, sc.student_part, sc.needs_assistant,
                    sc.student_id, sc.assistant_id, sc.sort_order,
+                   COALESCE(sc.hall, 'main_hall') AS hall,
                    COALESCE(s.name, sc.assigned_person) AS person,
                    COALESCE(a.name, sc.assistant_name) AS assistant
               FROM schedules sc
@@ -464,7 +496,7 @@ def load_schedule(meeting_date, meeting_type, schedules_df=None):
         part_no = int(r["part_no"]) if pd.notna(r["part_no"]) else None
         minutes = int(r["minutes"]) if pd.notna(r["minutes"]) else None
         section = r["section"] or default_section(role, meeting_type)
-        slot = make_slot(r["part_name"], role, section, part_no, minutes)
+        slot = make_slot(r["part_name"], role, section, part_no, minutes, r["hall"])
         slots.append(slot)
         sid = int(r["student_id"]) if pd.notna(r["student_id"]) else None
         aid = int(r["assistant_id"]) if pd.notna(r["assistant_id"]) else None
@@ -475,12 +507,14 @@ def load_schedule(meeting_date, meeting_type, schedules_df=None):
 def get_meeting_meta(meeting_date, meeting_type):
     with get_conn() as conn:
         row = conn.execute(
-            """SELECT heading, opening_song, middle_song, closing_song FROM meetings
+            """SELECT heading, opening_song, middle_song, closing_song, aux FROM meetings
                WHERE meeting_date = ? AND meeting_type = ?""",
             (str(meeting_date), meeting_type),
         ).fetchone()
-    keys = ["heading", "opening_song", "middle_song", "closing_song"]
-    return dict(zip(keys, row)) if row else {k: "" for k in keys}
+    keys = ["heading", "opening_song", "middle_song", "closing_song", "aux"]
+    meta = dict(zip(keys, row)) if row else {k: "" for k in keys[:-1]}
+    meta.setdefault("aux", None)
+    return meta
 
 
 def save_schedule(meeting_date, meeting_type, slots, picks, meta, names):
@@ -493,6 +527,7 @@ def save_schedule(meeting_date, meeting_type, slots, picks, meta, names):
             slot.get("minutes"), slot["section"], slot["role"],
             int(slot["student_part"]), int(slot["needs_assistant"]),
             sid, names.get(sid), aid, names.get(aid), order,
+            slot.get("hall") or MAIN_HALL,
         ))
     with get_conn() as conn:
         conn.execute("DELETE FROM schedules WHERE meeting_date = ? AND meeting_type = ?",
@@ -500,19 +535,20 @@ def save_schedule(meeting_date, meeting_type, slots, picks, meta, names):
         conn.executemany(
             """INSERT INTO schedules (meeting_date, meeting_type, part_no, part_name,
                    minutes, section, role, student_part, needs_assistant, student_id,
-                   assigned_person, assistant_id, assistant_name, sort_order)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   assigned_person, assistant_id, assistant_name, sort_order, hall)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
         conn.execute(
             """INSERT INTO meetings (meeting_date, meeting_type, heading, opening_song,
-                   middle_song, closing_song) VALUES (?, ?, ?, ?, ?, ?)
+                   middle_song, closing_song, aux) VALUES (?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(meeting_date, meeting_type) DO UPDATE SET
                    heading = excluded.heading, opening_song = excluded.opening_song,
-                   middle_song = excluded.middle_song, closing_song = excluded.closing_song""",
+                   middle_song = excluded.middle_song, closing_song = excluded.closing_song,
+                   aux = excluded.aux""",
             (str(meeting_date), meeting_type, meta.get("heading", ""),
              meta.get("opening_song", ""), meta.get("middle_song", ""),
-             meta.get("closing_song", "")),
+             meta.get("closing_song", ""), int(bool(meta.get("aux")))),
         )
 
 
@@ -735,8 +771,8 @@ def register_fonts():
     return "Helvetica", "Helvetica-Bold", False
 
 
-def generate_slips_pdf(slip_rows, lang, hall_key):
-    """slip_rows: dicts with person, assistant, part_no, part_name, meeting_date."""
+def generate_slips_pdf(slip_rows, lang):
+    """slip_rows: dicts with person, assistant, part_no, part_name, meeting_date, hall."""
     regular, bold, _ = register_fonts()
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=18, leftMargin=18,
@@ -751,7 +787,7 @@ def generate_slips_pdf(slip_rows, lang, hall_key):
         row = row or {}
 
         def tick(key):
-            return "[X]" if filled and key == hall_key else "[&nbsp;&nbsp;]"
+            return "[X]" if filled and key == row.get("hall", MAIN_HALL) else "[&nbsp;&nbsp;]"
 
         name = xml_escape(row.get("person") or "")
         assistant = xml_escape(row.get("assistant") or "") or "_" * 25
@@ -849,7 +885,8 @@ def generate_schedule_pdf(meetings, schedules_df):
                            colors.HexColor("#30363d"))]
             slot = make_slot(r["part_name"], r["role"] or "", section,
                              int(r["part_no"]) if pd.notna(r["part_no"]) else None,
-                             int(r["minutes"]) if pd.notna(r["minutes"]) else None)
+                             int(r["minutes"]) if pd.notna(r["minutes"]) else None,
+                             r["hall"])
             who = r["person"] or "—"
             if r["assistant"]:
                 who += f" / {r['assistant']}"
@@ -879,6 +916,8 @@ def build_s140_data(meetings, schedules_df, congregation, group_label):
             "treasures": [], "ministry": [], "living": [],
         }
         reader = ""
+        main_items = {}
+        aux_week = bool(meta.get("aux")) or (rows["hall"] == AUX_HALL).any()
         for _, r in rows.iterrows():
             title = re.sub(r"\s*\(\s*\d+\s*min\.?\s*\)\s*$", "", r["part_name"] or "",
                            flags=re.IGNORECASE)
@@ -886,7 +925,18 @@ def build_s140_data(meetings, schedules_df, congregation, group_label):
                     "min": str(int(r["minutes"])) if pd.notna(r["minutes"]) else "",
                     "name": r["person"] or ""}
             role, section = r["role"], r["section"]
-            if role == "Chairman":
+            if r["hall"] == AUX_HALL:
+                target = main_items.get((role, r["part_no"]))
+                if target is not None:
+                    target["name2"] = item["name"]
+                    if r["assistant"]:
+                        target["assistant2"] = r["assistant"]
+                continue
+            if role in STUDENT_ROLES:
+                main_items[(role, r["part_no"])] = item
+            if role == "Aux Classroom Counselor":
+                week["aux_counselor"] = item["name"]
+            elif role == "Chairman":
                 week["chairman"] = item["name"]
             elif role == "Prayer":
                 key = "closing_prayer" if section == "Closing" else "opening_prayer"
@@ -908,8 +958,15 @@ def build_s140_data(meetings, schedules_df, congregation, group_label):
         if "cbs" not in week or len(week["treasures"]) != 3:
             skipped.append(meeting_date)
             continue
+        week["aux"] = bool(aux_week)
         weeks.append(week)
-    data = {"congregation": congregation, "group_label": group_label, "weeks": weeks}
+    any_aux = any(w["aux"] for w in weeks)
+    data = {"congregation": congregation, "group_label": group_label, "weeks": weeks,
+            "aux": any_aux}
+    if any_aux:
+        # keep the Asa 2 caption and its column width for the auxiliary classroom
+        data["clear_asa2"] = False
+        data["asa2_shift"] = 0
     return data, skipped
 
 
@@ -975,6 +1032,13 @@ if selected_lang != "English" and not FONT_SUPPORTS_GA:
         "No font with ɛ, ɔ and ŋ was found, so Ga slips will show boxes. "
         "Put DejaVuSans.ttf and DejaVuSans-Bold.ttf in a 'fonts' folder next to app.py."
     )
+aux_setting = get_setting("use_aux", "1") == "1"
+aux_default = st.sidebar.toggle(
+    "Auxiliary classroom in use", value=aux_setting,
+    help="Default for new midweek schedules. Any single week can still be switched off.",
+)
+if aux_default != aux_setting:
+    set_setting("use_aux", "1" if aux_default else "0")
 st.sidebar.markdown("---")
 if st.sidebar.button("🏠 Back to Dashboard", width="stretch"):
     go("Dashboard")
@@ -1161,6 +1225,18 @@ elif menu == "Schedule":
     elif meeting_type == MIDWEEK:
         st.caption("Tip: upload the workbook PDF to fill in this week's real part titles.")
 
+    aux_on = False
+    if meeting_type == MIDWEEK:
+        saved_aux = meta.get("aux")
+        aux_on = st.checkbox(
+            "Auxiliary classroom this week",
+            value=bool(saved_aux) if saved_aux is not None else aux_default,
+            key=f"{meeting_date}|{meeting_type}|aux",
+            help="Adds a counselor and a second student (and assistant) for the "
+                 "Bible reading and each field-ministry part.",
+        )
+    slots = apply_aux(slots, aux_on)
+
     active = students_df[students_df["active"] == 1]
     if active.empty:
         st.warning("Add participants under 'Manage Participants' first.")
@@ -1183,6 +1259,7 @@ elif menu == "Schedule":
                                          key=f"{ns}|song2"),
             "closing_song": m2.text_input("Closing song", meta.get("closing_song", ""),
                                           key=f"{ns}|song3"),
+            "aux": aux_on,
         }
 
     picks, current_section = {}, None
@@ -1193,10 +1270,14 @@ elif menu == "Schedule":
         pre_sid, pre_aid = saved_picks.get(slot_match_key(slot), (None, None))
         options = ordered_options(eligible_ids(slot["role"], students_df, show_all),
                                   last_dates, keep=pre_sid)
+        wkey = f"{ns}|{slot['hall']}|{slot['role']}|{slot['part_no']}|{slot['title']}"
+        text = slot_label(slot)
+        if aux_on and slot["student_part"] and slot["hall"] == MAIN_HALL:
+            text += " · Main hall"
         cols = st.columns([3, 2]) if slot["needs_assistant"] else [st.container()]
         sid = cols[0].selectbox(
-            slot_label(slot), options, index=options.index(pre_sid),
-            format_func=label, key=f"{ns}|{i}|student",
+            text, options, index=options.index(pre_sid),
+            format_func=label, key=f"{wkey}|student",
         )
         aid = None
         if slot["needs_assistant"]:
@@ -1207,7 +1288,7 @@ elif menu == "Schedule":
             a_options = ordered_options(pool, last_dates, keep=pre_aid)
             aid = cols[1].selectbox(
                 "Assistant", a_options, index=a_options.index(pre_aid),
-                format_func=label, key=f"{ns}|{i}|assistant",
+                format_func=label, key=f"{wkey}|assistant",
             )
         picks[i] = (sid, aid)
 
@@ -1222,7 +1303,7 @@ elif menu == "Schedule":
                               f"'{slot_label(slots[i])}'.")
             for pid in (sid, aid):
                 if pid is not None:
-                    usage.setdefault(pid, []).append(slots[i]["title"])
+                    usage.setdefault(pid, []).append(slot_label(slots[i]))
             if sid and aid and categories.get(sid) != categories.get(aid):
                 warnings.append(f"'{slot_label(slots[i])}': student and assistant "
                                 "are in different categories.")
@@ -1277,7 +1358,8 @@ elif menu == "View Schedules":
     table = pd.DataFrame({
         "Part": [slot_label(make_slot(r.part_name, r.role or "", r.section,
                                       int(r.part_no) if pd.notna(r.part_no) else None,
-                                      int(r.minutes) if pd.notna(r.minutes) else None))
+                                      int(r.minutes) if pd.notna(r.minutes) else None,
+                                      r.hall))
                  for r in rows.itertuples()],
         "Assigned to": rows["person"].fillna("— unassigned —").tolist(),
         "Assistant": [
@@ -1295,18 +1377,19 @@ elif menu == "View Schedules":
     if student_rows.empty:
         st.info("No student parts are assigned for this meeting, so there are no slips to print.")
     else:
-        halls = {"main_hall": t["main_hall"], "aux_1": t["aux_1"], "aux_2": t["aux_2"]}
-        hall_key = st.radio("Mark 'to be given in' as", list(halls),
-                            format_func=halls.get, horizontal=True)
         slip_rows = [
             {"person": r.person, "assistant": r.assistant,
              "part_no": int(r.part_no) if pd.notna(r.part_no) else None,
-             "part_name": r.part_name, "meeting_date": meeting_date}
-            for r in student_rows.itertuples()
+             "part_name": r.part_name, "meeting_date": meeting_date, "hall": r.hall}
+            for r in student_rows.sort_values(["hall", "sort_order"]).itertuples()
         ]
+        n_aux = sum(1 for r in slip_rows if r["hall"] == AUX_HALL)
+        if n_aux:
+            st.caption(f"{len(slip_rows) - n_aux} main hall and {n_aux} auxiliary "
+                       "classroom slip(s); each has its room ticked.")
         st.download_button(
             f"📄 Download {len(slip_rows)} slip(s) ({selected_lang})",
-            data=generate_slips_pdf(slip_rows, t, hall_key),
+            data=generate_slips_pdf(slip_rows, t),
             file_name=f"S89_slips_{meeting_date}_{selected_lang}.pdf",
             mime="application/pdf",
         )
@@ -1395,7 +1478,7 @@ elif menu == "Export":
 
     st.subheader("CSV")
     csv_df = schedules_df[["meeting_date", "meeting_type", "part_no", "part_name",
-                           "minutes", "section", "role", "person", "assistant"]]
+                           "minutes", "section", "role", "hall", "person", "assistant"]]
     st.download_button(
         "Download all schedules as CSV",
         data=csv_df.to_csv(index=False).encode("utf-8-sig"),  # BOM keeps ɛ/ɔ right in Excel
@@ -1418,7 +1501,9 @@ elif menu == "Export":
 
     c1, c2 = st.columns(2)
     congregation = c1.text_input("Congregation name", get_setting("congregation"))
-    group_label = c2.text_input("Group label", get_setting("group_label", "GROUP"))
+    group_label = c2.text_input(
+        "Group label", get_setting("group_label", "GROUP"),
+        help="Only used for weeks without the auxiliary classroom.")
     template = st.file_uploader("Blank S-140 template (.docx)", type=["docx"])
     widen = st.checkbox("Widen title and name columns", value=True)
 
