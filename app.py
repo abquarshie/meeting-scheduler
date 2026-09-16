@@ -2,6 +2,7 @@ from datetime import date
 import io
 import sqlite3
 import pandas as pd
+import pypdf
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
@@ -38,6 +39,29 @@ def init_db():
 
 
 init_db()
+
+
+# --- MULTI-LANGUAGE TEMPLATES ---
+TRANSLATIONS = {
+    "English": {
+        "slip_title": "Meeting Assignment Slips",
+        "part": "Part",
+        "assigned": "Assigned To",
+        "date": "Date",
+    },
+    "Spanish (Español)": {
+        "slip_title": "Hoja de Designaciones",
+        "part": "Parte",
+        "assigned": "Designado a",
+        "date": "Fecha",
+    },
+    "French (Français)": {
+        "slip_title": "Fiches de Désignations",
+        "part": "Partie",
+        "assigned": "Attribué à",
+        "date": "Date",
+    },
+}
 
 
 # --- HELPER FUNCTIONS ---
@@ -89,7 +113,7 @@ def save_schedule(meeting_date, meeting_type, assignments):
   conn.close()
 
 
-def generate_pdf_slips(meeting_date, filtered_df):
+def generate_pdf_slips(meeting_date, filtered_df, lang_dict):
   buffer = io.BytesIO()
   doc = SimpleDocTemplate(
       buffer,
@@ -110,14 +134,17 @@ def generate_pdf_slips(meeting_date, filtered_df):
   )
 
   story.append(
-      Paragraph(f"<b>Meeting Assignment Slips - {meeting_date}</b>", title_style)
+      Paragraph(
+          f"<b>{lang_dict['slip_title']} - {meeting_date}</b>", title_style
+      )
   )
   story.append(Spacer(1, 10))
 
   for index, row in filtered_df.iterrows():
     slip_text = (
-        f"<b>Part:</b> {row['part_name']}<br/><b>Assigned To:"
-        f"</b> {row['assigned_person']}<br/><b>Date:</b> {meeting_date}"
+        f"<b>{lang_dict['part']}:</b> {row['part_name']}<br/>"
+        f"<b>{lang_dict['assigned']}:</b> {row['assigned_person']}<br/>"
+        f"<b>{lang_dict['date']}:</b> {meeting_date}"
     )
     story.append(Paragraph(slip_text, body_style))
     story.append(Spacer(1, 15))
@@ -133,12 +160,26 @@ st.set_page_config(
 )
 
 st.title("📅 Midweek & Weekend Meeting Scheduler")
-st.write("Manage meeting assignments, prevent conflicts, and generate slips.")
+st.write(
+    "Manage meeting assignments, avoid double bookings, and generate multi-lang"
+    " slips."
+)
 
-# Sidebar Navigation
+# Sidebar Options & Navigation
+selected_lang = st.sidebar.selectbox(
+    "Language Template", list(TRANSLATIONS.keys())
+)
+t = TRANSLATIONS[selected_lang]
+
 menu = st.sidebar.selectbox(
     "Navigation",
-    ["View Schedules", "Create/Edit Schedule", "Manage Participants", "Export"],
+    [
+        "View Schedules",
+        "Create/Edit Schedule",
+        "Manage Participants",
+        "Upload PDF Brochure",
+        "Export",
+    ],
 )
 
 students_df = get_students()
@@ -289,10 +330,10 @@ elif menu == "View Schedules":
     st.subheader(f"Schedule for: {selected_date}")
     st.table(filtered_df[["meeting_type", "part_name", "assigned_person"]])
 
-    # PDF Download Button
-    pdf_data = generate_pdf_slips(selected_date, filtered_df)
+    # PDF Download Button (Using selected language template)
+    pdf_data = generate_pdf_slips(selected_date, filtered_df, t)
     st.download_button(
-        label="📄 Download Printable PDF Slips",
+        label=f"📄 Download PDF Slips ({selected_lang})",
         data=pdf_data,
         file_name=f"assignment_slips_{selected_date}.pdf",
         mime="application/pdf",
@@ -305,8 +346,8 @@ elif menu == "View Schedules":
                 <hr>
                 <table style="width:100%; border-collapse: collapse;">
                     <tr>
-                        <th style="text-align:left; border-bottom:1px solid black; padding: 6px;">Part</th>
-                        <th style="text-align:left; border-bottom:1px solid black; padding: 6px;">Assigned Person</th>
+                        <th style="text-align:left; border-bottom:1px solid black; padding: 6px;">{t['part']}</th>
+                        <th style="text-align:left; border-bottom:1px solid black; padding: 6px;">{t['assigned']}</th>
                     </tr>
             """
       for index, row in filtered_df.iterrows():
@@ -316,6 +357,27 @@ elif menu == "View Schedules":
       st.info("Tip: Press Ctrl+P (or Cmd+P) to print this view.")
   else:
     st.info("No schedules have been created yet.")
+
+elif menu == "Upload PDF Brochure":
+  st.header("📖 Import Meeting Brochure (PDF)")
+  st.write(
+      "Upload the official meeting workbook brochure PDF downloaded from"
+      " jw.org to extract text and reference it."
+  )
+
+  uploaded_pdf = st.file_uploader("Choose PDF file", type=["pdf"])
+
+  if uploaded_pdf is not None:
+    reader = pypdf.PdfReader(uploaded_pdf)
+    extracted_text = ""
+
+    for i, page in enumerate(reader.pages):
+      extracted_text += f"\n--- Page {i+1} ---\n" + page.extract_text()
+
+    st.success(f"Successfully read {len(reader.pages)} pages from the brochure!")
+
+    with st.expander("View Extracted Raw Text"):
+      st.text_area("Raw Text Preview", extracted_text, height=350)
 
 elif menu == "Export":
   st.header("📤 Export Data")
