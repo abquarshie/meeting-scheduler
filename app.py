@@ -331,8 +331,41 @@ elif menu == "View Schedules":
         )
         filtered_df = schedules_df[schedules_df["meeting_date"] == selected_date]
 
-        st.subheader(f"Schedule for: {selected_date}")
-        st.table(filtered_df[["meeting_type", "part_name", "assigned_person"]])
+        meeting_type = filtered_df["meeting_type"].iloc[0] if not filtered_df.empty else "Midweek Meeting"
+
+        st.subheader(f"Schedule for: {selected_date} ({meeting_type})")
+        
+        # Convert filtered rows into a lookup dictionary
+        assignment_dict = dict(zip(filtered_df["part_name"], filtered_df["assigned_person"]))
+
+        # Render layout based on meeting type using matching emojis
+        if meeting_type == "Midweek Meeting":
+            st.markdown("### 🔹 Opening")
+            for part in ["Chairman", "Opening Prayer"]:
+                if part in assignment_dict:
+                    st.write(f"- **{part}:** {assignment_dict[part]}")
+
+            st.markdown("### 📖 Treasures from God's Word")
+            for part in ["Treasures Talk", "Digging Gems", "Bible Reading"]:
+                if part in assignment_dict:
+                    st.write(f"- **{part}:** {assignment_dict[part]}")
+
+            st.markdown("### 🎯 Apply Yourself to the Field Ministry")
+            for part in ["Initial Presentation", "Making Disciples", "Explaining Beliefs"]:
+                if part in assignment_dict:
+                    st.write(f"- **{part}:** {assignment_dict[part]}")
+
+            st.markdown("### 💡 Living as Christians")
+            for part in ["Living Part 1", "Living Part 2", "Conductor", "Reader", "Closing Prayer"]:
+                if part in assignment_dict:
+                    st.write(f"- **{part}:** {assignment_dict[part]}")
+        else:
+            st.markdown("### 🏛️ Weekend Meeting Parts")
+            for part in ["Chairman", "Opening Prayer / Song", "Public Talk Speaker", "Watchtower Conductor", "Watchtower Reader", "Closing Prayer"]:
+                if part in assignment_dict:
+                    st.write(f"- **{part}:** {assignment_dict[part]}")
+
+        st.divider()
 
         # PDF Download Button (Using selected language template)
         pdf_data = generate_pdf_slips(selected_date, filtered_df, t)
