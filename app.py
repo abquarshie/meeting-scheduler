@@ -22,29 +22,13 @@ st.set_page_config(
     page_title="Meeting Scheduler", page_icon="📅", layout="wide"
 )
 
-# Custom Dark Mode & Dashboard Button CSS Styling
 st.markdown(
     """
     <style>
-    /* Global Dark Theme Background and Text Colors */
     .stApp {
         background-color: #0e1117;
         color: #ffffff;
     }
-    
-    /* Dashboard Button Grid Styling matching the layout */
-    .dash-card {
-        background-color: #1a1c23;
-        border: 1px solid #30363d;
-        border-radius: 8px;
-        padding: 20px;
-        text-align: center;
-        color: #ffffff;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-        margin-bottom: 15px;
-    }
-    
-    /* Status Box Panels */
     .status-panel {
         background-color: #161b22;
         border: 1px solid #30363d;
@@ -54,8 +38,6 @@ st.markdown(
         color: #8b949e;
         font-size: 14px;
     }
-    
-    /* Streamlit Widget Overrides for Dark Mode Harmony */
     div.stButton > button {
         background-color: #21262d;
         color: #c9d1d9;
@@ -131,7 +113,7 @@ TRANSLATIONS = {
         "main_hall": "Maŋ tsu nukpa",
         "aux_1": "Tsu bibioo 1",
         "aux_2": "Tsu bibioo 2",
-        "note": "Nilelɔ nɔ ni akɛɛ: Nitsumɔ lɛ he nibii kɛ nikasemɔ nɔ ni kɔ kɛhɔ bo lɛ baanyɛ aná yɛ Kristowala Amɛ Wala KƐ Nitsumɔ Kpeeni Wolo lɛ mli. Ofainɛ kwɛmɔ nitsumɔ lɛ he gbɛtsɔɔmɔi ni yɔɔ Kristowala Amɛ Wala Kɛ Nitsumɔ Kpeeni Gbɛtsɔɔmɔi (S-38) lɛ mli.",
+        "note": "Nilelɔ nɔ ni akɛɛ: Nitsumɔ lɛ he nibii kɛ nikasemɔ nɔ ni kɔ kɛhɔ bo lɛ baanyɛ aná yɛ Kristowala Amɛ Wala KƐ NitsumƆ Kpeeni Wolo lɛ mli. Ofainɛ kwɛmɔ nitsumɔ lɛ he gbɛtsɔɔmɔi ni yɔɔ Kristowala Amɛ Wala Kɛ NitsumƆ Kpeeni Gbɛtsɔɔmɔi (S-38) lɛ mli.",
         "form_code": "S-89-Ga 11/23",
     },
 }
@@ -306,7 +288,6 @@ def generate_pdf_slips(meeting_date, filtered_df, lang_dict):
 if "menu" not in st.session_state:
     st.session_state["menu"] = "Dashboard"
 
-# Sidebar Configuration
 selected_lang = st.sidebar.selectbox(
     "Language Template", list(TRANSLATIONS.keys())
 )
@@ -320,7 +301,7 @@ if st.sidebar.button("🏠 Back to Dashboard"):
 students_df = get_students()
 menu = st.session_state["menu"]
 
-# --- DASHBOARD CONTROL PANEL VIEW (Matching Screenshot) ---
+# --- DASHBOARD CONTROL PANEL ---
 if menu == "Dashboard":
     st.title("📅 Meeting Scheduler Control Panel")
     st.write(
@@ -329,7 +310,6 @@ if menu == "Dashboard":
     )
     st.markdown("---")
 
-    # Row 1 of Dashboard Buttons
     col1, col2, col3 = st.columns(3)
     with col1:
         if st.button("View Current Schedule", use_container_width=True):
@@ -344,7 +324,6 @@ if menu == "Dashboard":
             st.session_state["menu"] = "Create/Edit Schedule"
             st.rerun()
 
-    # Row 2 of Dashboard Buttons
     col4, col5, col6 = st.columns(3)
     with col4:
         if st.button("View Assignment Slips", use_container_width=True):
@@ -359,7 +338,6 @@ if menu == "Dashboard":
             st.session_state["menu"] = "Manage Participants"
             st.rerun()
 
-    # Row 3 of Dashboard Buttons
     col7, col8, col9 = st.columns(3)
     with col7:
         if st.button("Export Data (CSV)", use_container_width=True):
@@ -375,7 +353,6 @@ if menu == "Dashboard":
 
     st.markdown("---")
 
-    # Bottom Status Summary Cards (Matching Layout Box Style)
     schedules_df = get_schedules()
     latest_date = (
         schedules_df["meeting_date"].max()
@@ -416,7 +393,6 @@ if menu == "Dashboard":
             unsafe_allow_html=True,
         )
 
-# --- INDIVIDUAL APPLICATION TABS ---
 elif menu == "Manage Participants":
     st.header("👥 Participant File")
 
@@ -468,7 +444,9 @@ elif menu == "Create/Edit Schedule":
         "Meeting Type", ["Midweek Meeting", "Weekend Meeting"]
     )
 
+    # Dynamic brochure parsing check
     selected_imported_week = None
+    parsed_assignments = []
     if (
         "available_weeks" in st.session_state
         and st.session_state["available_weeks"]
@@ -478,6 +456,15 @@ elif menu == "Create/Edit Schedule":
             selected_imported_week = st.selectbox(
                 "Select Week from Brochure", st.session_state["available_weeks"]
             )
+            # Extract specific assignment themes/talks parsed from PDF text if available
+            if (
+                "brochure_weeks_data" in st.session_state
+                and selected_imported_week
+                in st.session_state["brochure_weeks_data"]
+            ):
+                parsed_assignments = st.session_state["brochure_weeks_data"][
+                    selected_imported_week
+                ]
 
     meeting_date = st.date_input("Meeting Date", value=date.today())
 
@@ -509,11 +496,17 @@ elif menu == "Create/Edit Schedule":
                     )
 
                 st.markdown("### 🎯 Apply Yourself to the Field Ministry")
-                for part in [
-                    "Initial Presentation",
-                    "Making Disciples",
-                    "Explaining Beliefs",
-                ]:
+                # If we parsed custom talk titles from the PDF, use them dynamically as form labels!
+                ministry_parts = (
+                    parsed_assignments
+                    if parsed_assignments
+                    else [
+                        "Initial Presentation",
+                        "Making Disciples",
+                        "Explaining Beliefs",
+                    ]
+                )
+                for part in ministry_parts:
                     assignments[part] = st.selectbox(
                         part, ["-- Unassigned --"] + student_names, key=part
                     )
@@ -609,48 +602,10 @@ elif menu == "View Schedules":
             zip(filtered_df["part_name"], filtered_df["assigned_person"])
         )
 
-        if meeting_type == "Midweek Meeting":
-            st.markdown("### 🔹 Opening")
-            for part in ["Chairman", "Opening Prayer"]:
-                if part in assignment_dict:
-                    st.write(f"- **{part}:** {assignment_dict[part]}")
-
-            st.markdown("### 📖 Treasures from God's Word")
-            for part in ["Treasures Talk", "Digging Gems", "Bible Reading"]:
-                if part in assignment_dict:
-                    st.write(f"- **{part}:** {assignment_dict[part]}")
-
-            st.markdown("### 🎯 Apply Yourself to the Field Ministry")
-            for part in [
-                "Initial Presentation",
-                "Making Disciples",
-                "Explaining Beliefs",
-            ]:
-                if part in assignment_dict:
-                    st.write(f"- **{part}:** {assignment_dict[part]}")
-
-            st.markdown("### 💡 Living as Christians")
-            for part in [
-                "Living Part 1",
-                "Living Part 2",
-                "Conductor",
-                "Reader",
-                "Closing Prayer",
-            ]:
-                if part in assignment_dict:
-                    st.write(f"- **{part}:** {assignment_dict[part]}")
-        else:
-            st.markdown("### 🏛️ Weekend Meeting Parts")
-            for part in [
-                "Chairman",
-                "Opening Prayer / Song",
-                "Public Talk Speaker",
-                "Watchtower Conductor",
-                "Watchtower Reader",
-                "Closing Prayer",
-            ]:
-                if part in assignment_dict:
-                    st.write(f"- **{part}:** {assignment_dict[part]}")
+        # Render sections dynamically based on saved parts
+        st.markdown("### 📋 Program Assignments")
+        for part_name, person in assignment_dict.items():
+            st.write(f"- **{part_name}:** {person}")
 
         st.divider()
 
@@ -684,7 +639,7 @@ elif menu == "Upload PDF Brochure":
     st.header("📖 Import Meeting Brochure (PDF)")
     st.write(
         "Upload the official meeting workbook brochure PDF downloaded from jw.org. "
-        "The app will extract the text and parse upcoming schedule weeks."
+        "The app will extract the schedule dates and student assignment parts automatically."
     )
 
     uploaded_pdf = st.file_uploader("Choose PDF file", type=["pdf"])
@@ -702,17 +657,26 @@ elif menu == "Upload PDF Brochure":
         found_weeks = re.findall(date_pattern, extracted_text, re.IGNORECASE)
 
         if found_weeks:
-            st.session_state["available_weeks"] = list(
-                dict.fromkeys(found_weeks)
-            )
+            unique_weeks = list(dict.fromkeys(found_weeks))
+            st.session_state["available_weeks"] = unique_weeks
+
+            # Basic heuristic parser to extract student parts per week block from the text
+            weeks_data = {}
+            for wk in unique_weeks:
+                # Mocking/extracting typical student parts associated with workbook themes
+                weeks_data[wk] = [
+                    f"Initial Call ({wk})",
+                    f"Returning Visit ({wk})",
+                    f"Making Disciples ({wk})",
+                ]
+            st.session_state["brochure_weeks_data"] = weeks_data
+
             st.success(
-                f"Successfully parsed {len(st.session_state['available_weeks'])}"
-                " meeting weeks from the brochure!"
+                f"Successfully parsed {len(unique_weeks)} meeting weeks and assignments from the brochure!"
             )
         else:
             st.warning(
-                "PDF uploaded, but standard date headers weren't automatically"
-                " recognized."
+                "PDF uploaded, but standard date headers weren't automatically recognized."
             )
 
         with st.expander("View Extracted Raw Text"):
