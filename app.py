@@ -1,6 +1,10 @@
 from datetime import date
+import io
 import sqlite3
 import pandas as pd
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 import streamlit as st
 
 # --- DATABASE SETUP ---
@@ -76,8 +80,7 @@ def save_schedule(meeting_date, meeting_type, assignments):
   for part_name, person in assignments.items():
     cursor.execute(
         """
-            INSERT INTO schedules (meeting_date, meeting_type, part_name,"
-            " assigned_person)
+            INSERT INTO schedules (meeting_date, meeting_type, part_name, assigned_person)
             VALUES (?, ?, ?, ?)
         """,
         (str(meeting_date), meeting_type, part_name, person),
@@ -86,16 +89,51 @@ def save_schedule(meeting_date, meeting_type, assignments):
   conn.close()
 
 
+def generate_pdf_slips(meeting_date, filtered_df):
+  buffer = io.BytesIO()
+  doc = SimpleDocTemplate(
+      buffer,
+      pagesize=letter,
+      rightMargin=36,
+      leftMargin=36,
+      topMargin=36,
+      bottomMargin=36,
+  )
+  story = []
+  styles = getSampleStyleSheet()
+
+  title_style = ParagraphStyle(
+      "SlipTitle", parent=styles["Heading2"], fontSize=14, spaceAfter=6
+  )
+  body_style = ParagraphStyle(
+      "SlipBody", parent=styles["Normal"], fontSize=10, spaceAfter=12
+  )
+
+  story.append(
+      Paragraph(f"<b>Meeting Assignment Slips - {meeting_date}</b>", title_style)
+  )
+  story.append(Spacer(1, 10))
+
+  for index, row in filtered_df.iterrows():
+    slip_text = (
+        f"<b>Part:</b> {row['part_name']}<br/><b>Assigned To:"
+        f"</b> {row['assigned_person']}<br/><b>Date:</b> {meeting_date}"
+    )
+    story.append(Paragraph(slip_text, body_style))
+    story.append(Spacer(1, 15))
+
+  doc.build(story)
+  buffer.seek(0)
+  return buffer
+
+
 # --- STREAMLIT UI ---
 st.set_page_config(
     page_title="Meeting Scheduler", page_icon="📅", layout="wide"
 )
 
 st.title("📅 Midweek & Weekend Meeting Scheduler")
-st.write(
-    "A custom, self-hosted web app built to handle your meeting parts and"
-    " assignments cleanly."
-)
+st.write("Manage meeting assignments, prevent conflicts, and generate slips.")
 
 # Sidebar Navigation
 menu = st.sidebar.selectbox(
@@ -203,8 +241,40 @@ elif menu == "Create/Edit Schedule":
         valid_assignments = {
             k: v for k, v in assignments.items() if v != "-- Unassigned --"
         }
-        save_schedule(meeting_date, meeting_type, valid_assignments)
-        st.success(f"Schedule for {meeting_date} saved successfully!")
+        chosen_people = list(valid_assignments.values())
+
+        # Check for duplicates in form submission
+        duplicates = set(
+            [
+                person
+                for person in chosen_people
+                if chosen_people.count(person) > 1
+            ]
+        )
+
+        # Check for existing database conflicts on this date
+        existing_schedules = get_schedules()
+        already_booked = []
+        if not existing_schedules.empty:
+          date_matches = existing_schedules[
+              existing_schedules["meeting_date"] == str(meeting_date)
+          ]
+          booked_people_on_date = date_matches["assigned_person"].tolist()
+          already_booked = [p for p in chosen_people if p in booked_people_on_date]
+
+        if duplicates:
+          st.error(
+              "⚠️ Scheduling Conflict: The following person is assigned to"
+              f" multiple parts this week: {', '.join(duplicates)}"
+          )
+        elif already_booked:
+          st.error(
+              "⚠️ Scheduling Conflict: The following person is already assigned"
+              f" on {meeting_date}: {', '.join(already_booked)}"
+          )
+        else:
+          save_schedule(meeting_date, meeting_type, valid_assignments)
+          st.success(f"Schedule for {meeting_date} saved successfully!")
 
 elif menu == "View Schedules":
   st.header("📋 View Saved Schedules")
@@ -218,6 +288,32 @@ elif menu == "View Schedules":
 
     st.subheader(f"Schedule for: {selected_date}")
     st.table(filtered_df[["meeting_type", "part_name", "assigned_person"]])
+
+    # PDF Download Button
+    pdf_data = generate_pdf_slips(selected_date, filtered_df)
+    st.download_button(
+        label="📄 Download Printable PDF Slips",
+        data=pdf_data,
+        file_name=f"assignment_slips_{selected_date}.pdf",
+        mime="application/pdf",
+    )
+
+    # Print View Section
+    if st.button("🖨️ Open Print View"):
+      print_html = f"""
+                <h3>Meeting Schedule - {selected_date}</h3>
+                <hr>
+                <table style="width:100%; border-collapse: collapse;">
+                    <tr>
+                        <th style="text-align:left; border-bottom:1px solid black; padding: 6px;">Part</th>
+                        <th style="text-align:left; border-bottom:1px solid black; padding: 6px;">Assigned Person</th>
+                    </tr>
+            """
+      for index, row in filtered_df.iterrows():
+        print_html += f"<tr><td style='padding: 6px;'>{row['part_name']}</td><td style='padding: 6px;'>{row['assigned_person']}</td></tr>"
+      print_html += "</table>"
+      st.markdown(print_html, unsafe_allow_html=True)
+      st.info("Tip: Press Ctrl+P (or Cmd+P) to print this view.")
   else:
     st.info("No schedules have been created yet.")
 
