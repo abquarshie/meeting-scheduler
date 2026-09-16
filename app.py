@@ -384,6 +384,8 @@ def init_db():
             "active": "INTEGER DEFAULT 1",
             "family": "TEXT",
             "groups": "TEXT",
+            "suspended": "INTEGER DEFAULT 0",
+            "suspended_until": "TEXT",
         })
         _add_missing_columns(conn, "schedules", {
             "part_no": "INTEGER",
@@ -404,6 +406,12 @@ def init_db():
             "talk_number": "TEXT",
             "talk_title": "TEXT",
         })
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS workbook_weeks (
+                label TEXT PRIMARY KEY,
+                position INTEGER,
+                data TEXT
+            )""")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS unavailable (
                 student_id INTEGER NOT NULL,
@@ -453,7 +461,8 @@ def set_setting(key, value):
 
 
 def get_students(active_only=False):
-    query = "SELECT id, name, gender, privileges, active, family, groups FROM students"
+    query = ("SELECT id, name, gender, privileges, active, family, groups, "
+             "suspended, suspended_until FROM students")
     if active_only:
         query += " WHERE active = 1"
     with get_conn() as conn:
@@ -696,6 +705,49 @@ def role_history(student_id, limit=8):
     return rows
 
 
+def is_suspended(row, on_date):
+    """Suspended with no end date, or the end date hasn't passed yet."""
+    if not row.get("suspended") or pd.isna(row.get("suspended")):
+        return False
+    until = row.get("suspended_until")
+    if not isinstance(until, str) or not until:
+        return True
+    return str(on_date) <= until
+
+
+def get_suspended(students, on_date):
+    return {int(r["id"]) for r in students.to_dict("records") if is_suspended(r, on_date)}
+
+
+def suspension_text(row, today=None):
+    today = today or date.today().isoformat()
+    if not is_suspended(row, today):
+        return ""
+    until = row.get("suspended_until")
+    return f"Suspended until {fmt_date(until)}" if isinstance(until, str) and until \
+        else "Suspended"
+
+
+def set_suspension(student_id, suspended, until=None):
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE students SET suspended = ?, suspended_until = ? WHERE id = ?",
+            (int(suspended), until if suspended else None, student_id),
+        )
+
+
+def upcoming_assignments(student_id, until=None):
+    today = date.today().isoformat()
+    query = """SELECT meeting_date, meeting_type, part_name FROM schedules
+                WHERE (student_id = ? OR assistant_id = ?) AND meeting_date >= ?"""
+    params = [student_id, student_id, today]
+    if until:
+        query += " AND meeting_date <= ?"
+        params.append(until)
+    with get_conn() as conn:
+        return conn.execute(query + " ORDER BY meeting_date", params).fetchall()
+
+
 def get_unavailable(meeting_date):
     with get_conn() as conn:
         rows = conn.execute(
@@ -832,39 +884,86 @@ def _classify(part_no, title, minutes, section):
     return section, role
 
 
+NUM_LINE_RE = re.compile(r"^[ \t]*(\d{1,2})\.[ \t]+(\S.*)$")
+DUR_RE = re.compile(r"\((?:(\d{1,2})[ \t]*min\.?|min\.?[ \t]*(\d{1,2}))\)", re.IGNORECASE)
+
+
+def _clean_title(text):
+    return re.sub(r"\s+", " ", text).strip(" .–—-\"“”")
+
+
+def _find_parts(text):
+    """Numbered parts with their minutes. Titles may wrap over up to two lines,
+    and the '(N min.)' may sit on the title line or a following line."""
+    lines = text.split("\n")
+    offsets, pos = [], 0
+    for line in lines:
+        offsets.append(pos)
+        pos += len(line) + 1
+    timed, untimed = {}, {}
+    for i, line in enumerate(lines):
+        m = NUM_LINE_RE.match(line)
+        if not m:
+            continue
+        no = int(m.group(1))
+        title_bits, minutes = [], None
+        rest = m.group(2)
+        for k in range(0, 4):  # this line + up to 3 more
+            chunk = rest if k == 0 else lines[i + k] if i + k < len(lines) else None
+            if chunk is None or (k > 0 and NUM_LINE_RE.match(chunk)):
+                break
+            d = DUR_RE.search(chunk)
+            if d:
+                title_bits.append(chunk[:d.start()])
+                minutes = int(d.group(1) or d.group(2))
+                break
+            title_bits.append(chunk)
+        title = _clean_title(" ".join(title_bits) if minutes else m.group(2))
+        if not title:
+            continue
+        entry = (title, minutes, offsets[i])
+        if minutes is not None:
+            timed.setdefault(no, entry)
+        else:
+            untimed.setdefault(no, entry)
+    if not timed:
+        return {}, []
+    top = max(timed)
+    found = dict(timed)
+    for no in range(1, top):  # fill gaps with an untimed numbered line, if any
+        if no not in found and no in untimed:
+            found[no] = untimed[no]
+    gaps = [no for no in range(1, top + 1) if no not in found]
+    return found, gaps
+
+
 def _parse_week(text):
     heading_hits = sorted(
         (m.start(), name) for name, rx in HEADING_RES.items() for m in rx.finditer(text)
     )
-    parts, seen = [], set()
-    in_living = False
-    for m in PART_RE.finditer(text):
-        part_no = int(m.group(1))
-        if part_no in seen:
-            continue
-        seen.add(part_no)
-        title = re.sub(r"\s+", " ", m.group(2)).strip(" .–—-\"“”")
-        minutes = int(m.group(3) or m.group(4))
+    found, gaps = _find_parts(text)
+    parts, in_living = [], False
+    for part_no in sorted(found):
+        title, minutes, pos = found[part_no]
         section = None
-        for pos, name in heading_hits:
-            if pos < m.start():
+        for hpos, name in heading_hits:
+            if hpos < pos:
                 section = name
         section, role = _classify(part_no, title, minutes, section)
         if section is None:
             # Heuristic: short parts after 3 are student parts until a longer one.
-            if not in_living and minutes <= 5:
+            if not in_living and (minutes or 0) <= 5:
                 section = "Ministry"
             else:
                 in_living = True
                 section = "Living"
             section, role = _classify(part_no, title, minutes, section)
         parts.append(make_slot(title, role, section, part_no, minutes))
-    parts.sort(key=lambda p: p["part_no"])
     songs = SONG_RE.findall(text)[:3]
-    return parts, songs
+    return parts, songs, gaps
 
 
-@st.cache_data(show_spinner="Reading brochure…")
+@st.cache_data(show_spinner="Reading workbook…")
 def parse_brochure(pdf_bytes):
     reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
     pages = [nfc(page.extract_text() or "") for page in reader.pages]
@@ -883,13 +982,70 @@ def parse_brochure(pdf_bytes):
 
     weeks, empty = {}, []
     for label, text in chunks.items():
-        parts, songs = _parse_week(text)
+        parts, songs, gaps = _parse_week(text)
         if parts:
-            weeks[label] = {"parts": parts, "songs": songs}
+            weeks[label] = {"parts": parts, "songs": songs, "gaps": gaps,
+                            "text": text.strip()}
         else:
             empty.append(label)
     raw = "\n".join(f"--- Page {i + 1} ---\n{t}" for i, t in enumerate(pages))
     return weeks, empty, raw
+
+
+MONTH_NUM = {m: i + 1 for i, m in enumerate(MONTHS.split("|"))}
+LABEL_RE = re.compile(rf"({MONTHS})\s+(\d{{1,2}})–(?:({MONTHS})\s+)?(\d{{1,2}})")
+
+
+def week_range(label, year):
+    m = LABEL_RE.fullmatch(label)
+    if not m:
+        return None
+    m1, d1 = MONTH_NUM[m.group(1)], int(m.group(2))
+    m2, d2 = MONTH_NUM[m.group(3) or m.group(1)], int(m.group(4))
+    try:
+        start = date(year, m1, d1)
+        end = date(year + (1 if m2 < m1 else 0), m2, d2)
+    except ValueError:
+        return None
+    return start, end
+
+
+def week_for_date(labels, meeting_date):
+    """The workbook week whose date range contains the meeting date."""
+    d = datetime.strptime(str(meeting_date), "%Y-%m-%d").date()
+    for label in labels:
+        for year in (d.year, d.year - 1):
+            rng = week_range(label, year)
+            if rng and rng[0] <= d <= rng[1]:
+                return label
+    return None
+
+
+def load_workbook():
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT label, data FROM workbook_weeks ORDER BY position").fetchall()
+        name = conn.execute("SELECT value FROM settings WHERE key = 'workbook_file'").fetchone()
+    return {label: json.loads(data) for label, data in rows}, (name[0] if name else "")
+
+
+def save_workbook(weeks, file_name):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM workbook_weeks")
+        conn.executemany(
+            "INSERT INTO workbook_weeks (label, position, data) VALUES (?, ?, ?)",
+            [(label, i, json.dumps(w, ensure_ascii=False))
+             for i, (label, w) in enumerate(weeks.items())],
+        )
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('workbook_file', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (file_name,))
+
+
+def parts_summary(parts):
+    return [{"No.": p["part_no"], "Title": p["title"],
+             "Min": p.get("minutes") or "", "Section": p["section"]}
+            for p in parts]
 
 
 # =============================================================================
@@ -1141,8 +1297,8 @@ def build_s140_data(meetings, schedules_df, congregation, group_label):
 # =============================================================================
 # ASSIGNMENT PICKER HELPERS
 # =============================================================================
-def eligible_ids(role, students, show_all, away=frozenset()):
-    active = students[students["active"] == 1]
+def eligible_ids(role, students, show_all, away=frozenset(), suspended=frozenset()):
+    active = students[(students["active"] == 1) & ~students["id"].isin(suspended)]
     if not show_all:
         active = active[~active["id"].isin(away)]
     if show_all or role not in ROLE_RULES:
@@ -1164,7 +1320,7 @@ def ordered_options(ids, last_dates, keep=None):
 
 
 def person_label_factory(students, last_dates, away=frozenset(), role_dates=None,
-                         family_of=None):
+                         family_of=None, suspended=frozenset()):
     names = dict(zip(students["id"], students["name"]))
     inactive = set(students[students["active"] != 1]["id"])
     tags = dict(zip(students["id"], students["group_list"]))
@@ -1184,6 +1340,8 @@ def person_label_factory(students, last_dates, away=frozenset(), role_dates=None
             flags += " · inactive"
         if pid in away:
             flags += " · away"
+        if pid in suspended:
+            flags += " · suspended"
         for g in tags.get(pid, []):
             flags += f" · {GROUP_TAGS[g]}"
         if family_of is not None and same_family(fam, pid, family_of):
@@ -1303,7 +1461,7 @@ if menu == "Dashboard":
     if c6.button("📤 Export (CSV / S-140)", width="stretch"):
         go("Export")
 
-    if st.button("🔄 Reset session (clears uploaded brochure and filters)"):
+    if st.button("🔄 Reset session (clears filters and unsaved picks)"):
         st.session_state.clear()
         st.rerun()
 
@@ -1394,6 +1552,37 @@ elif menu == "Manage Participants":
                         st.success("Saved. Existing schedules show the updated name.")
                         st.rerun()
 
+            row_d = row.to_dict()
+            with st.expander("Suspension", expanded=is_suspended(row_d, date.today())):
+                status = suspension_text(row_d)
+                if status:
+                    st.warning(status)
+                sus = st.checkbox("Suspended (no parts or assisting)",
+                                  value=bool(row_d.get("suspended")) and bool(status),
+                                  key=f"sus_{sid}")
+                until = None
+                if sus:
+                    open_ended = st.checkbox(
+                        "No end date", key=f"sus_open_{sid}",
+                        value=not (isinstance(row_d.get("suspended_until"), str)
+                                   and row_d.get("suspended_until")))
+                    if not open_ended:
+                        saved_until = row_d.get("suspended_until")
+                        default_until = (datetime.strptime(saved_until, "%Y-%m-%d").date()
+                                         if isinstance(saved_until, str) and saved_until
+                                         else date.today() + timedelta(days=90))
+                        until = st.date_input("Suspended until (inclusive)", default_until,
+                                              key=f"sus_until_{sid}").isoformat()
+                    clash = upcoming_assignments(sid, until)
+                    if clash:
+                        st.info("Already scheduled in this period — reassign these: "
+                                + "; ".join(f"{fmt_date(d)} {t.split()[0].lower()}: {p}"
+                                            for d, t, p in clash))
+                if st.button("Save suspension", key=f"save_sus_{sid}"):
+                    set_suspension(sid, sus, until)
+                    st.success("Suspension lifted." if not sus else "Suspension saved.")
+                    st.rerun()
+
             with st.expander("Away dates (dropped from those meetings)"):
                 current_away = unavailable_dates(sid)
                 if current_away:
@@ -1434,7 +1623,7 @@ elif menu == "Manage Participants":
         if students_df.empty:
             st.info("No participants yet.")
         else:
-            show = st.radio("Show", ["Everyone", "Families", "Adults"] + GROUPS,
+            show = st.radio("Show", ["Everyone", "Families", "Adults"] + GROUPS + ["Suspended"],
                             horizontal=True, key="participant_filter")
             last = last_assignment_dates(exclude_date="")
             df = students_df
@@ -1442,13 +1631,18 @@ elif menu == "Manage Participants":
                 df = df[df["family"].notna()]
             elif show == "Adults":
                 df = df[df["group_list"].apply(len) == 0]
+            elif show == "Suspended":
+                today_iso = date.today().isoformat()
+                df = df[[is_suspended(r, today_iso) for r in df.to_dict("records")]]
             elif show in GROUPS:
                 df = df[df["group_list"].apply(lambda g: show in g)]
             view = df.assign(
                 group=df["group_list"].apply(lambda g: ", ".join(g) or "Adult"),
                 last_assignment=df["id"].map(
                     lambda i: fmt_date(last[i]) if i in last else ""),
-                status=df["active"].map({1: "Active"}).fillna("Inactive"),
+                status=[("Inactive" if r["active"] != 1 else
+                         suspension_text(r) or "Active")
+                        for r in df.to_dict("records")],
                 privileges=df["privilege_list"].apply(", ".join),
                 family=df["family"].fillna(""),
             )
@@ -1493,31 +1687,68 @@ elif menu == "Schedule":
         st.info("A schedule is already saved for this date. It's loaded below, "
                 "and saving will replace it.")
 
-    brochure = st.session_state.get("brochure_weeks", {})
+    brochure, brochure_file = load_workbook()
     source = "saved" if saved_slots else "default"
     slots = saved_slots or (
         build_midweek_slots(default_midweek_parts())
         if meeting_type == MIDWEEK else default_weekend_slots())
 
     if meeting_type == MIDWEEK and brochure:
+        labels = list(brochure)
+        matched = week_for_date(labels, meeting_date)
+        wb_parts = brochure[matched]["parts"] if matched else []
+        saved_numbered = [(s_["part_no"], s_["title"]) for s_ in saved_slots
+                          if s_.get("part_no") and s_.get("hall", MAIN_HALL) == MAIN_HALL]
+        wb_numbered = [(p_["part_no"], p_["title"]) for p_ in wb_parts]
+        differs = bool(saved_slots and matched and saved_numbered != wb_numbered)
+        if differs:
+            st.warning(
+                f"The saved schedule has {len(saved_numbered)} numbered part(s), but the "
+                f"workbook week **{matched}** has {len(wb_numbered)}, or the titles differ. "
+                "Tick the box below to switch to the workbook parts; names carry over "
+                "where the part number and role match."
+            )
         use_brochure = st.checkbox(
             "Use parts from the uploaded workbook", value=not saved_slots,
             help="Names already picked carry over when the part number and role match.",
         )
         if use_brochure:
-            week = st.selectbox("Workbook week", list(brochure))
+            week = st.selectbox(
+                "Workbook week", labels,
+                index=labels.index(matched) if matched else 0,
+                help="Chosen automatically from the meeting date when it matches.",
+            )
+            if not matched:
+                st.caption("No workbook week matches this date, so pick one.")
             slots = build_midweek_slots(brochure[week]["parts"])
             source = f"brochure:{week}"
             songs = brochure[week].get("songs", [])
             if not saved_slots:
                 meta = {
+                    **meta,
                     "heading": week,
                     "opening_song": f"Song {songs[0]}" if len(songs) > 0 else "",
                     "middle_song": f"Song {songs[1]}" if len(songs) > 1 else "",
                     "closing_song": f"Song {songs[2]}" if len(songs) > 2 else "",
                 }
+        else:
+            week = matched
+
+        if week:
+            wk = brochure[week]
+            with st.expander(f"📖 Cross-check with the workbook — {week} "
+                             f"({len(wk['parts'])} parts)", expanded=differs):
+                if wk.get("gaps"):
+                    st.error("Part number(s) not found in the workbook text: "
+                             + ", ".join(map(str, wk["gaps"]))
+                             + ". Add them under Upload Workbook PDF → Review week.")
+                st.dataframe(pd.DataFrame(parts_summary(wk["parts"])),
+                             width="stretch", hide_index=True)
+                st.text_area("Workbook text for this week", wk.get("text", ""),
+                             height=260, key=f"wbtext|{meeting_date}|{week}")
     elif meeting_type == MIDWEEK:
-        st.caption("Tip: upload the workbook PDF to fill in this week's real part titles.")
+        st.caption("Using the standard 8-part list. Upload the workbook PDF to get "
+                   "this week's real part numbers and titles.")
 
     aux_on = False
     if meeting_type == MIDWEEK:
@@ -1540,17 +1771,23 @@ elif menu == "Schedule":
     show_all = c_show.checkbox("Show everyone in every list (ignore privileges and category)")
     last_dates = last_assignment_dates(meeting_date)
     away = get_unavailable(meeting_date)
+    suspended = get_suspended(students_df, meeting_date)
+    blocked = away | suspended  # never offered for new picks
     categories = dict(zip(students_df["id"], students_df["gender"]))
     families = dict(zip(students_df["id"], students_df["family"]))
     names = dict(zip(students_df["id"], students_df["name"]))
     if away:
         st.caption("Away this date: "
                    + ", ".join(sorted(names[p] for p in away if p in names)))
+    if suspended:
+        st.caption("Suspended (not offered): "
+                   + ", ".join(sorted(names[p] for p in suspended if p in names)))
 
     sugg_key = f"suggest|{meeting_date}|{meeting_type}|{source}"
     if c_suggest.button("✨ Suggest", width="stretch",
                         help="Fill empty slots with whoever has waited longest for each part."):
-        st.session_state[sugg_key] = suggest_assignments(slots, students_df, away, meeting_date)
+        st.session_state[sugg_key] = suggest_assignments(
+            slots, students_df, blocked, meeting_date)
     suggested = st.session_state.get(sugg_key, {})
 
     ns = f"{meeting_date}|{meeting_type}|{source}"
@@ -1610,10 +1847,12 @@ elif menu == "Schedule":
 
         role_dates = last_role_dates(slot["role"])
         options = ordered_options(
-            eligible_ids(slot["role"], students_df, show_all, away), role_dates, keep=pre_sid)
+            eligible_ids(slot["role"], students_df, show_all, away, suspended),
+            role_dates, keep=pre_sid)
         if pre_sid not in options:
             pre_sid = None
-        label = person_label_factory(students_df, last_dates, away, role_dates)
+        label = person_label_factory(students_df, last_dates, away, role_dates,
+                                     suspended=suspended)
         cols = st.columns([3, 2]) if slot["needs_assistant"] else [st.container()]
         sid = cols[0].selectbox(
             text, options, index=options.index(pre_sid),
@@ -1621,14 +1860,15 @@ elif menu == "Schedule":
         )
         aid = None
         if slot["needs_assistant"]:
-            pool = assistant_pool(students_df, sid, away, show_all)
+            pool = assistant_pool(students_df, sid, blocked, show_all)
             a_options = ordered_options(pool, last_dates, keep=pre_aid)
             # family members first (sort is stable, so rotation order is kept)
             a_options = [None] + sorted(
                 a_options[1:], key=lambda p: not same_family(families, p, sid))
             if pre_aid not in a_options:
                 pre_aid = None
-            a_label = person_label_factory(students_df, last_dates, away, family_of=sid)
+            a_label = person_label_factory(students_df, last_dates, away, family_of=sid,
+                                           suspended=suspended)
             aid = cols[1].selectbox(
                 "Assistant", a_options, index=a_options.index(pre_aid),
                 format_func=a_label, key=f"{wkey}|assistant",
@@ -1659,6 +1899,9 @@ elif menu == "Schedule":
         for pid, parts in usage.items():
             if len(parts) > 1:
                 warnings.append(f"{names[pid]} has {len(parts)} parts: {', '.join(parts)}.")
+        for pid in set(usage) & suspended:
+            warnings.append(f"{names[pid]} is suspended but still assigned: "
+                            f"{', '.join(usage[pid])}.")
         other_type = WEEKEND if meeting_type == MIDWEEK else MIDWEEK
         _, other_picks, _ = load_schedule(meeting_date, other_type, schedules_df)
         other_people = {p for pair in other_picks.values() for p in pair if p}
@@ -1797,15 +2040,25 @@ elif menu == "Upload PDF Brochure":
         "Upload the Life and Ministry Meeting Workbook PDF. Numbered parts with "
         "their minutes are read for each week, and you can correct them below."
     )
-    uploaded_pdf = st.file_uploader("Choose PDF file", type=["pdf"])
+    stored, stored_file = load_workbook()
+    if stored:
+        c1, c2 = st.columns([4, 1])
+        c1.info(f"Workbook in use: **{stored_file or 'uploaded workbook'}** "
+                f"({len(stored)} week(s)). Uploading another replaces it.")
+        if c2.button("Remove", width="stretch"):
+            save_workbook({}, "")
+            st.rerun()
 
+    uploaded_pdf = st.file_uploader("Choose PDF file", type=["pdf"])
+    raw_text = ""
     if uploaded_pdf is not None:
         weeks, empty, raw_text = parse_brochure(uploaded_pdf.getvalue())
         file_id = f"{uploaded_pdf.name}:{uploaded_pdf.size}"
         if st.session_state.get("brochure_file") != file_id:
             st.session_state["brochure_file"] = file_id
-            st.session_state["brochure_weeks"] = weeks
-
+            if weeks:
+                save_workbook(weeks, uploaded_pdf.name)
+                stored, stored_file = load_workbook()
         if not weeks:
             st.error(
                 "No numbered parts with durations were found. The PDF may be scanned, "
@@ -1813,19 +2066,34 @@ elif menu == "Upload PDF Brochure":
             )
         else:
             st.success(f"Found parts for {len(weeks)} week(s).")
-            if empty:
-                st.warning("No parts found under: " + ", ".join(empty))
-            if not any(WEEK_RE.search(w) for w in weeks):
-                st.info("No English week headings were found, so weeks are listed by page. "
-                        "Section guesses are based on part numbers and durations; "
-                        "check them below.")
+        if empty:
+            st.warning("No parts found under: " + ", ".join(empty))
+        if weeks and not any(WEEK_RE.search(w) for w in weeks):
+            st.info("No English week headings were found, so weeks are listed by page. "
+                    "Section guesses are based on part numbers and durations; "
+                    "check them below.")
 
-            stored = st.session_state["brochure_weeks"]
-            week = st.selectbox("Review week", list(stored))
+    if stored:
+        st.subheader("Weeks found")
+        summary = pd.DataFrame([
+            {"Week": label, "Parts": len(w["parts"]),
+             "Numbers": ", ".join(str(p["part_no"]) for p in w["parts"]),
+             "Missing": ", ".join(map(str, w.get("gaps", []))) or "—"}
+            for label, w in stored.items()
+        ])
+        st.dataframe(summary, width="stretch", hide_index=True)
+        if any(w.get("gaps") for w in stored.values()):
+            st.warning("Some weeks have missing part numbers. Open the week below, "
+                       "compare with the workbook text, and add the missing rows.")
+
+        st.subheader("Review and correct a week")
+        week = st.selectbox("Week", list(stored))
+        left, right = st.columns([3, 2])
+        with left:
             editor_df = pd.DataFrame(stored[week]["parts"])[
                 ["part_no", "title", "minutes", "section", "role"]]
             edited = st.data_editor(
-                editor_df, key=f"editor|{file_id}|{week}", width="stretch",
+                editor_df, key=f"editor|{stored_file}|{week}", width="stretch",
                 hide_index=True, num_rows="dynamic",
                 column_config={
                     "part_no": st.column_config.NumberColumn("No.", min_value=1, step=1),
@@ -1837,18 +2105,29 @@ elif menu == "Upload PDF Brochure":
                         "Role", options=ROLES, required=True),
                 },
             )
-            if st.button("Save corrections for this week"):
+            st.caption("Use the + row at the bottom to add a missing part.")
+            if st.button("Save corrections for this week", type="primary"):
                 clean = edited.dropna(subset=["title", "section", "role"])
-                stored[week]["parts"] = sorted(
+                parts = sorted(
                     (make_slot(r.title, r.role, r.section,
                                int(r.part_no) if pd.notna(r.part_no) else None,
                                int(r.minutes) if pd.notna(r.minutes) else None)
                      for r in clean.itertuples()),
-                    key=lambda p: p["part_no"] or 99,
+                    key=lambda p_: p_["part_no"] or 99,
                 )
+                numbers = [p_["part_no"] for p_ in parts if p_["part_no"]]
+                top = max(numbers) if numbers else 0
+                stored[week]["parts"] = parts
+                stored[week]["gaps"] = [n for n in range(1, top + 1) if n not in numbers]
+                save_workbook(stored, stored_file)
                 st.success("Saved. Use 'Create Schedule' to assign this week.")
+                st.rerun()
+        with right:
+            st.text_area("Workbook text for this week", stored[week].get("text", ""),
+                         height=420, key=f"wbraw|{week}")
 
-        with st.expander("View extracted raw text"):
+    if raw_text:
+        with st.expander("View the whole extracted text"):
             st.text_area("Raw text", raw_text, height=350)
 
 # -----------------------------------------------------------------------------
