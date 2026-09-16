@@ -183,6 +183,26 @@ def nfc(text):
     return unicodedata.normalize("NFC", text or "").strip()
 
 
+# Typists substitute 3 ) N for ɛ ɔ ŋ when the keyboard lacks them.
+GA_SUBSTITUTES = {"3": "ɛ", ")": "ɔ", "N": "ŋ"}
+
+
+def apply_ga_substitutes(text):
+    if not get_setting("ga_convert", "0") == "1":
+        return text
+    out = []
+    for ch in text or "":
+        # only convert a capital N between letters, so real initials survive
+        if ch == "N":
+            out.append(ch)
+        else:
+            out.append(GA_SUBSTITUTES.get(ch, ch))
+    result = "".join(out)
+    # standalone N -> ŋ only when clearly mid-word (letter on both sides)
+    result = re.sub(r"(?<=[A-Za-zɛɔŋ])N(?=[a-zɛɔŋ])", "ŋ", result)
+    return result
+
+
 def fmt_date(iso, short=False):
     try:
         d = datetime.strptime(str(iso), "%Y-%m-%d").date()
@@ -254,6 +274,7 @@ def default_section(role, meeting_type=MIDWEEK):
 def make_slot(title, role, section, part_no=None, minutes=None, hall=MAIN_HALL):
     return {
         "hall": hall or MAIN_HALL,
+        "allow_visitor": False,
         "part_no": part_no,
         "title": nfc(title),
         "role": role,
@@ -367,8 +388,15 @@ def init_db():
             "assistant_name": "TEXT",
             "sort_order": "INTEGER DEFAULT 0",
             "hall": "TEXT DEFAULT 'main_hall'",
+            "visitor": "TEXT",
         })
         _add_missing_columns(conn, "meetings", {"aux": "INTEGER"})
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS unavailable (
+                student_id INTEGER NOT NULL,
+                meeting_date TEXT NOT NULL,
+                PRIMARY KEY (student_id, meeting_date)
+            )""")
         conn.execute("UPDATE schedules SET hall = 'main_hall' WHERE hall IS NULL")
         conn.execute("UPDATE students SET active = 1 WHERE active IS NULL")
         conn.execute("""
@@ -422,7 +450,7 @@ def add_student(name, gender, privileges):
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO students (name, gender, privileges, active) VALUES (?, ?, ?, 1)",
-            (nfc(name), gender, ", ".join(privileges)),
+            (apply_ga_substitutes(nfc(name)), gender, ", ".join(privileges)),
         )
 
 
@@ -430,13 +458,14 @@ def update_student(student_id, name, gender, privileges, active):
     with get_conn() as conn:
         conn.execute(
             "UPDATE students SET name = ?, gender = ?, privileges = ?, active = ? WHERE id = ?",
-            (nfc(name), gender, ", ".join(privileges), int(active), student_id),
+            (apply_ga_substitutes(nfc(name)), gender, ", ".join(privileges),
+             int(active), student_id),
         )
         # keep the name snapshot on old schedules in step with the rename
         conn.execute("UPDATE schedules SET assigned_person = ? WHERE student_id = ?",
-                     (nfc(name), student_id))
+                     (apply_ga_substitutes(nfc(name)), student_id))
         conn.execute("UPDATE schedules SET assistant_name = ? WHERE assistant_id = ?",
-                     (nfc(name), student_id))
+                     (apply_ga_substitutes(nfc(name)), student_id))
 
 
 def student_usage_count(student_id):
@@ -459,8 +488,8 @@ def get_schedules():
             SELECT sc.id, sc.meeting_date, sc.meeting_type, sc.part_no, sc.part_name,
                    sc.minutes, sc.section, sc.role, sc.student_part, sc.needs_assistant,
                    sc.student_id, sc.assistant_id, sc.sort_order,
-                   COALESCE(sc.hall, 'main_hall') AS hall,
-                   COALESCE(s.name, sc.assigned_person) AS person,
+                   COALESCE(sc.hall, 'main_hall') AS hall, sc.visitor,
+                   COALESCE(sc.visitor, s.name, sc.assigned_person) AS person,
                    COALESCE(a.name, sc.assistant_name) AS assistant
               FROM schedules sc
               LEFT JOIN students s ON s.id = sc.student_id
@@ -490,18 +519,21 @@ def meeting_label(pair):
 def load_schedule(meeting_date, meeting_type, schedules_df=None):
     df = get_schedules() if schedules_df is None else schedules_df
     rows = df[(df["meeting_date"] == str(meeting_date)) & (df["meeting_type"] == meeting_type)]
-    slots, picks = [], {}
+    slots, picks, visitors = [], {}, {}
     for _, r in rows.iterrows():
         role = r["role"] or infer_role(r["part_name"])
         part_no = int(r["part_no"]) if pd.notna(r["part_no"]) else None
         minutes = int(r["minutes"]) if pd.notna(r["minutes"]) else None
         section = r["section"] or default_section(role, meeting_type)
         slot = make_slot(r["part_name"], role, section, part_no, minutes, r["hall"])
+        slot["allow_visitor"] = role == "Public Talk"
         slots.append(slot)
         sid = int(r["student_id"]) if pd.notna(r["student_id"]) else None
         aid = int(r["assistant_id"]) if pd.notna(r["assistant_id"]) else None
         picks[slot_match_key(slot)] = (sid, aid)
-    return slots, picks
+        if pd.notna(r.get("visitor")) and r.get("visitor"):
+            visitors[slot_match_key(slot)] = r["visitor"]
+    return slots, picks, visitors
 
 
 def get_meeting_meta(meeting_date, meeting_type):
@@ -527,7 +559,7 @@ def save_schedule(meeting_date, meeting_type, slots, picks, meta, names):
             slot.get("minutes"), slot["section"], slot["role"],
             int(slot["student_part"]), int(slot["needs_assistant"]),
             sid, names.get(sid), aid, names.get(aid), order,
-            slot.get("hall") or MAIN_HALL,
+            slot.get("hall") or MAIN_HALL, picks.get(order + 10000) or None,
         ))
     with get_conn() as conn:
         conn.execute("DELETE FROM schedules WHERE meeting_date = ? AND meeting_type = ?",
@@ -535,8 +567,8 @@ def save_schedule(meeting_date, meeting_type, slots, picks, meta, names):
         conn.executemany(
             """INSERT INTO schedules (meeting_date, meeting_type, part_no, part_name,
                    minutes, section, role, student_part, needs_assistant, student_id,
-                   assigned_person, assistant_id, assistant_name, sort_order, hall)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   assigned_person, assistant_id, assistant_name, sort_order, hall, visitor)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
         conn.execute(
@@ -574,6 +606,56 @@ def last_assignment_dates(exclude_date):
             (str(exclude_date), str(exclude_date)),
         ).fetchall()
     return {pid: d for pid, d in rows}
+
+
+def last_role_dates(role):
+    """student_id -> most recent date they had this same role (either hall)."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT student_id, MAX(meeting_date) FROM schedules
+                WHERE role = ? AND student_id IS NOT NULL
+                GROUP BY student_id""",
+            (role,),
+        ).fetchall()
+    return {pid: d for pid, d in rows}
+
+
+def role_history(student_id, limit=8):
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT meeting_date, part_name, hall FROM schedules
+                WHERE student_id = ? OR assistant_id = ?
+                ORDER BY meeting_date DESC LIMIT ?""",
+            (student_id, student_id, limit),
+        ).fetchall()
+    return rows
+
+
+def get_unavailable(meeting_date):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT student_id FROM unavailable WHERE meeting_date = ?",
+            (str(meeting_date),),
+        ).fetchall()
+    return {r[0] for r in rows}
+
+
+def unavailable_dates(student_id):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT meeting_date FROM unavailable WHERE student_id = ? ORDER BY meeting_date",
+            (student_id,),
+        ).fetchall()
+    return [r[0] for r in rows]
+
+
+def set_unavailable(student_id, dates):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM unavailable WHERE student_id = ?", (student_id,))
+        conn.executemany(
+            "INSERT INTO unavailable (student_id, meeting_date) VALUES (?, ?)",
+            [(student_id, str(d)) for d in dates],
+        )
 
 
 # =============================================================================
@@ -615,7 +697,7 @@ def default_weekend_slots():
     return [
         make_slot("Chairman", "Chairman", "Weekend"),
         make_slot("Opening Prayer", "Prayer", "Weekend"),
-        make_slot("Public Talk Speaker", "Public Talk", "Weekend"),
+        {**make_slot("Public Talk Speaker", "Public Talk", "Weekend"), "allow_visitor": True},
         make_slot("Watchtower Conductor", "Watchtower Conductor", "Weekend"),
         make_slot("Watchtower Reader", "Watchtower Reader", "Weekend"),
         make_slot("Closing Prayer", "Prayer", "Weekend"),
@@ -973,8 +1055,10 @@ def build_s140_data(meetings, schedules_df, congregation, group_label):
 # =============================================================================
 # ASSIGNMENT PICKER HELPERS
 # =============================================================================
-def eligible_ids(role, students, show_all):
+def eligible_ids(role, students, show_all, away=frozenset()):
     active = students[students["active"] == 1]
+    if not show_all:
+        active = active[~active["id"].isin(away)]
     if show_all or role not in ROLE_RULES:
         return active["id"].tolist()
     privileges, brothers_only = ROLE_RULES[role]
@@ -993,19 +1077,55 @@ def ordered_options(ids, last_dates, keep=None):
     return [None] + ids
 
 
-def person_label_factory(students, last_dates):
+def person_label_factory(students, last_dates, away=frozenset(), role_dates=None):
     names = dict(zip(students["id"], students["name"]))
     inactive = set(students[students["active"] != 1]["id"])
 
     def label(pid):
         if pid is None:
             return "-- Unassigned --"
-        last = last_dates.get(pid)
-        suffix = f"last: {fmt_date(last, short=True)}" if last else "no parts yet"
-        flag = " · inactive" if pid in inactive else ""
-        return f"{names.get(pid, '?')} ({suffix}{flag})"
+        role_last = (role_dates or {}).get(pid)
+        if role_last:
+            suffix = f"this part: {fmt_date(role_last, short=True)}"
+        else:
+            last = last_dates.get(pid)
+            suffix = f"last: {fmt_date(last, short=True)}" if last else "no parts yet"
+        flags = ""
+        if pid in inactive:
+            flags += " · inactive"
+        if pid in away:
+            flags += " · away"
+        return f"{names.get(pid, '?')} ({suffix}{flags})"
 
     return label
+
+
+def suggest_assignments(slots, students, away, meeting_date):
+    """Fill each slot with the eligible person idlest for that role. No repeats."""
+    used = set()
+    last_any = last_assignment_dates(meeting_date)
+    picks = {}
+    for i, slot in enumerate(slots):
+        role_dates = last_role_dates(slot["role"])
+        ids = [p for p in eligible_ids(slot["role"], students, False, away)
+               if p not in used]
+        if not ids:
+            picks[i] = (None, None)
+            continue
+        ids.sort(key=lambda p: (role_dates.get(p) or "", last_any.get(p) or ""))
+        sid = ids[0]
+        used.add(sid)
+        aid = None
+        if slot["needs_assistant"]:
+            cats = dict(zip(students["id"], students["gender"]))
+            pool = [p for p in eligible_ids("", students, True, away)
+                    if p not in used and cats.get(p) == cats.get(sid)]
+            pool.sort(key=lambda p: last_any.get(p) or "")
+            if pool:
+                aid = pool[0]
+                used.add(aid)
+        picks[i] = (sid, aid)
+    return picks
 
 
 # =============================================================================
@@ -1032,6 +1152,13 @@ if selected_lang != "English" and not FONT_SUPPORTS_GA:
         "No font with ɛ, ɔ and ŋ was found, so Ga slips will show boxes. "
         "Put DejaVuSans.ttf and DejaVuSans-Bold.ttf in a 'fonts' folder next to app.py."
     )
+ga_setting = get_setting("ga_convert", "0") == "1"
+ga_on = st.sidebar.toggle(
+    "Convert 3 ) N to ɛ ɔ ŋ when saving names", value=ga_setting,
+    help="Turn off if a name genuinely contains 3, ) or a capital N mid-word.",
+)
+if ga_on != ga_setting:
+    set_setting("ga_convert", "1" if ga_on else "0")
 aux_setting = get_setting("use_aux", "1") == "1"
 aux_default = st.sidebar.toggle(
     "Auxiliary classroom in use", value=aux_setting,
@@ -1147,6 +1274,27 @@ elif menu == "Manage Participants":
                         st.success("Saved. Existing schedules show the updated name.")
                         st.rerun()
 
+            with st.expander("Away dates (dropped from those meetings)"):
+                current_away = unavailable_dates(sid)
+                if current_away:
+                    st.caption("Currently away: "
+                               + ", ".join(fmt_date(d) for d in current_away))
+                new_away = st.date_input(
+                    "Select the date(s) this person is unavailable",
+                    value=[datetime.strptime(d, "%Y-%m-%d").date() for d in current_away],
+                    key=f"away_{sid}",
+                )
+                if st.button("Save away dates", key=f"save_away_{sid}"):
+                    if isinstance(new_away, (list, tuple)):
+                        dates = [d.isoformat() for d in new_away]
+                    elif new_away:
+                        dates = [new_away.isoformat()]
+                    else:
+                        dates = []
+                    set_unavailable(sid, dates)
+                    st.success("Away dates saved.")
+                    st.rerun()
+
             used = student_usage_count(sid)
             with st.expander("Delete permanently"):
                 if used:
@@ -1193,7 +1341,8 @@ elif menu == "Schedule":
         meeting_type = c1.selectbox("Meeting type", MEETING_TYPES)
         meeting_date = c2.date_input("Meeting date", value=date.today()).isoformat()
 
-    saved_slots, saved_picks = load_schedule(meeting_date, meeting_type, schedules_df)
+    saved_slots, saved_picks, saved_visitors = load_schedule(
+        meeting_date, meeting_type, schedules_df)
     meta = get_meeting_meta(meeting_date, meeting_type)
     if saved_slots and mode == "Create new":
         st.info("A schedule is already saved for this date. It's loaded below, "
@@ -1242,11 +1391,21 @@ elif menu == "Schedule":
         st.warning("Add participants under 'Manage Participants' first.")
         st.stop()
 
-    show_all = st.checkbox("Show everyone in every list (ignore privileges and category)")
+    c_show, c_suggest = st.columns([3, 1])
+    show_all = c_show.checkbox("Show everyone in every list (ignore privileges and category)")
     last_dates = last_assignment_dates(meeting_date)
-    label = person_label_factory(students_df, last_dates)
+    away = get_unavailable(meeting_date)
     categories = dict(zip(students_df["id"], students_df["gender"]))
     names = dict(zip(students_df["id"], students_df["name"]))
+    if away:
+        st.caption("Away this date: "
+                   + ", ".join(sorted(names[p] for p in away if p in names)))
+
+    sugg_key = f"suggest|{meeting_date}|{meeting_type}|{source}"
+    if c_suggest.button("✨ Suggest", width="stretch",
+                        help="Fill empty slots with whoever has waited longest for each part."):
+        st.session_state[sugg_key] = suggest_assignments(slots, students_df, away, meeting_date)
+    suggested = st.session_state.get(sugg_key, {})
 
     ns = f"{meeting_date}|{meeting_type}|{source}"
     with st.expander("Meeting details (used on the S-140)", expanded=False):
@@ -1268,12 +1427,32 @@ elif menu == "Schedule":
             current_section = slot["section"]
             st.markdown(f"#### {SECTION_TITLES.get(current_section, current_section)}")
         pre_sid, pre_aid = saved_picks.get(slot_match_key(slot), (None, None))
-        options = ordered_options(eligible_ids(slot["role"], students_df, show_all),
-                                  last_dates, keep=pre_sid)
+        if i in suggested:
+            pre_sid, pre_aid = suggested[i]
         wkey = f"{ns}|{slot['hall']}|{slot['role']}|{slot['part_no']}|{slot['title']}"
         text = slot_label(slot)
         if aux_on and slot["student_part"] and slot["hall"] == MAIN_HALL:
             text += " · Main hall"
+
+        # a visiting public-talk speaker is typed by hand, not chosen from the list
+        if slot.get("allow_visitor"):
+            vkey = f"{wkey}|visitor"
+            saved_visitor = saved_visitors.get(slot_match_key(slot), "")
+            is_visitor = st.checkbox("Visiting speaker (another congregation)",
+                                     value=bool(saved_visitor), key=f"{wkey}|isvis")
+            if is_visitor:
+                vis = st.text_input(text, saved_visitor, key=vkey,
+                                    placeholder="Name — Congregation")
+                picks[i] = (None, None)
+                picks[i + 10000] = apply_ga_substitutes(nfc(vis))
+                continue
+
+        role_dates = last_role_dates(slot["role"])
+        options = ordered_options(
+            eligible_ids(slot["role"], students_df, show_all, away), role_dates, keep=pre_sid)
+        if pre_sid not in options:
+            pre_sid = None
+        label = person_label_factory(students_df, last_dates, away, role_dates)
         cols = st.columns([3, 2]) if slot["needs_assistant"] else [st.container()]
         sid = cols[0].selectbox(
             text, options, index=options.index(pre_sid),
@@ -1281,11 +1460,13 @@ elif menu == "Schedule":
         )
         aid = None
         if slot["needs_assistant"]:
-            pool = active["id"].tolist()
+            pool = eligible_ids("", students_df, True, away)
             if sid is not None and not show_all:
                 pool = [p for p in pool if categories.get(p) == categories.get(sid)]
             pool = [p for p in pool if p != sid]
             a_options = ordered_options(pool, last_dates, keep=pre_aid)
+            if pre_aid not in a_options:
+                pre_aid = None
             aid = cols[1].selectbox(
                 "Assistant", a_options, index=a_options.index(pre_aid),
                 format_func=label, key=f"{wkey}|assistant",
@@ -1297,7 +1478,10 @@ elif menu == "Schedule":
     if b1.button("💾 Save schedule", type="primary", width="stretch"):
         errors, warnings = [], []
         usage = {}
-        for i, (sid, aid) in picks.items():
+        for i, val in picks.items():
+            if i >= 10000:  # visitor name entries, not (sid, aid)
+                continue
+            sid, aid = val
             if sid is not None and sid == aid:
                 errors.append(f"{names[sid]} is both student and assistant on "
                               f"'{slot_label(slots[i])}'.")
@@ -1311,7 +1495,7 @@ elif menu == "Schedule":
             if len(parts) > 1:
                 warnings.append(f"{names[pid]} has {len(parts)} parts: {', '.join(parts)}.")
         other_type = WEEKEND if meeting_type == MIDWEEK else MIDWEEK
-        _, other_picks = load_schedule(meeting_date, other_type, schedules_df)
+        _, other_picks, _ = load_schedule(meeting_date, other_type, schedules_df)
         other_people = {p for pair in other_picks.values() for p in pair if p}
         for pid in set(usage) & other_people:
             warnings.append(f"{names[pid]} also has a part in the {other_type} on this date.")
@@ -1393,6 +1577,35 @@ elif menu == "View Schedules":
             file_name=f"S89_slips_{meeting_date}_{selected_lang}.pdf",
             mime="application/pdf",
         )
+
+    st.divider()
+    st.subheader("💬 Reminders to copy")
+    st.caption("One message per person. Tap to expand, copy, and paste into WhatsApp.")
+    hall_word = {MAIN_HALL: "the main hall", AUX_HALL: "the auxiliary classroom"}
+    reminded = rows[rows["person"].notna()
+                    & (rows["role"] != "Chairman")]
+    if reminded.empty:
+        st.info("Assign parts to generate reminders.")
+    else:
+        for r in reminded.itertuples():
+            slot = make_slot(r.part_name, r.role or "", r.section,
+                             int(r.part_no) if pd.notna(r.part_no) else None,
+                             int(r.minutes) if pd.notna(r.minutes) else None, r.hall)
+            part_txt = slot_label({**slot, "hall": MAIN_HALL})  # room named separately
+            lines = [f"Hi {r.person},",
+                     f"You have a part at the {meeting_type.lower()} on "
+                     f"{fmt_date(meeting_date)}."]
+            if meta.get("heading"):
+                lines.append(meta["heading"])
+            lines.append(f"Part: {part_txt}")
+            if r.hall == AUX_HALL:
+                lines.append(f"Room: {hall_word[AUX_HALL]}")
+            if r.assistant and r.needs_assistant == 1:
+                lines.append(f"Assistant: {r.assistant}")
+            lines.append("Please let me know if you can't. Thank you!")
+            msg = chr(10).join(lines)
+            with st.expander(f"{r.person} — {part_txt}"):
+                st.code(msg, language=None)
 
     st.divider()
     st.subheader("🖨️ Printable schedule")
