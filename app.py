@@ -252,44 +252,34 @@ elif menu == "Create/Edit Schedule":
         )
     else:
         student_names = students_df["name"].tolist()
-
-        if meeting_type == "Midweek Meeting":
-            parts = [
-                "Chairman",
-                "Opening Prayer",
-                "Treasures Talk",
-                "Digging Gems",
-                "Bible Reading",
-                "Initial Presentation",
-                "Making Disciples",
-                "Explaining Beliefs",
-                "Living Part 1",
-                "Living Part 2",
-                "Conductor",
-                "Reader",
-                "Closing Prayer",
-            ]
-        else:
-            parts = [
-                "Chairman",
-                "Opening Prayer / Song",
-                "Public Talk Speaker",
-                "Watchtower Conductor",
-                "Watchtower Reader",
-                "Closing Prayer",
-            ]
-
         assignments = {}
+
         with st.form("schedule_form"):
             title_text = f"Assign Parts for {meeting_type}"
             if selected_imported_week:
                 title_text += f" ({selected_imported_week.title()})"
             st.subheader(title_text)
 
-            for part in parts:
-                assignments[part] = st.selectbox(
-                    f"{part}", ["-- Unassigned --"] + student_names, key=part
-                )
+            if meeting_type == "Midweek Meeting":
+                st.markdown("### 🔹 Opening")
+                for part in ["Chairman", "Opening Prayer"]:
+                    assignments[part] = st.selectbox(part, ["-- Unassigned --"] + student_names, key=part)
+
+                st.markdown("### 📖 Treasures from God's Word")
+                for part in ["Treasures Talk", "Digging Gems", "Bible Reading"]:
+                    assignments[part] = st.selectbox(part, ["-- Unassigned --"] + student_names, key=part)
+
+                st.markdown("### 🎯 Apply Yourself to the Field Ministry")
+                for part in ["Initial Presentation", "Making Disciples", "Explaining Beliefs"]:
+                    assignments[part] = st.selectbox(part, ["-- Unassigned --"] + student_names, key=part)
+
+                st.markdown("### 💡 Living as Christians")
+                for part in ["Living Part 1", "Living Part 2", "Conductor", "Reader", "Closing Prayer"]:
+                    assignments[part] = st.selectbox(part, ["-- Unassigned --"] + student_names, key=part)
+            else:
+                st.markdown("### 🏛️ Weekend Meeting Parts")
+                for part in ["Chairman", "Opening Prayer / Song", "Public Talk Speaker", "Watchtower Conductor", "Watchtower Reader", "Closing Prayer"]:
+                    assignments[part] = st.selectbox(part, ["-- Unassigned --"] + student_names, key=part)
 
             submitted = st.form_submit_button("Save Schedule")
             if submitted:
