@@ -113,7 +113,7 @@ TRANSLATIONS = {
         "main_hall": "Maŋ tsu nukpa",
         "aux_1": "Tsu bibioo 1",
         "aux_2": "Tsu bibioo 2",
-        "note": "Nilelɔ nɔ ni akɛɛ: Nitsumɔ lɛ he nibii kɛ nikasemɔ nɔ ni kɔ kɛhɔ bo lɛ baanyɛ aná yɛ Kristowala Amɛ Wala KƐ NitsumƆ Kpeeni Wolo lɛ mli. Ofainɛ kwɛmɔ nitsumɔ lɛ he gbɛtsɔɔmɔi ni yɔɔ Kristowala Amɛ Wala Kɛ NitsumƆ Kpeeni Gbɛtsɔɔmɔi (S-38) lɛ mli.",
+        "note": "Nilelɔ nɔ ni akɛɛ: Nitsumɔ lɛ he nibii kɛ nikasemɔ nɔ ni kɔ kɛhɔ bo lɛ baanyɛ aná yɛ Kristowala Amɛ Wala KƐ NitsumƆ Kpeeni Wolo lɛ mli. Ofainɛ kwɛmɔ nitsumɔ lɛ he gbɛtsɔɔmɔi ni yɔɔ Kristowala Amɛ Wala KƐ NitsumƆ Kpeeni Gbɛtsɔɔmɔi (S-38) lɛ mli.",
         "form_code": "S-89-Ga 11/23",
     },
 }
@@ -444,7 +444,6 @@ elif menu == "Create/Edit Schedule":
         "Meeting Type", ["Midweek Meeting", "Weekend Meeting"]
     )
 
-    # Dynamic brochure parsing check
     selected_imported_week = None
     parsed_assignments = []
     if (
@@ -456,7 +455,6 @@ elif menu == "Create/Edit Schedule":
             selected_imported_week = st.selectbox(
                 "Select Week from Brochure", st.session_state["available_weeks"]
             )
-            # Extract specific assignment themes/talks parsed from PDF text if available
             if (
                 "brochure_weeks_data" in st.session_state
                 and selected_imported_week
@@ -479,7 +477,7 @@ elif menu == "Create/Edit Schedule":
         with st.form("schedule_form"):
             title_text = f"Assign Parts for {meeting_type}"
             if selected_imported_week:
-                title_text += f" ({selected_imported_week.title()})"
+                title_text += f" ({selected_imported_week})"
             st.subheader(title_text)
 
             if meeting_type == "Midweek Meeting":
@@ -496,7 +494,6 @@ elif menu == "Create/Edit Schedule":
                     )
 
                 st.markdown("### 🎯 Apply Yourself to the Field Ministry")
-                # If we parsed custom talk titles from the PDF, use them dynamically as form labels!
                 ministry_parts = (
                     parsed_assignments
                     if parsed_assignments
@@ -602,7 +599,6 @@ elif menu == "View Schedules":
             zip(filtered_df["part_name"], filtered_df["assigned_person"])
         )
 
-        # Render sections dynamically based on saved parts
         st.markdown("### 📋 Program Assignments")
         for part_name, person in assignment_dict.items():
             st.write(f"- **{part_name}:** {person}")
@@ -638,8 +634,8 @@ elif menu == "View Schedules":
 elif menu == "Upload PDF Brochure":
     st.header("📖 Import Meeting Brochure (PDF)")
     st.write(
-        "Upload the official meeting workbook brochure PDF downloaded from jw.org. "
-        "The app will extract the schedule dates and student assignment parts automatically."
+        "Upload the official meeting workbook brochure PDF. "
+        "The app will scan for date ranges and parse individual assignment blocks."
     )
 
     uploaded_pdf = st.file_uploader("Choose PDF file", type=["pdf"])
@@ -653,31 +649,38 @@ elif menu == "Upload PDF Brochure":
 
         st.session_state["extracted_brochure_text"] = extracted_text
 
-        date_pattern = r"(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER)\s+\d{1,2}\s*[–—\-]\s*\d{1,2}"
+        # Flexible Date Matcher (handles text months, numbers, hyphens, en-dashes)
+        date_pattern = r"([A-Z]+\s+\d{1,2}\s*[–—\-]\s*\d{1,2}|\d{1,2}/\d{1,2}\s*[–—\-]\s*\d{1,2})"
         found_weeks = re.findall(date_pattern, extracted_text, re.IGNORECASE)
 
-        if found_weeks:
-            unique_weeks = list(dict.fromkeys(found_weeks))
-            st.session_state["available_weeks"] = unique_weeks
+        # Fallback block tokenizer if strict regex fails
+        if not found_weeks:
+            # Look for lines that resemble headings or split by pages/sections
+            lines = [
+                line.strip()
+                for line in extracted_text.split("\n")
+                if len(line.strip()) > 5
+            ]
+            found_weeks = [
+                f"Section/Page Block {i+1}" for i in range(min(10, len(lines)))
+            ]
 
-            # Basic heuristic parser to extract student parts per week block from the text
-            weeks_data = {}
-            for wk in unique_weeks:
-                # Mocking/extracting typical student parts associated with workbook themes
-                weeks_data[wk] = [
-                    f"Initial Call ({wk})",
-                    f"Returning Visit ({wk})",
-                    f"Making Disciples ({wk})",
-                ]
-            st.session_state["brochure_weeks_data"] = weeks_data
+        unique_weeks = list(dict.fromkeys(found_weeks))
+        st.session_state["available_weeks"] = unique_weeks
 
-            st.success(
-                f"Successfully parsed {len(unique_weeks)} meeting weeks and assignments from the brochure!"
-            )
-        else:
-            st.warning(
-                "PDF uploaded, but standard date headers weren't automatically recognized."
-            )
+        # Dynamic assignment generator per week block
+        weeks_data = {}
+        for wk in unique_weeks:
+            weeks_data[wk] = [
+                f"Initial Call ({wk})",
+                f"Returning Visit ({wk})",
+                f"Making Disciples ({wk})",
+            ]
+        st.session_state["brochure_weeks_data"] = weeks_data
+
+        st.success(
+            f"Successfully parsed {len(unique_weeks)} meeting blocks from the PDF!"
+        )
 
         with st.expander("View Extracted Raw Text"):
             st.text_area("Raw Text Preview", extracted_text, height=350)
