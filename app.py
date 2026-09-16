@@ -2,7 +2,7 @@
 """Meeting Scheduler: midweek/weekend assignments, S-89 slips and S-140 export."""
 
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import io
 import json
 from pathlib import Path
@@ -62,6 +62,9 @@ MIDWEEK = "Midweek Meeting"
 WEEKEND = "Weekend Meeting"
 MEETING_TYPES = [MIDWEEK, WEEKEND]
 CATEGORIES = ["Brother", "Sister"]
+GROUPS = ["Child", "Youth", "New student"]
+GROUP_TAGS = {"Child": "child", "Youth": "youth", "New student": "new"}
+NO_FAMILY = "— none —"
 
 PRIVILEGES = [
     "Chairman",
@@ -375,7 +378,11 @@ def init_db():
                 value TEXT
             )""")
         # Upgrade databases created by the first version of the app.
-        _add_missing_columns(conn, "students", {"active": "INTEGER DEFAULT 1"})
+        _add_missing_columns(conn, "students", {
+            "active": "INTEGER DEFAULT 1",
+            "family": "TEXT",
+            "groups": "TEXT",
+        })
         _add_missing_columns(conn, "schedules", {
             "part_no": "INTEGER",
             "minutes": "INTEGER",
@@ -437,29 +444,59 @@ def set_setting(key, value):
 
 
 def get_students(active_only=False):
-    query = "SELECT id, name, gender, privileges, active FROM students"
+    query = "SELECT id, name, gender, privileges, active, family, groups FROM students"
     if active_only:
         query += " WHERE active = 1"
     with get_conn() as conn:
         df = pd.read_sql(query + " ORDER BY name COLLATE NOCASE", conn)
-    df["privilege_list"] = df["privileges"].apply(parse_privileges)
+    def text(v):
+        return v if isinstance(v, str) else ""
+
+    df["privilege_list"] = df["privileges"].apply(lambda v: parse_privileges(text(v)))
+    df["group_list"] = df["groups"].apply(
+        lambda v: [g.strip() for g in text(v).split(",") if g.strip() in GROUPS])
+    df["family"] = pd.Series([nfc(text(v)) or None for v in df["family"]],
+                             index=df.index, dtype=object)
     return df
 
 
-def add_student(name, gender, privileges):
+def family_names(students):
+    return sorted({f for f in students["family"] if f}, key=str.lower)
+
+
+def same_family(fam, a, b):
+    return bool(a is not None and b is not None and fam.get(a) and fam.get(a) == fam.get(b))
+
+
+def pick_family(label_prefix, existing, current, key):
+    """Choose an existing family or type a new one. Returns the family name or None."""
+    options = [NO_FAMILY] + existing
+    idx = options.index(current) if current in options else 0
+    chosen = st.selectbox(f"{label_prefix}Family", options, index=idx, key=f"{key}_sel")
+    new = st.text_input("…or start a new family", key=f"{key}_new",
+                        placeholder="e.g. Mensah family")
+    if nfc(new):
+        return apply_ga_substitutes(nfc(new))
+    return None if chosen == NO_FAMILY else chosen
+
+
+def add_student(name, gender, privileges, family=None, groups=()):
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO students (name, gender, privileges, active) VALUES (?, ?, ?, 1)",
-            (apply_ga_substitutes(nfc(name)), gender, ", ".join(privileges)),
+            """INSERT INTO students (name, gender, privileges, active, family, groups)
+               VALUES (?, ?, ?, 1, ?, ?)""",
+            (apply_ga_substitutes(nfc(name)), gender, ", ".join(privileges),
+             family, ", ".join(groups)),
         )
 
 
-def update_student(student_id, name, gender, privileges, active):
+def update_student(student_id, name, gender, privileges, active, family=None, groups=()):
     with get_conn() as conn:
         conn.execute(
-            "UPDATE students SET name = ?, gender = ?, privileges = ?, active = ? WHERE id = ?",
+            """UPDATE students SET name = ?, gender = ?, privileges = ?, active = ?,
+                   family = ?, groups = ? WHERE id = ?""",
             (apply_ga_substitutes(nfc(name)), gender, ", ".join(privileges),
-             int(active), student_id),
+             int(active), family, ", ".join(groups), student_id),
         )
         # keep the name snapshot on old schedules in step with the rename
         conn.execute("UPDATE schedules SET assigned_person = ? WHERE student_id = ?",
@@ -647,6 +684,23 @@ def unavailable_dates(student_id):
             (student_id,),
         ).fetchall()
     return [r[0] for r in rows]
+
+
+def away_summary(dates):
+    """Collapse consecutive days into ranges: '3–9 Oct, 20 Oct'."""
+    days = sorted(datetime.strptime(d, "%Y-%m-%d").date() for d in dates)
+    ranges, start, prev = [], None, None
+    for d in days + [None]:
+        if start is None:
+            start = prev = d
+        elif d is not None and (d - prev).days == 1:
+            prev = d
+        else:
+            ranges.append(fmt_date(start.isoformat(), short=True) if start == prev else
+                          f"{fmt_date(start.isoformat(), short=True)}–"
+                          f"{fmt_date(prev.isoformat(), short=True)}")
+            start = prev = d
+    return ", ".join(ranges)
 
 
 def set_unavailable(student_id, dates):
@@ -1077,9 +1131,12 @@ def ordered_options(ids, last_dates, keep=None):
     return [None] + ids
 
 
-def person_label_factory(students, last_dates, away=frozenset(), role_dates=None):
+def person_label_factory(students, last_dates, away=frozenset(), role_dates=None,
+                         family_of=None):
     names = dict(zip(students["id"], students["name"]))
     inactive = set(students[students["active"] != 1]["id"])
+    tags = dict(zip(students["id"], students["group_list"]))
+    fam = dict(zip(students["id"], students["family"]))
 
     def label(pid):
         if pid is None:
@@ -1095,9 +1152,25 @@ def person_label_factory(students, last_dates, away=frozenset(), role_dates=None
             flags += " · inactive"
         if pid in away:
             flags += " · away"
+        for g in tags.get(pid, []):
+            flags += f" · {GROUP_TAGS[g]}"
+        if family_of is not None and same_family(fam, pid, family_of):
+            flags += " · family"
         return f"{names.get(pid, '?')} ({suffix}{flags})"
 
     return label
+
+
+def assistant_pool(students, student_id, away, show_all=False):
+    """Same category or same family (a parent can assist their child)."""
+    active = students[(students["active"] == 1) & ~students["id"].isin(away)]
+    pool = [p for p in active["id"].tolist() if p != student_id]
+    if student_id is None or show_all:
+        return pool
+    cats = dict(zip(students["id"], students["gender"]))
+    fam = dict(zip(students["id"], students["family"]))
+    return [p for p in pool
+            if cats.get(p) == cats.get(student_id) or same_family(fam, p, student_id)]
 
 
 def suggest_assignments(slots, students, away, meeting_date):
@@ -1117,10 +1190,13 @@ def suggest_assignments(slots, students, away, meeting_date):
         used.add(sid)
         aid = None
         if slot["needs_assistant"]:
-            cats = dict(zip(students["id"], students["gender"]))
-            pool = [p for p in eligible_ids("", students, True, away)
-                    if p not in used and cats.get(p) == cats.get(sid)]
-            pool.sort(key=lambda p: last_any.get(p) or "")
+            fam = dict(zip(students["id"], students["family"]))
+            tags = dict(zip(students["id"], students["group_list"]))
+            young = bool({"Child", "New student"} & set(tags.get(sid, [])))
+            pool = [p for p in assistant_pool(students, sid, away) if p not in used]
+            # children and new students are paired with family first
+            pool.sort(key=lambda p: (not (young and same_family(fam, p, sid)),
+                                     last_any.get(p) or ""))
             if pool:
                 aid = pool[0]
                 used.add(aid)
@@ -1231,9 +1307,15 @@ elif menu == "Manage Participants":
     tab_add, tab_edit, tab_list = st.tabs(["Add", "Edit / deactivate", "List"])
 
     with tab_add:
+        existing_families = family_names(students_df)
         with st.form("add_student_form", clear_on_submit=True):
             name = st.text_input("Full name")
-            gender = st.selectbox("Category", CATEGORIES)
+            c1, c2 = st.columns(2)
+            gender = c1.selectbox("Category", CATEGORIES)
+            groups = c2.multiselect("Group", GROUPS,
+                                    help="Leave empty for an adult publisher.")
+            with st.container(border=True):
+                family = pick_family("", existing_families, None, "add_family")
             privileges = st.multiselect("Privileges", PRIVILEGES)
             if st.form_submit_button("Add participant"):
                 if not nfc(name):
@@ -1241,7 +1323,7 @@ elif menu == "Manage Participants":
                 else:
                     if nfc(name).lower() in students_df["name"].str.lower().tolist():
                         st.warning(f"There is already someone called {name}; added anyway.")
-                    add_student(name, gender, privileges)
+                    add_student(name, gender, privileges, family, groups)
                     st.success(f"Added {name}.")
                     st.rerun()
 
@@ -1263,6 +1345,11 @@ elif menu == "Manage Participants":
                     "Category", CATEGORIES,
                     index=CATEGORIES.index(row["gender"]) if row["gender"] in CATEGORIES else 0,
                 )
+                e_groups = st.multiselect("Group", GROUPS, default=row["group_list"],
+                                          help="Leave empty for an adult publisher.")
+                with st.container(border=True):
+                    e_family = pick_family("", family_names(students_df), row["family"],
+                                           f"edit_family_{sid}")
                 e_priv = st.multiselect("Privileges", PRIVILEGES, default=row["privilege_list"])
                 e_active = st.checkbox("Active (shown when assigning parts)",
                                        value=bool(row["active"]))
@@ -1270,29 +1357,33 @@ elif menu == "Manage Participants":
                     if not nfc(e_name):
                         st.error("Name can't be empty.")
                     else:
-                        update_student(sid, e_name, e_gender, e_priv, e_active)
+                        update_student(sid, e_name, e_gender, e_priv, e_active,
+                                       e_family, e_groups)
                         st.success("Saved. Existing schedules show the updated name.")
                         st.rerun()
 
             with st.expander("Away dates (dropped from those meetings)"):
                 current_away = unavailable_dates(sid)
                 if current_away:
-                    st.caption("Currently away: "
-                               + ", ".join(fmt_date(d) for d in current_away))
-                new_away = st.date_input(
-                    "Select the date(s) this person is unavailable",
-                    value=[datetime.strptime(d, "%Y-%m-%d").date() for d in current_away],
-                    key=f"away_{sid}",
+                    st.caption("Currently away: " + away_summary(current_away))
+                period = st.date_input(
+                    "Add an away period (pick the first and last day)",
+                    value=(), key=f"away_{sid}",
                 )
-                if st.button("Save away dates", key=f"save_away_{sid}"):
-                    if isinstance(new_away, (list, tuple)):
-                        dates = [d.isoformat() for d in new_away]
-                    elif new_away:
-                        dates = [new_away.isoformat()]
+                a1, a2 = st.columns(2)
+                if a1.button("Add period", key=f"add_away_{sid}"):
+                    if len(period) == 0:
+                        st.error("Pick a start date first.")
                     else:
-                        dates = []
-                    set_unavailable(sid, dates)
-                    st.success("Away dates saved.")
+                        start = period[0]
+                        end = period[1] if len(period) > 1 else period[0]
+                        days = [(start + timedelta(days=n)).isoformat()
+                                for n in range((end - start).days + 1)]
+                        set_unavailable(sid, sorted(set(current_away) | set(days)))
+                        st.success("Away period added.")
+                        st.rerun()
+                if current_away and a2.button("Clear all", key=f"clear_away_{sid}"):
+                    set_unavailable(sid, [])
                     st.rerun()
 
             used = student_usage_count(sid)
@@ -1311,14 +1402,36 @@ elif menu == "Manage Participants":
         if students_df.empty:
             st.info("No participants yet.")
         else:
+            show = st.radio("Show", ["Everyone", "Families", "Adults"] + GROUPS,
+                            horizontal=True, key="participant_filter")
             last = last_assignment_dates(exclude_date="")
-            view = students_df.assign(
-                last_assignment=students_df["id"].map(
+            df = students_df
+            if show == "Families":
+                df = df[df["family"].notna()]
+            elif show == "Adults":
+                df = df[df["group_list"].apply(len) == 0]
+            elif show in GROUPS:
+                df = df[df["group_list"].apply(lambda g: show in g)]
+            view = df.assign(
+                group=df["group_list"].apply(lambda g: ", ".join(g) or "Adult"),
+                last_assignment=df["id"].map(
                     lambda i: fmt_date(last[i]) if i in last else ""),
-                status=students_df["active"].map({1: "Active"}).fillna("Inactive"),
-                privileges=students_df["privilege_list"].apply(", ".join),
-            )[["name", "gender", "privileges", "last_assignment", "status"]]
-            st.dataframe(view, width="stretch", hide_index=True)
+                status=df["active"].map({1: "Active"}).fillna("Inactive"),
+                privileges=df["privilege_list"].apply(", ".join),
+                family=df["family"].fillna(""),
+            )
+            cols = ["name", "gender", "group", "family", "privileges",
+                    "last_assignment", "status"]
+            if df.empty:
+                st.info("Nobody in this group yet.")
+            elif show == "Families":
+                for fam_name, members in view.sort_values("family").groupby("family"):
+                    st.markdown(f"**{fam_name}** · {len(members)} member(s)")
+                    st.dataframe(members[[c for c in cols if c != "family"]],
+                                 width="stretch", hide_index=True)
+            else:
+                st.caption(f"{len(view)} participant(s)")
+                st.dataframe(view[cols], width="stretch", hide_index=True)
 
 # -----------------------------------------------------------------------------
 elif menu == "Schedule":
@@ -1396,6 +1509,7 @@ elif menu == "Schedule":
     last_dates = last_assignment_dates(meeting_date)
     away = get_unavailable(meeting_date)
     categories = dict(zip(students_df["id"], students_df["gender"]))
+    families = dict(zip(students_df["id"], students_df["family"]))
     names = dict(zip(students_df["id"], students_df["name"]))
     if away:
         st.caption("Away this date: "
@@ -1460,16 +1574,17 @@ elif menu == "Schedule":
         )
         aid = None
         if slot["needs_assistant"]:
-            pool = eligible_ids("", students_df, True, away)
-            if sid is not None and not show_all:
-                pool = [p for p in pool if categories.get(p) == categories.get(sid)]
-            pool = [p for p in pool if p != sid]
+            pool = assistant_pool(students_df, sid, away, show_all)
             a_options = ordered_options(pool, last_dates, keep=pre_aid)
+            # family members first (sort is stable, so rotation order is kept)
+            a_options = [None] + sorted(
+                a_options[1:], key=lambda p: not same_family(families, p, sid))
             if pre_aid not in a_options:
                 pre_aid = None
+            a_label = person_label_factory(students_df, last_dates, away, family_of=sid)
             aid = cols[1].selectbox(
                 "Assistant", a_options, index=a_options.index(pre_aid),
-                format_func=label, key=f"{wkey}|assistant",
+                format_func=a_label, key=f"{wkey}|assistant",
             )
         picks[i] = (sid, aid)
 
@@ -1488,9 +1603,10 @@ elif menu == "Schedule":
             for pid in (sid, aid):
                 if pid is not None:
                     usage.setdefault(pid, []).append(slot_label(slots[i]))
-            if sid and aid and categories.get(sid) != categories.get(aid):
+            if (sid and aid and categories.get(sid) != categories.get(aid)
+                    and not same_family(families, sid, aid)):
                 warnings.append(f"'{slot_label(slots[i])}': student and assistant "
-                                "are in different categories.")
+                                "are in different categories and not family.")
         for pid, parts in usage.items():
             if len(parts) > 1:
                 warnings.append(f"{names[pid]} has {len(parts)} parts: {', '.join(parts)}.")
