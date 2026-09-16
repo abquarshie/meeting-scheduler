@@ -4,9 +4,10 @@ import re
 import sqlite3
 import pandas as pd
 import pypdf
-from reportlab.lib.pagesizes import letter
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle, PageBreak
 import streamlit as st
 
 # --- DATABASE SETUP ---
@@ -42,25 +43,33 @@ def init_db():
 init_db()
 
 
-# --- MULTI-LANGUAGE TEMPLATES ---
+# --- LANGUAGE TEMPLATES (ENGLISH & GA) ---
 TRANSLATIONS = {
     "English": {
-        "slip_title": "Meeting Assignment Slips",
-        "part": "Part",
-        "assigned": "Assigned To",
-        "date": "Date",
+        "slip_title": "OUR CHRISTIAN LIFE AND MINISTRY\nMEETING ASSIGNMENT",
+        "name": "Name:",
+        "assistant": "Assistant:",
+        "date": "Date:",
+        "part_no": "Part no.:",
+        "to_be_given": "To be given in:",
+        "main_hall": "Main hall",
+        "aux_1": "Auxiliary classroom 1",
+        "aux_2": "Auxiliary classroom 2",
+        "note": "Note to student: The source material and study point for your assignment can be found in the Life and Ministry Meeting Workbook. Please review the instructions for the part as outlined in Instructions for Our Christian Life and Ministry Meeting (S-38).",
+        "form_code": "S-89-E 11/23"
     },
-    "Spanish (Español)": {
-        "slip_title": "Hoja de Designaciones",
-        "part": "Parte",
-        "assigned": "Designado a",
-        "date": "Fecha",
-    },
-    "French (Français)": {
-        "slip_title": "Fiches de Désignations",
-        "part": "Partie",
-        "assigned": "Attribué à",
-        "date": "Date",
+    "Ga": {
+        "slip_title": "KRISTOWALA AMƐ WALA KƐ NITSUMƆ\nKPEENI NITSUMƆ",
+        "name": "Gbɛ̀i:",
+        "assistant": "Mɔ ni yeo boa:",
+        "date": "Gbi:",
+        "part_no": "Nitsumɔ akara:",
+        "to_be_given": "Abaatsɔo mli:",
+        "main_hall": "Maŋ tsu nukpa",
+        "aux_1": "Tsu bibioo 1",
+        "aux_2": "Tsu bibioo 2",
+        "note": "Nilelɔ nɔ ni akɛɛ: Nitsumɔ lɛ he nibii kɛ nikasemɔ nɔ ni kɔ kɛhɔ bo lɛ baanyɛ aná yɛ Kristowala Amɛ Wala Kɛ Nitsumɔ Kpeeni Wolo lɛ mli. Ofainɛ kwɛmɔ nitsumɔ lɛ he gbɛtsɔɔmɔi ni yɔɔ Kristowala Amɛ Wala Kɛ Nitsumɔ Kpeeni Gbɛtsɔɔmɔi (S-38) lɛ mli.",
+        "form_code": "S-89-Ga 11/23"
     },
 }
 
@@ -116,39 +125,83 @@ def save_schedule(meeting_date, meeting_type, assignments):
 
 def generate_pdf_slips(meeting_date, filtered_df, lang_dict):
     buffer = io.BytesIO()
+    # A4 Dimensions in points: ~595.27 x 841.89
     doc = SimpleDocTemplate(
         buffer,
-        pagesize=letter,
-        rightMargin=36,
-        leftMargin=36,
-        topMargin=36,
-        bottomMargin=36,
+        pagesize=A4,
+        rightMargin=18,
+        leftMargin=18,
+        topMargin=18,
+        bottomMargin=18,
     )
     story = []
     styles = getSampleStyleSheet()
 
-    title_style = ParagraphStyle(
-        "SlipTitle", parent=styles["Heading2"], fontSize=14, spaceAfter=6
+    header_style = ParagraphStyle(
+        "SlipHeader", parent=styles["Normal"], fontSize=8, leading=10, alignment=1, fontName="Helvetica-Bold"
     )
-    body_style = ParagraphStyle(
-        "SlipBody", parent=styles["Normal"], fontSize=10, spaceAfter=12
+    field_style = ParagraphStyle(
+        "SlipField", parent=styles["Normal"], fontSize=9, leading=12, fontName="Helvetica"
+    )
+    note_style = ParagraphStyle(
+        "SlipNote", parent=styles["Normal"], fontSize=6.5, leading=8.5, fontName="Helvetica"
     )
 
-    story.append(
-        Paragraph(
-            f"<b>{lang_dict['slip_title']} - {meeting_date}</b>", title_style
-        )
-    )
-    story.append(Spacer(1, 10))
+    def create_single_slip_flowables(row):
+        assigned_name = row['assigned_person'] if row is not None else ""
+        part_name = row['part_name'] if row is not None else ""
+        
+        elements = [
+            Paragraph(lang_dict["slip_title"].replace("\n", "<br/>"), header_style),
+            Spacer(1, 6),
+            Paragraph(f"<b>{lang_dict['name']}</b> {assigned_name}", field_style),
+            Spacer(1, 3),
+            Paragraph(f"<b>{lang_dict['assistant']}</b> _________________________", field_style),
+            Spacer(1, 3),
+            Paragraph(f"<b>{lang_dict['date']}</b> {meeting_date} &nbsp;&nbsp;&nbsp;&nbsp; <b>{lang_dict['part_no']}</b> {part_name}", field_style),
+            Spacer(1, 4),
+            Paragraph(f"<b>{lang_dict['to_be_given']}</b>", field_style),
+            Paragraph(f"[ &nbsp; ] {lang_dict['main_hall']}&nbsp;&nbsp;&nbsp;&nbsp;[ &nbsp; ] {lang_dict['aux_1']}<br/>[ &nbsp; ] {lang_dict['aux_2']}", field_style),
+            Spacer(1, 4),
+            Paragraph(lang_dict["note"], note_style),
+            Spacer(1, 2),
+            Paragraph(f"<font color='gray'>{lang_dict['form_code']}</font>", note_style),
+        ]
+        return elements
 
-    for index, row in filtered_df.iterrows():
-        slip_text = (
-            f"<b>{lang_dict['part']}:</b> {row['part_name']}<br/>"
-            f"<b>{lang_dict['assigned']}:</b> {row['assigned_person']}<br/>"
-            f"<b>{lang_dict['date']}:</b> {meeting_date}"
-        )
-        story.append(Paragraph(slip_text, body_style))
-        story.append(Spacer(1, 15))
+    # Group rows into chunks of 4 to fit onto a 2x2 grid per A4 page
+    rows_list = [row for _, row in filtered_df.iterrows()]
+    
+    while len(rows_list) % 4 != 0:
+        rows_list.append(None)
+
+    for i in range(0, len(rows_list), 4):
+        batch = rows_list[i:i+4]
+        
+        grid_data = [
+            [
+                create_single_slip_flowables(batch[0]),
+                create_single_slip_flowables(batch[1])
+            ],
+            [
+                create_single_slip_flowables(batch[2]),
+                create_single_slip_flowables(batch[3])
+            ]
+        ]
+
+        slip_table = Table(grid_data, colWidths=[270, 270], rowHeights=[385, 385])
+        slip_table.setStyle(TableStyle([
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.dashed),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 10),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+            ('TOPPADDING', (0, 0), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+        ]))
+        
+        story.append(slip_table)
+        if i + 4 < len(rows_list):
+            story.append(PageBreak())
 
     doc.build(story)
     buffer.seek(0)
@@ -235,7 +288,6 @@ elif menu == "Create/Edit Schedule":
         "Meeting Type", ["Midweek Meeting", "Weekend Meeting"]
     )
     
-    # Check if we have imported weeks from the PDF
     selected_imported_week = None
     if "available_weeks" in st.session_state and st.session_state["available_weeks"]:
         use_import = st.checkbox("Auto-fill details from uploaded PDF brochure")
@@ -288,7 +340,6 @@ elif menu == "Create/Edit Schedule":
                 }
                 chosen_people = list(valid_assignments.values())
 
-                # Check for duplicates in form submission
                 duplicates = set(
                     [
                         person
@@ -297,7 +348,6 @@ elif menu == "Create/Edit Schedule":
                     ]
                 )
 
-                # Check for existing database conflicts on this date
                 existing_schedules = get_schedules()
                 already_booked = []
                 if not existing_schedules.empty:
@@ -335,10 +385,8 @@ elif menu == "View Schedules":
 
         st.subheader(f"Schedule for: {selected_date} ({meeting_type})")
         
-        # Convert filtered rows into a lookup dictionary
         assignment_dict = dict(zip(filtered_df["part_name"], filtered_df["assigned_person"]))
 
-        # Render layout based on meeting type using matching emojis
         if meeting_type == "Midweek Meeting":
             st.markdown("### 🔹 Opening")
             for part in ["Chairman", "Opening Prayer"]:
@@ -367,24 +415,22 @@ elif menu == "View Schedules":
 
         st.divider()
 
-        # PDF Download Button (Using selected language template)
         pdf_data = generate_pdf_slips(selected_date, filtered_df, t)
         st.download_button(
-            label=f"📄 Download PDF Slips ({selected_lang})",
+            label=f"📄 Download Exact S-89 Slips PDF ({selected_lang})",
             data=pdf_data,
-            file_name=f"assignment_slips_{selected_date}.pdf",
+            file_name=f"S89_assignment_slips_{selected_date}.pdf",
             mime="application/pdf",
         )
 
-        # Print View Section
         if st.button("🖨️ Open Print View"):
             print_html = f"""
                 <h3>Meeting Schedule - {selected_date}</h3>
                 <hr>
                 <table style="width:100%; border-collapse: collapse;">
                     <tr>
-                        <th style="text-align:left; border-bottom:1px solid black; padding: 6px;">{t['part']}</th>
-                        <th style="text-align:left; border-bottom:1px solid black; padding: 6px;">{t['assigned']}</th>
+                        <th style="text-align:left; border-bottom:1px solid black; padding: 6px;">Part</th>
+                        <th style="text-align:left; border-bottom:1px solid black; padding: 6px;">Assigned To</th>
                     </tr>
             """
             for index, row in filtered_df.iterrows():
@@ -411,11 +457,9 @@ elif menu == "Upload PDF Brochure":
         for i, page in enumerate(reader.pages):
             extracted_text += f"\n--- Page {i+1} ---\n" + page.extract_text()
 
-        # Save to session state so other tabs can access it
         st.session_state["extracted_brochure_text"] = extracted_text
 
-        # Regex to find weekly headers (e.g., "SEPTEMBER 7-13")
-        date_pattern = r"(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER)\s+\d{1,2}[–-]\d{1,2}"
+        date_pattern = r"(JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER)\s+\d{1,2}\s*[–—\-]\s*\d{1,2}"
         found_weeks = re.findall(date_pattern, extracted_text, re.IGNORECASE)
 
         if found_weeks:
