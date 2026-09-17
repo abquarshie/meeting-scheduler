@@ -963,61 +963,163 @@ def _parse_week(text):
     return parts, songs, gaps
 
 
+# A week heading is a capitalised word plus a day range, e.g. "SEPTEMBER 14-20"
+# or the same in Ga. Language-independent: the month word isn't looked up.
+DAY_RANGE_RE = re.compile(
+    r"^[ \t]*([^\W\d_]{3,})\.?[ \t]+(\d{1,2})[ \t]*[-–—][ \t]*"
+    r"(?:([^\W\d_]{3,})\.?[ \t]+)?(\d{1,2})\b"
+)
+ENGLISH_MONTHS = {m: i + 1 for i, m in enumerate(MONTHS.split("|"))}
+
+
+def _heading(line):
+    m = DAY_RANGE_RE.match(line)
+    if not m or not m.group(1).isupper():
+        return None
+    d1, d2 = int(m.group(2)), int(m.group(4))
+    if not (1 <= d1 <= 31 and 1 <= d2 <= 31):
+        return None
+    label = f"{m.group(1)} {d1}–" + (f"{m.group(3)} " if m.group(3) else "") + str(d2)
+    return {"label": label, "month": m.group(1), "day": d1}
+
+
+def _timed_part_lines(lines):
+    """(line index, part number) for every numbered line that has a duration."""
+    out = []
+    for i, line in enumerate(lines):
+        m = NUM_LINE_RE.match(line)
+        if not m:
+            continue
+        for k in range(0, 4):
+            chunk = m.group(2) if k == 0 else (lines[i + k] if i + k < len(lines) else None)
+            if chunk is None or (k > 0 and NUM_LINE_RE.match(chunk)):
+                break
+            if DUR_RE.search(chunk):
+                out.append((i, int(m.group(1))))
+                break
+    return out
+
+
 @st.cache_data(show_spinner="Reading workbook…")
 def parse_brochure(pdf_bytes):
+    """Split the workbook into weeks. A new week starts whenever the part
+    numbering restarts; its heading is the first date line before part 1."""
     reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
     pages = [nfc(page.extract_text() or "") for page in reader.pages]
-    full_text = "\n".join(pages)
+    lines = "\n".join(pages).split("\n")
 
-    chunks = {}
-    matches = list(WEEK_RE.finditer(full_text))
-    if matches:
-        for i, m in enumerate(matches):
-            label = re.sub(r"\s*[-–—]\s*", "–", re.sub(r"\s+", " ", m.group(0)))
-            end = matches[i + 1].start() if i + 1 < len(matches) else len(full_text)
-            chunks[label] = chunks.get(label, "") + "\n" + full_text[m.start():end]
-    else:
-        for i, text in enumerate(pages):
-            chunks[f"Workbook page {i + 1}"] = text
+    groups, prev = [], None
+    for i, no in _timed_part_lines(lines):
+        if prev is None or no <= prev:
+            groups.append([])
+        groups[-1].append(i)
+        prev = no
+
+    starts, heads = [], []
+    for g, idxs in enumerate(groups):
+        zone_start = groups[g - 1][-1] + 1 if g else 0
+        head, head_line = None, zone_start
+        for j in range(zone_start, idxs[0]):
+            h = _heading(lines[j])
+            if h:
+                # prefer an English month; otherwise the first date-like line
+                if h["month"] in ENGLISH_MONTHS or head is None:
+                    head, head_line = h, j
+                if h["month"] in ENGLISH_MONTHS:
+                    break
+        starts.append(head_line)
+        heads.append(head)
 
     weeks, empty = {}, []
-    for label, text in chunks.items():
+    for g in range(len(groups)):
+        end = starts[g + 1] if g + 1 < len(groups) else len(lines)
+        text = "\n".join(lines[starts[g]:end])
+        head = heads[g] or {"label": f"Week {g + 1}", "month": None, "day": None}
+        label = head["label"]
+        if label in weeks:
+            label = f"{label} ({g + 1})"
         parts, songs, gaps = _parse_week(text)
         if parts:
             weeks[label] = {"parts": parts, "songs": songs, "gaps": gaps,
-                            "text": text.strip()}
+                            "text": text.strip(), "month": head["month"],
+                            "day": head["day"]}
         else:
             empty.append(label)
     raw = "\n".join(f"--- Page {i + 1} ---\n{t}" for i, t in enumerate(pages))
     return weeks, empty, raw
 
 
-MONTH_NUM = {m: i + 1 for i, m in enumerate(MONTHS.split("|"))}
-LABEL_RE = re.compile(rf"({MONTHS})\s+(\d{{1,2}})–(?:({MONTHS})\s+)?(\d{{1,2}})")
+def guess_first_monday(weeks, file_name=""):
+    """Best guess for the Monday the first week starts. Returns (date, sure)."""
+    if not weeks:
+        return None, False
+    first = next(iter(weeks.values()))
+    day, month = first.get("day"), first.get("month")
+    today = date.today()
+    ym = re.search(r"(20\d{2})(0[1-9]|1[0-2])", file_name or "")  # mwb_E_202609.pdf
+    if month in ENGLISH_MONTHS and day:
+        mnum = ENGLISH_MONTHS[month]
+        years = [int(ym.group(1))] if ym else [today.year - 1, today.year, today.year + 1]
+        cands = []
+        for y in years:
+            try:
+                cands.append(date(y, mnum, day))
+            except ValueError:
+                pass
+        if cands:
+            return min(cands, key=lambda d: abs((d - today).days)), True
+    if ym and day:
+        try:
+            return date(int(ym.group(1)), int(ym.group(2)), day), True
+        except ValueError:
+            pass
+    if day:
+        # nearest Monday that falls on that day number
+        cands = [today + timedelta(days=n) for n in range(-200, 400)]
+        cands = [d for d in cands if d.day == day and d.weekday() == 0]
+        if cands:
+            return min(cands, key=lambda d: abs((d - today).days)), False
+    return today - timedelta(days=today.weekday()), False
 
 
-def week_range(label, year):
-    m = LABEL_RE.fullmatch(label)
-    if not m:
-        return None
-    m1, d1 = MONTH_NUM[m.group(1)], int(m.group(2))
-    m2, d2 = MONTH_NUM[m.group(3) or m.group(1)], int(m.group(4))
-    try:
-        start = date(year, m1, d1)
-        end = date(year + (1 if m2 < m1 else 0), m2, d2)
-    except ValueError:
-        return None
-    return start, end
+def assign_dates(weeks, first_start):
+    """Give every week a start/end date, moving forward by whole weeks and
+    skipping ahead when a heading's day number shows a week was left out."""
+    cur = None
+    for w in weeks.values():
+        if cur is None:
+            cur = first_start
+        else:
+            cur = cur + timedelta(days=7)
+            day = w.get("day")
+            if day:
+                for _ in range(6):
+                    if cur.day == day:
+                        break
+                    cur += timedelta(days=7)
+                else:
+                    cur = prev_cur + timedelta(days=7)
+        w["start"] = cur.isoformat()
+        w["end"] = (cur + timedelta(days=6)).isoformat()
+        prev_cur = cur
+    return weeks
 
 
-def week_for_date(labels, meeting_date):
+def week_dates_text(w):
+    if not w.get("start"):
+        return "no dates"
+    s_, e_ = (datetime.strptime(w[k], "%Y-%m-%d").date() for k in ("start", "end"))
+    if s_.month == e_.month:
+        return f"{s_.day}–{e_.day} {e_:%b %Y}"
+    return f"{s_.day} {s_:%b}–{e_.day} {e_:%b %Y}"
+
+
+def week_for_date(weeks, meeting_date):
     """The workbook week whose date range contains the meeting date."""
-    d = datetime.strptime(str(meeting_date), "%Y-%m-%d").date()
-    for label in labels:
-        for year in (d.year, d.year - 1):
-            rng = week_range(label, year)
-            if rng and rng[0] <= d <= rng[1]:
-                return label
+    d = str(meeting_date)
+    for label, w in weeks.items():
+        if w.get("start") and w["start"] <= d <= w["end"]:
+            return label
     return None
 
 
@@ -1030,6 +1132,7 @@ def load_workbook():
 
 
 def save_workbook(weeks, file_name):
+    """Weeks must already carry start/end dates (see assign_dates)."""
     with get_conn() as conn:
         conn.execute("DELETE FROM workbook_weeks")
         conn.executemany(
@@ -1695,7 +1798,12 @@ elif menu == "Schedule":
 
     if meeting_type == MIDWEEK and brochure:
         labels = list(brochure)
-        matched = week_for_date(labels, meeting_date)
+        matched = week_for_date(brochure, meeting_date)
+        if not matched:
+            st.warning(
+                f"No workbook week covers {fmt_date(meeting_date)}. Check the week dates "
+                "under Upload Workbook PDF, or pick the week yourself below."
+            )
         wb_parts = brochure[matched]["parts"] if matched else []
         saved_numbered = [(s_["part_no"], s_["title"]) for s_ in saved_slots
                           if s_.get("part_no") and s_.get("hall", MAIN_HALL) == MAIN_HALL]
@@ -1712,14 +1820,17 @@ elif menu == "Schedule":
             "Use parts from the uploaded workbook", value=not saved_slots,
             help="Names already picked carry over when the part number and role match.",
         )
+        week = matched
         if use_brochure:
             week = st.selectbox(
                 "Workbook week", labels,
-                index=labels.index(matched) if matched else 0,
+                index=labels.index(matched) if matched else None,
+                format_func=lambda l: f"{l}  ·  {week_dates_text(brochure[l])}",
+                placeholder="Choose the workbook week",
+                key=f"wbweek|{meeting_date}|{matched}",
                 help="Chosen automatically from the meeting date when it matches.",
             )
-            if not matched:
-                st.caption("No workbook week matches this date, so pick one.")
+        if use_brochure and week:
             slots = build_midweek_slots(brochure[week]["parts"])
             source = f"brochure:{week}"
             songs = brochure[week].get("songs", [])
@@ -1731,13 +1842,12 @@ elif menu == "Schedule":
                     "middle_song": f"Song {songs[1]}" if len(songs) > 1 else "",
                     "closing_song": f"Song {songs[2]}" if len(songs) > 2 else "",
                 }
-        else:
-            week = matched
 
         if week:
             wk = brochure[week]
-            with st.expander(f"📖 Cross-check with the workbook — {week} "
-                             f"({len(wk['parts'])} parts)", expanded=differs):
+            with st.expander(f"📖 Cross-check with the workbook — {week} · "
+                             f"{week_dates_text(wk)} ({len(wk['parts'])} parts)",
+                             expanded=differs):
                 if wk.get("gaps"):
                     st.error("Part number(s) not found in the workbook text: "
                              + ", ".join(map(str, wk["gaps"]))
@@ -2057,7 +2167,9 @@ elif menu == "Upload PDF Brochure":
         if st.session_state.get("brochure_file") != file_id:
             st.session_state["brochure_file"] = file_id
             if weeks:
-                save_workbook(weeks, uploaded_pdf.name)
+                first, sure = guess_first_monday(weeks, uploaded_pdf.name)
+                save_workbook(assign_dates(dict(weeks), first), uploaded_pdf.name)
+                set_setting("workbook_dates_sure", "1" if sure else "0")
                 stored, stored_file = load_workbook()
         if not weeks:
             st.error(
@@ -2068,15 +2180,33 @@ elif menu == "Upload PDF Brochure":
             st.success(f"Found parts for {len(weeks)} week(s).")
         if empty:
             st.warning("No parts found under: " + ", ".join(empty))
-        if weeks and not any(WEEK_RE.search(w) for w in weeks):
-            st.info("No English week headings were found, so weeks are listed by page. "
-                    "Section guesses are based on part numbers and durations; "
-                    "check them below.")
+        if weeks and not any(w.get("month") in ENGLISH_MONTHS for w in weeks.values()):
+            st.info("The week headings aren't in English, so sections are guessed from "
+                    "part numbers and durations. Check them below.")
 
     if stored:
+        st.subheader("Week dates")
+        first_week = next(iter(stored.values()))
+        if get_setting("workbook_dates_sure", "0") != "1":
+            st.warning("The week dates were guessed. Check the first week below — "
+                       "every other week follows from it.")
+        d1, d2 = st.columns([2, 1])
+        first_date = d1.date_input(
+            f"First week ({next(iter(stored))}) begins on",
+            datetime.strptime(first_week["start"], "%Y-%m-%d").date()
+            if first_week.get("start") else date.today(),
+            key=f"wbfirst|{stored_file}",
+            help="The Monday of the first week in the workbook.",
+        )
+        if d2.button("Apply dates", width="stretch"):
+            save_workbook(assign_dates(stored, first_date), stored_file)
+            set_setting("workbook_dates_sure", "1")
+            st.success("Week dates updated.")
+            st.rerun()
+
         st.subheader("Weeks found")
         summary = pd.DataFrame([
-            {"Week": label, "Parts": len(w["parts"]),
+            {"Week": label, "Dates": week_dates_text(w), "Parts": len(w["parts"]),
              "Numbers": ", ".join(str(p["part_no"]) for p in w["parts"]),
              "Missing": ", ".join(map(str, w.get("gaps", []))) or "—"}
             for label, w in stored.items()
