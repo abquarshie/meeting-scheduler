@@ -168,8 +168,8 @@ def generate_schedule_pdf(meetings, schedules_df):
             section = r["section"] or ""
             if section != current:
                 current = section
-                data.append([Paragraph(xml_escape(SECTION_TITLES.get(section, section)
-                                                  .split(" ", 1)[-1]), sec_style), ""])
+                data.append([Paragraph(xml_escape(SECTION_TITLES.get(section, section)),
+                                       sec_style), ""])
                 style += [("SPAN", (0, len(data) - 1), (1, len(data) - 1)),
                           ("BACKGROUND", (0, len(data) - 1), (1, len(data) - 1),
                            colors.HexColor("#30363d"))]

@@ -1,66 +1,174 @@
 # -*- coding: utf-8 -*-
-"""Dashboard page."""
+"""Home: the next meeting and what's still open, then what's coming up."""
 from core import *  # noqa: F401,F403
+from month import meeting_day
+
+
+def fill_counts(rows):
+    needed = len(rows) + int((rows["needs_assistant"] == 1).sum())
+    filled = int(rows["person"].notna().sum()) + int(
+        ((rows["needs_assistant"] == 1) & rows["assistant"].notna()).sum())
+    return filled, needed
+
+
+def greeting():
+    hour = datetime.now().hour
+    word = "Good morning" if hour < 12 else "Good afternoon" if hour < 17 else "Good evening"
+    name = st.session_state.get("user_name")
+    return f"{word}, {name}" if name else word
+
+
+def long_date(iso):
+    d = datetime.strptime(iso, "%Y-%m-%d").date()
+    return f"{d:%A} {d.day} {d:%B}"
+
+
+def days_away(iso):
+    n = (datetime.strptime(iso, "%Y-%m-%d").date() - date.today()).days
+    return "today" if n == 0 else "tomorrow" if n == 1 else f"in {n} days"
+
+
+def next_unscheduled_week(schedules_df):
+    workbook, _ = load_workbook()
+    saved = {d for d, t_ in saved_meetings(schedules_df) if t_ == MIDWEEK}
+    today = date.today().isoformat()
+    for label, w in workbook.items():
+        if not w.get("start") or w["end"] < today:
+            continue
+        if any(w["start"] <= d <= w["end"] for d in saved):
+            continue
+        start = datetime.strptime(w["start"], "%Y-%m-%d").date()
+        return label, start + timedelta(days=meeting_day(MIDWEEK))
+    return None
 
 
 def render(students_df, t, selected_lang, aux_default):
-    st.title(tr("app_title"))
-    st.write(tr("app_intro"))
-    st.markdown("---")
+    today = date.today()
+    page_header(greeting(), f"{today:%A} {today.day} {today:%B %Y}")
 
-    c1, c2, c3 = st.columns(3)
-    if c1.button(tr("nav_view"), width="stretch"):
-        go("View Schedules")
-    if c2.button(tr("nav_create"), width="stretch"):
-        go("Schedule", schedule_mode="Create new")
-    if c3.button(tr("nav_modify"), width="stretch"):
-        go("Schedule", schedule_mode="Edit saved")
+    if students_df.empty:
+        with st.container(border=True):
+            st.markdown("### Add your participants first")
+            st.write("Schedules are filled from the people you add, with the parts "
+                     "each one can take.")
+            if st.button("Add participants", icon=":material/person_add:", type="primary"):
+                go("Manage Participants")
+        return
 
-    c4, c5, c6 = st.columns(3)
-    if c4.button(tr("nav_month"), width="stretch"):
-        go("Month")
-    if c5.button(tr("nav_workbook"), width="stretch"):
-        go("Upload PDF Brochure")
-    if c6.button(tr("nav_participants"), width="stretch"):
-        go("Manage Participants")
-
-    c7, c8, c9 = st.columns(3)
-    if c7.button(tr("nav_reports"), width="stretch"):
-        go("Reports")
-    if c8.button(tr("nav_export"), width="stretch"):
-        go("Export")
-    if c9.button(tr("nav_admin"), width="stretch"):
-        go("Admin")
-
-    if st.button("🔄 Reset session (clears filters and unsaved picks)"):
-        keep = {k: st.session_state[k] for k in ("auth_ok", "user_name", "ui_lang")
-                if k in st.session_state}
-        st.session_state.clear()
-        st.session_state.update(keep)
-        st.rerun()
-
-    st.markdown("---")
     schedules_df = get_schedules()
-    today = date.today().isoformat()
-    upcoming = sorted(d for d in schedules_df["meeting_date"].unique() if d >= today)
-    focus_date = upcoming[0] if upcoming else (
-        schedules_df["meeting_date"].max() if not schedules_df.empty else None)
-    focus_label = "Next Meeting" if upcoming else "Latest Schedule"
-    open_parts = 0
-    if focus_date:
-        focus_rows = schedules_df[schedules_df["meeting_date"] == focus_date]
-        open_parts = int(focus_rows["student_id"].isna().sum()) + int(
-            ((focus_rows["needs_assistant"] == 1) & focus_rows["assistant_id"].isna()).sum()
-        )
-    active_count = int((students_df["active"] == 1).sum())
-    open_color = "#3fb950" if open_parts == 0 else "#d29922"
+    upcoming = sorted(p for p in saved_meetings(schedules_df) if p[0] >= today.isoformat())
+    gap = next_unscheduled_week(schedules_df)
 
-    s1, s2, s3 = st.columns(3)
-    s1.markdown(f"""<div class="status-panel"><p>{focus_label}</p>
-        <h3 style="color:#c9d1d9;">{fmt_date(focus_date) if focus_date else "None yet"}</h3>
-        </div>""", unsafe_allow_html=True)
-    s2.markdown(f"""<div class="status-panel"><p>Open Slots ({focus_label.lower()})</p>
-        <h3 style="color:{open_color};">{open_parts if focus_date else "—"}</h3>
-        </div>""", unsafe_allow_html=True)
-    s3.markdown(f"""<div class="status-panel"><p>Active Participants</p>
-        <h3 style="color:#58a6ff;">{active_count}</h3></div>""", unsafe_allow_html=True)
+    # ---- the next meeting -----------------------------------------------------
+    with st.container(border=True):
+        if upcoming:
+            md, mt = upcoming[0]
+            rows = schedules_df[(schedules_df["meeting_date"] == md)
+                                & (schedules_df["meeting_type"] == mt)]
+            meta = get_meeting_meta(md, mt)
+            filled, needed = fill_counts(rows)
+            open_n = needed - filled
+            detail = meta.get("heading") if mt == MIDWEEK else talk_text(meta)
+            sub = f"{mt.capitalize()}, {days_away(md)}" + (f". {detail}" if detail else "")
+            left, right = st.columns([3, 1], gap="large")
+            with left:
+                st.markdown(f'<div class="ms-next-when">{long_date(md)}</div>'
+                            f'<div class="ms-next-meta">{html_escape(sub)}</div>',
+                            unsafe_allow_html=True)
+                section_bars(rows)
+            with right:
+                word = "slot open" if open_n == 1 else "slots open"
+                st.markdown(
+                    f'<div class="ms-open">{open_n}</div>'
+                    f'<div class="ms-open-label">{word if open_n else "Every part is filled"}</div>',
+                    unsafe_allow_html=True)
+                if st.button("Fill open slots" if open_n else "Edit schedule",
+                             icon=":material/edit:", type="primary" if open_n else "secondary",
+                             width="stretch", key="home_fill"):
+                    go("Schedule", schedule_mode="Edit saved", edit_meeting=(md, mt))
+                if st.button("Print slips", icon=":material/print:", width="stretch",
+                             key="home_print"):
+                    go("View Schedules", view_meeting=(md, mt))
+        elif gap:
+            label, when = gap
+            st.markdown(f'<div class="ms-next-when">{long_date(when.isoformat())}</div>'
+                        f'<div class="ms-next-meta">{html_escape(label)} has no schedule yet.</div>',
+                        unsafe_allow_html=True)
+            if st.button("Create this week", icon=":material/add:", type="primary",
+                         key="home_gap_first"):
+                go("Schedule", schedule_mode="Create new",
+                   new_meeting_type=MIDWEEK, new_meeting_date=when)
+        else:
+            st.markdown('<div class="ms-next-when">No meetings scheduled yet</div>'
+                        '<div class="ms-next-meta">Upload the workbook to get each week’s '
+                        'parts, then create the first schedule.</div>',
+                        unsafe_allow_html=True)
+            c1, c2, _ = st.columns([1, 1, 2])
+            if c1.button("Create a schedule", icon=":material/add:", type="primary",
+                         width="stretch"):
+                go("Schedule", schedule_mode="Create new")
+            if c2.button("Upload workbook", icon=":material/upload_file:", width="stretch"):
+                go("Upload PDF Brochure")
+
+    if upcoming and gap:
+        label, when = gap
+        c1, c2 = st.columns([3, 1], vertical_alignment="center")
+        c1.info(f"{label} ({long_date(when.isoformat())}) has no schedule yet.",
+                icon=":material/event_busy:")
+        if c2.button("Create it", icon=":material/add:", width="stretch", key="home_gap"):
+            go("Schedule", schedule_mode="Create new",
+               new_meeting_type=MIDWEEK, new_meeting_date=when)
+
+    # ---- at a glance --------------------------------------------------------------
+    soon = [p for p in upcoming
+            if p[0] <= (today + timedelta(days=28)).isoformat()]
+    open_soon = 0
+    for md, mt in soon:
+        f_, n_ = fill_counts(schedules_df[(schedules_df["meeting_date"] == md)
+                                          & (schedules_df["meeting_type"] == mt)])
+        open_soon += n_ - f_
+    week_end = (today + timedelta(days=6)).isoformat()
+    away = set()
+    d = today
+    while d.isoformat() <= week_end:
+        away |= get_unavailable(d.isoformat())
+        d += timedelta(days=1)
+    away |= get_suspended(students_df, today.isoformat())
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Open slots in the next 4 weeks", open_soon, border=True)
+    m2.metric("Active participants", int((students_df["active"] == 1).sum()), border=True)
+    m3.metric("Away or suspended this week", len(away), border=True)
+
+    # ---- coming up ----------------------------------------------------------------
+    later = upcoming[1:9]
+    if later:
+        st.markdown("#### Coming up")
+        table = []
+        for md, mt in later:
+            rows = schedules_df[(schedules_df["meeting_date"] == md)
+                                & (schedules_df["meeting_type"] == mt)]
+            meta = get_meeting_meta(md, mt)
+            f_, n_ = fill_counts(rows)
+            table.append({
+                "Date": datetime.strptime(md, "%Y-%m-%d").strftime("%a %d %b"),
+                "Meeting": "Midweek" if mt == MIDWEEK else "Weekend",
+                "Week or talk": (meta.get("heading") if mt == MIDWEEK
+                                 else talk_text(meta)) or "",
+                "Filled": round(100 * f_ / n_) if n_ else 100,
+                "Open": n_ - f_,
+                "_key": (md, mt),
+            })
+        df = pd.DataFrame(table)
+        event = st.dataframe(
+            df.drop(columns="_key"), hide_index=True, width="stretch",
+            on_select="rerun", selection_mode="single-row", key="home_upcoming",
+            column_config={
+                "Filled": st.column_config.ProgressColumn(
+                    "Filled", min_value=0, max_value=100, format="%d%%"),
+                "Open": st.column_config.NumberColumn("Open", width="small"),
+            },
+        )
+        st.caption("Select a row to open that schedule.")
+        picked = getattr(getattr(event, "selection", None), "rows", None)
+        if picked:
+            go("Schedule", schedule_mode="Edit saved", edit_meeting=df.iloc[picked[0]]["_key"])

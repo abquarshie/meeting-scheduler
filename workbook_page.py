@@ -4,7 +4,7 @@ from core import *  # noqa: F401,F403
 
 
 def render(students_df, t, selected_lang, aux_default):
-    st.header(tr("h_workbook"))
+    page_header(tr("h_workbook"), tr("sub_workbook"))
     st.write(
         "Upload the Life and Ministry Meeting Workbook PDF. Numbered parts with "
         "their minutes are read for each week, and you can correct them below."

@@ -4,25 +4,8 @@
 import streamlit as st
 
 
-st.set_page_config(page_title="Meeting Scheduler", page_icon="📅", layout="wide")
-
-# Colours live in .streamlit/config.toml; only the stat cards need custom CSS.
-st.markdown(
-    """
-    <style>
-    .status-panel {
-        background-color: #161b22;
-        border: 1px solid #30363d;
-        border-radius: 6px;
-        padding: 15px;
-        text-align: center;
-    }
-    .status-panel p { margin: 0; color: #8b949e; font-weight: bold; }
-    .status-panel h3 { margin-top: 10px; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+st.set_page_config(page_title="Meeting Scheduler", page_icon=":material/event_note:",
+                   layout="wide")
 
 # If an upload went wrong, say exactly which files are missing instead of crashing.
 from pathlib import Path  # noqa: E402
@@ -31,10 +14,12 @@ import shutil  # noqa: E402
 # Streamlit only reads the theme from .streamlit/config.toml. When the repo keeps
 # config.toml next to app.py, copy it into place (used from the next reboot).
 _here = Path(__file__).resolve().parent
-if (_here / "config.toml").is_file() and not (_here / ".streamlit" / "config.toml").exists():
+_theme_src, _theme_dst = _here / "config.toml", _here / ".streamlit" / "config.toml"
+if _theme_src.is_file() and (not _theme_dst.exists()
+                             or _theme_dst.read_bytes() != _theme_src.read_bytes()):
     try:
         (_here / ".streamlit").mkdir(exist_ok=True)
-        shutil.copy(_here / "config.toml", _here / ".streamlit" / "config.toml")
+        shutil.copy(_theme_src, _theme_dst)
     except OSError:
         pass
 
@@ -71,11 +56,12 @@ except ModuleNotFoundError as exc:
     st.stop()
 
 # --- sign-in, then bring data back if the server started fresh --------------
+inject_css()
 init_db()
 require_login()
 restored = restore_if_fresh()
 if restored == "restored":
-    st.toast("Data loaded from Google Sheets.", icon="☁️")
+    st.toast("Data loaded from Google Sheets.", icon=":material/cloud_done:")
 elif restored:
     st.error(restored)
 FONT_REGULAR, FONT_BOLD, FONT_SUPPORTS_GA = register_fonts()
@@ -84,18 +70,18 @@ if "menu" not in st.session_state:
     st.session_state["menu"] = "Dashboard"
 
 # --- sidebar -------------------------------------------------------------------
-if st.sidebar.button(tr("back"), width="stretch"):
-    go("Dashboard")
+menu = st.session_state["menu"]
+sidebar(menu)
 
 selected_lang = st.sidebar.selectbox(tr("slip_language"), list(TRANSLATIONS))
 t = TRANSLATIONS[selected_lang]
 if selected_lang != "English" and not FONT_SUPPORTS_GA:
     st.sidebar.warning(
         "No font with ɛ, ɔ and ŋ was found, so Ga slips will show boxes. "
-        "Put DejaVuSans.ttf and DejaVuSans-Bold.ttf in a 'fonts' folder next to app.py."
+        "Put DejaVuSans.ttf and DejaVuSans-Bold.ttf next to app.py."
     )
 
-with st.sidebar.expander(tr("settings")):
+with st.sidebar.expander(tr("settings"), icon=":material/settings:"):
     st.selectbox(tr("ui_language"), UI_LANGUAGES, key="ui_lang")
     aux_setting = get_setting("use_aux", "1") == "1"
     aux_default = st.toggle(
@@ -111,12 +97,18 @@ with st.sidebar.expander(tr("settings")):
     )
     if ga_on != ga_setting:
         set_setting("ga_convert", "1" if ga_on else "0")
+    if st.button("Clear filters and unsaved picks", icon=":material/restart_alt:",
+                 type="tertiary"):
+        keep = {k: st.session_state[k] for k in ("auth_ok", "user_name", "ui_lang")
+                if k in st.session_state}
+        st.session_state.clear()
+        st.session_state.update(keep)
+        st.rerun()
 
 kind, text = status_text()
-if kind != "success":
-    getattr(st.sidebar, kind)(text)
-else:
-    st.sidebar.caption(text)
+icons = {"warning": ":material/cloud_off:", "error": ":material/sync_problem:",
+         "info": ":material/cloud:", "success": ":material/cloud_done:"}
+st.sidebar.caption(f"{icons[kind]} {text}")
 logout_button()
 
 # --- page ------------------------------------------------------------------------
@@ -131,7 +123,6 @@ PAGES = {
     "Reports": reports.render,
     "Admin": admin.render,
 }
-menu = st.session_state["menu"]
 students_df = get_students()
 try:
     PAGES.get(menu, dashboard.render)(students_df, t, selected_lang, aux_default)

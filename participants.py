@@ -4,7 +4,7 @@ from core import *  # noqa: F401,F403
 
 
 def render(students_df, t, selected_lang, aux_default):
-    st.header(tr("h_participants"))
+    page_header(tr("h_participants"), tr("sub_participants"))
     tab_add, tab_edit, tab_list = st.tabs(["Add", "Edit / deactivate", "List"])
 
     with tab_add:

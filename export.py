@@ -4,7 +4,7 @@ from core import *  # noqa: F401,F403
 
 
 def render(students_df, t, selected_lang, aux_default):
-    st.header(tr("h_export"))
+    page_header(tr("h_export"), tr("sub_export"))
     schedules_df = get_schedules()
     if schedules_df.empty:
         st.info("No schedule data to export yet.")
@@ -68,7 +68,7 @@ def render(students_df, t, selected_lang, aux_default):
         else:
             month_name = datetime.strptime(month, "%Y-%m").strftime("%B %Y")
             col_a.download_button(
-                f"📄 Download {month_name}.docx", data=docx_bytes,
+                f"Download {month_name}.docx", data=docx_bytes, icon=":material/description:",
                 file_name=f"{month_name}.docx", width="stretch",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             )

@@ -46,7 +46,10 @@ def require_login():
     if st.session_state.get("auth_ok"):
         return True
 
-    st.title("📅 Meeting Scheduler")
+    from ui import inject_css, page_header  # imported here: ui builds on this module
+    from i18n import tr
+    inject_css()
+    page_header(tr("app_name"), "Sign in to manage assignments.")
     with st.form("login"):
         name = st.text_input("Your name")
         password = st.text_input("Password", type="password")
@@ -72,7 +75,8 @@ def logout_button():
     if not login_enabled():
         return
     who = st.session_state.get("user_name", "")
-    if st.sidebar.button(f"🔒 Sign out {who}".strip(), width="stretch"):
+    if st.sidebar.button(f"Sign out {who}".strip(), icon=":material/logout:",
+                         type="tertiary", width="stretch"):
         for key in ("auth_ok", "user_name"):
             st.session_state.pop(key, None)
         st.rerun()

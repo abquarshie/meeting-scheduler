@@ -164,11 +164,11 @@ def sync_if_dirty():
 
 def status_text():
     if not enabled():
-        return "warning", ("Google Sheets isn't set up, so data is lost when the app "
-                           "restarts. Download a backup regularly (Admin page).")
+        return "warning", ("Not backed up: connect Google Sheets, or download a "
+                           "backup from Admin, before the app restarts.")
     state = st.session_state.get("_sync_status")
     if not state:
-        return "info", "☁️ Google Sheets connected."
+        return "info", "Google Sheets connected."
     if state[0] == "ok":
-        return "success", f"☁️ Saved to Google Sheets at {state[1]}."
-    return "error", f"☁️ Google Sheets sync failed: {state[1]}"
+        return "success", f"Saved to Google Sheets at {state[1]}."
+    return "error", f"Google Sheets sync failed: {state[1]}"

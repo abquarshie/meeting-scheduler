@@ -82,12 +82,12 @@ HALL_NAMES = {MAIN_HALL: "Main hall", AUX_HALL: "Auxiliary classroom"}
 
 SECTIONS = ["Opening", "Treasures", "Ministry", "Living", "Closing", "Weekend"]
 SECTION_TITLES = {
-    "Opening": "🔹 Opening",
-    "Treasures": "💎 Treasures From God's Word",
-    "Ministry": "🌾 Apply Yourself to the Field Ministry",
-    "Living": "🏠 Living as Christians",
-    "Closing": "🙏 Closing",
-    "Weekend": "🏛️ Weekend Meeting",
+    "Opening": "Opening",
+    "Treasures": "Treasures From God’s Word",
+    "Ministry": "Apply Yourself to the Field Ministry",
+    "Living": "Living as Christians",
+    "Closing": "Closing",
+    "Weekend": "Weekend meeting",
 }
 
 GA_CHARS = "ɛɔŋƐƆŊ"

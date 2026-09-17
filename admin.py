@@ -5,12 +5,12 @@ from month import WEEKDAYS
 
 
 def render(students_df, t, selected_lang, aux_default):
-    st.header(tr("h_admin"))
+    page_header(tr("h_admin"), tr("sub_admin"))
     tab_data, tab_settings, tab_words, tab_log = st.tabs(
         ["Data & backup", "Meeting days", "Interface wording", "Change log"])
 
     with tab_data:
-        st.subheader("☁️ Google Sheets")
+        st.subheader("Google Sheets")
         kind, text = status_text()
         getattr(st, kind)(text)
         if enabled():
@@ -41,9 +41,9 @@ def render(students_df, t, selected_lang, aux_default):
         else:
             st.caption("See the README for the one-time Google setup.")
 
-        st.subheader("💾 Backup file")
+        st.subheader("Backup file")
         st.download_button(
-            "Download full backup (.json)", data=backup_bytes(),
+            "Download full backup (.json)", data=backup_bytes(), icon=":material/download:",
             file_name=f"meeting_scheduler_backup_{date.today()}.json",
             mime="application/json",
         )

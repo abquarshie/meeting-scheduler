@@ -4,7 +4,7 @@ from core import *  # noqa: F401,F403
 
 
 def render(students_df, t, selected_lang, aux_default):
-    st.header(tr("h_schedule"))
+    page_header(tr("h_schedule"), tr("sub_schedule"))
     schedules_df = get_schedules()
     meetings = saved_meetings(schedules_df)
 
@@ -87,8 +87,9 @@ def render(students_df, t, selected_lang, aux_default):
 
         if week:
             wk = brochure[week]
-            with st.expander(f"📖 Cross-check with the workbook — {week} · "
+            with st.expander(f"Cross-check with the workbook: {week}, "
                              f"{week_dates_text(wk)} ({len(wk['parts'])} parts)",
+                             icon=":material/fact_check:",
                              expanded=differs):
                 if wk.get("gaps"):
                     st.error("Part number(s) not found in the workbook text: "
@@ -136,7 +137,7 @@ def render(students_df, t, selected_lang, aux_default):
                    + ", ".join(sorted(names[p] for p in suspended if p in names)))
 
     sugg_key = f"suggest|{meeting_date}|{meeting_type}|{source}"
-    if c_suggest.button(tr("suggest"), width="stretch",
+    if c_suggest.button(tr("suggest"), icon=":material/auto_awesome:", width="stretch",
                         help="Fill empty slots with whoever has waited longest for each part."):
         st.session_state[sugg_key] = suggest_assignments(
             slots, students_df, blocked, meeting_date)
@@ -161,7 +162,7 @@ def render(students_df, t, selected_lang, aux_default):
 
     def talk_inputs():
         with st.container(border=True):
-            st.markdown("**🎤 Public talk**")
+            st.markdown("**Public talk**")
             t1, t2 = st.columns([1, 4])
             talk_in["talk_number"] = nfc(t1.text_input(
                 "Talk no.", talk_in["talk_number"], key=f"{ns}|talkno",
@@ -170,11 +171,9 @@ def render(students_df, t, selected_lang, aux_default):
                 "Talk title", talk_in["talk_title"], key=f"{ns}|talktitle",
                 placeholder="Title of the public talk")))
 
-    picks, current_section = {}, None
-    for i, slot in enumerate(slots):
-        if slot["section"] != current_section:
-            current_section = slot["section"]
-            st.markdown(f"#### {SECTION_TITLES.get(current_section, current_section)}")
+    picks = {}
+
+    def render_slot(i, slot):
         pre_sid, pre_aid = saved_picks.get(slot_match_key(slot), (None, None))
         if i in suggested:
             pre_sid, pre_aid = suggested[i]
@@ -195,7 +194,7 @@ def render(students_df, t, selected_lang, aux_default):
                 picks[i] = (None, None)
                 picks[i + 10000] = apply_ga_substitutes(nfc(vis))
                 talk_inputs()
-                continue
+                return
 
         role_dates = last_role_dates(slot["role"])
         options = ordered_options(
@@ -205,7 +204,7 @@ def render(students_df, t, selected_lang, aux_default):
             pre_sid = None
         label = person_label_factory(students_df, last_dates, away, role_dates,
                                      suspended=suspended)
-        cols = st.columns([3, 2]) if slot["needs_assistant"] else [st.container()]
+        cols = st.columns(2) if slot["needs_assistant"] else [st.container()]
         sid = cols[0].selectbox(
             text, options, index=options.index(pre_sid),
             format_func=label, key=f"{wkey}|student",
@@ -229,9 +228,36 @@ def render(students_df, t, selected_lang, aux_default):
         if slot["role"] == "Public Talk":
             talk_inputs()
 
+    # one bordered block per workbook section; single parts sit two to a row
+    groups = []
+    for i, slot in enumerate(slots):
+        if not groups or groups[-1][0] != slot["section"]:
+            groups.append((slot["section"], []))
+        groups[-1][1].append((i, slot))
+    for section, members in groups:
+        section_heading(section)
+        with st.container(border=True):
+            pending = None
+            for i, slot in members:
+                wide = slot["needs_assistant"] or slot.get("allow_visitor") \
+                    or slot["role"] == "Public Talk"
+                if wide:
+                    pending = None
+                    render_slot(i, slot)
+                    continue
+                if pending is None:
+                    left, right = st.columns(2)
+                    with left:
+                        render_slot(i, slot)
+                    pending = right
+                else:
+                    with pending:
+                        render_slot(i, slot)
+                    pending = None
+
     st.markdown("---")
     b1, b2 = st.columns([1, 1])
-    if b1.button(tr("save_schedule"), type="primary", width="stretch"):
+    if b1.button(tr("save_schedule"), icon=":material/save:", type="primary", width="stretch"):
         errors, warnings = [], []
         usage = {}
         for i, val in picks.items():
@@ -262,7 +288,7 @@ def render(students_df, t, selected_lang, aux_default):
 
         if errors:
             for e in errors:
-                st.error(f"⚠️ {e}")
+                st.error(e, icon=":material/error:")
         else:
             meta_in.update(talk_in)
             save_schedule(meeting_date, meeting_type, slots, picks, meta_in, names)
@@ -270,7 +296,8 @@ def render(students_df, t, selected_lang, aux_default):
             for w in warnings:
                 st.warning(f"Check: {w}")
 
-    if saved_slots and b2.button("🗑️ Delete this schedule", width="stretch"):
+    if saved_slots and b2.button("Delete this schedule", icon=":material/delete:",
+                                     width="stretch"):
         st.session_state["confirm_delete"] = (meeting_date, meeting_type)
     if st.session_state.get("confirm_delete") == (meeting_date, meeting_type):
         st.error(f"Delete the {meeting_type} for {fmt_date(meeting_date)}?")

@@ -19,7 +19,7 @@ def open_slots(rows):
 
 
 def render(students_df, t, selected_lang, aux_default):
-    st.header(tr("h_month"))
+    page_header(tr("h_month"), tr("sub_month"))
     schedules_df = get_schedules()
     workbook, _ = load_workbook()
 
@@ -41,7 +41,8 @@ def render(students_df, t, selected_lang, aux_default):
         meta = get_meeting_meta(md, mt)
         rows.append({
             "Date": fmt_date(md), "Meeting": mt,
-            "Assigned": f"{int(r['person'].notna().sum())}/{len(r)}",
+            "Filled": round(100 * (1 - open_slots(r) / max(
+                len(r) + int((r["needs_assistant"] == 1).sum()), 1))),
             "Open slots": open_slots(r),
             "Aux. classroom": "Yes" if (r["hall"] == AUX_HALL).any() else "",
             "Heading": meta.get("heading") or talk_text(meta),
@@ -56,7 +57,7 @@ def render(students_df, t, selected_lang, aux_default):
         if md.startswith(month) and md not in saved_midweek and \
                 not any(w["start"] <= d <= w["end"] for d in saved_midweek):
             to_create.append((md, label))
-            rows.append({"Date": fmt_date(md), "Meeting": MIDWEEK, "Assigned": "—",
+            rows.append({"Date": fmt_date(md), "Meeting": MIDWEEK, "Filled": None,
                          "Open slots": None, "Aux. classroom": "",
                          "Heading": f"{label} · not created yet"})
 
@@ -66,7 +67,10 @@ def render(students_df, t, selected_lang, aux_default):
         table = pd.DataFrame(rows)
         table["_sort"] = pd.to_datetime(table["Date"], format="%d %B %Y")
         table = table.sort_values(["_sort", "Meeting"]).drop(columns="_sort")
-        st.dataframe(table, width="stretch", hide_index=True)
+        st.dataframe(table, width="stretch", hide_index=True, column_config={
+            "Filled": st.column_config.ProgressColumn(
+                "Filled", min_value=0, max_value=100, format="%d%%"),
+        })
         total_open = int(pd.to_numeric(table["Open slots"], errors="coerce").fillna(0).sum())
         if total_open:
             st.warning(f"{total_open} slot(s) still open this month.")
@@ -78,6 +82,7 @@ def render(students_df, t, selected_lang, aux_default):
         cols = st.columns(min(len(to_create), 4))
         for i, (md, label) in enumerate(to_create):
             if cols[i % len(cols)].button(f"Create {fmt_date(md, short=True)}",
+                                          icon=":material/add:",
                                           key=f"create_{md}", width="stretch"):
                 go("Schedule", schedule_mode="Create new",
                    new_meeting_type=MIDWEEK,
@@ -87,12 +92,12 @@ def render(students_df, t, selected_lang, aux_default):
         return
 
     st.divider()
-    st.subheader("🖨️ Print the whole month")
+    st.subheader("Print the whole month")
     c1, c2 = st.columns(2)
     slips = slip_rows_for(in_month)
     if slips:
         c1.download_button(
-            f"📄 All {len(slips)} S-89 slips ({selected_lang})",
+            f"All {len(slips)} S-89 slips ({selected_lang})", icon=":material/receipt_long:",
             data=generate_slips_pdf(slips, t),
             file_name=f"S89_slips_{month}_{selected_lang}.pdf",
             mime="application/pdf", width="stretch",
@@ -101,12 +106,12 @@ def render(students_df, t, selected_lang, aux_default):
         c1.info("No student parts assigned this month.")
     month_meetings = sorted(saved_meetings(in_month))
     c2.download_button(
-        f"📄 Schedule PDF ({len(month_meetings)} meetings)",
+        f"Schedule PDF ({len(month_meetings)} meetings)", icon=":material/print:",
         data=generate_schedule_pdf(month_meetings, schedules_df),
         file_name=f"schedule_{month}.pdf", mime="application/pdf", width="stretch",
     )
 
-    st.subheader("💬 All reminders for the month")
+    st.subheader("Reminders for the month")
     blocks = []
     for md, mt in month_meetings:
         r = in_month[(in_month["meeting_date"] == md) & (in_month["meeting_type"] == mt)]
@@ -114,8 +119,8 @@ def render(students_df, t, selected_lang, aux_default):
         for row in reminder_rows(r).itertuples():
             blocks.append(reminder_message(row, mt, md, meta)[1])
     if blocks:
-        st.caption(f"{len(blocks)} message(s). Copy the block, then paste each one "
-                   "into WhatsApp.")
-        st.code("\n\n---\n\n".join(blocks), language=None)
+        with st.expander(f"{len(blocks)} messages, ready to copy into WhatsApp",
+                         icon=":material/chat:"):
+            st.code("\n\n---\n\n".join(blocks), language=None)
     else:
         st.info("No assignments to remind yet.")

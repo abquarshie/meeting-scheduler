@@ -44,7 +44,7 @@ def test_create_midweek_with_aux_and_family_assistant(people):
     at.session_state[slot_key(ns, "aux_1", "Initial Presentation", 4,
                               "Initial Presentation")] = people["Ama Owusu"]
     run(at)
-    button(at, "💾 Save schedule").click()
+    button(at, "Save schedule").click()
     run(at)
     assert any("Saved Midweek Meeting" in s.value for s in at.success)
     assert not any("different categories" in w.value for w in at.warning)
@@ -58,7 +58,7 @@ def test_suspended_and_away_people_are_not_offered(people, core):
     at = app("Schedule", schedule_mode="Create new")
     chairman = next(s for s in at.selectbox if s.label == "Chairman")
     assert not any("Nii" in o or "Kofi" in o for o in chairman.options)
-    button(at, "✨ Suggest").click()
+    button(at, "Suggest").click()
     run(at)
     values = [s.value for s in at.selectbox]
     assert people["Nii Tetteh"] not in values and people["Kofi Mensah"] not in values
@@ -75,7 +75,7 @@ def test_weekend_chairman_visitor_and_talk(people):
     next(t for t in at.text_input if t.label == "Talk no.").set_value("12")
     next(t for t in at.text_input if t.label == "Talk title").set_value("A Good Title")
     run(at)
-    button(at, "💾 Save schedule").click()
+    button(at, "Save schedule").click()
     run(at)
     at.session_state["menu"] = "View Schedules"
     run(at)
@@ -141,7 +141,7 @@ def test_login_required_when_password_set(people):
     at = AppTest.from_file(APP, default_timeout=90)
     at.secrets["auth"] = {"password": "open-sesame"}
     run(at)
-    assert not at.button or all(b.label != "📋 View Schedules & Slips" for b in at.button)
+    assert not any(b.label == "Month overview" for b in at.button)
     at.text_input[0].set_value("Xan")
     at.text_input[1].set_value("wrong")
     at.button[0].click()
@@ -150,7 +150,7 @@ def test_login_required_when_password_set(people):
     at.text_input[1].set_value("open-sesame")
     at.button[0].click()
     run(at)
-    assert any(b.label == "📋 View Schedules & Slips" for b in at.button)
+    assert any(b.label == "Month overview" for b in at.button)
     import core
     assert "Xan" in set(core.get_log()["user"])
 
@@ -190,3 +190,39 @@ def test_admin_backup_restore(people, core):
     assert "Yaw Adjei" in set(core.get_students()["name"])
     assert any(b.label.startswith("Download full backup")
                for b in at.get("download_button"))
+
+
+def test_home_leads_with_the_next_meeting(people, core):
+    soon = (date.today() + timedelta(days=2)).isoformat()
+    slots = core.build_midweek_slots(core.default_midweek_parts())
+    ip = next(i for i, s in enumerate(slots) if s["role"] == "Initial Presentation")
+    core.save_schedule(soon, core.MIDWEEK, slots,
+                       {0: (people["Kofi Mensah"], None),
+                        ip: (people["Ama Owusu"], None)},
+                       {"heading": "SEPTEMBER 14–20"}, {})
+    at = app()
+    page = " ".join(m.value for m in at.markdown)
+    assert "Treasures From God’s Word" in page and "of" in page
+    assert "slots open" in page
+    button(at, "Fill open slots").click()
+    run(at)
+    assert at.session_state["menu"] == "Schedule"
+    assert at.selectbox(key="edit_meeting").value == (soon, core.MIDWEEK)
+
+
+def test_home_empty_states(core):
+    at = app()
+    assert any(b.label == "Add participants" for b in at.button)
+    core.add_student("Kofi Mensah", "Brother", ["Chairman"])
+    run(at)
+    assert any("No meetings scheduled yet" in m.value for m in at.markdown)
+
+
+def test_sidebar_navigation(people):
+    at = app()
+    next(b for b in at.button if b.label == "Reports").click()
+    run(at)
+    assert at.session_state["menu"] == "Reports"
+    active = [b for b in at.button if b.key and b.key.startswith("nav_")
+              and b.proto.type == "primary"]
+    assert [b.label for b in active] == ["Reports"]

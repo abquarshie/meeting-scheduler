@@ -37,7 +37,7 @@ def build_report(students_df, schedules_df, start, end):
 
 
 def render(students_df, t, selected_lang, aux_default):
-    st.header(tr("h_reports"))
+    page_header(tr("h_reports"), tr("sub_reports"))
     schedules_df = get_schedules()
     if students_df.empty:
         st.info("No participants yet.")
