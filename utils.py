@@ -1,0 +1,132 @@
+# -*- coding: utf-8 -*-
+"""Small text, date and part-slot helpers."""
+from datetime import date, datetime, timedelta
+import re
+import unicodedata
+
+from .constants import *  # noqa: F401,F403
+
+
+# =============================================================================
+# SMALL HELPERS
+# =============================================================================
+def nfc(text):
+    return unicodedata.normalize("NFC", text or "").strip()
+
+
+def fmt_date(iso, short=False):
+    try:
+        d = datetime.strptime(str(iso), "%Y-%m-%d").date()
+    except ValueError:
+        return str(iso)
+    return f"{d.day} {d:%b}" if short else f"{d.day} {d:%B %Y}"
+
+
+def parse_privileges(value):
+    """Turn the stored comma string into a clean list, upgrading legacy names."""
+    result = []
+    for item in (value or "").split(","):
+        item = item.strip()
+        for p in LEGACY_PRIVILEGES.get(item, [item]):
+            if p in PRIVILEGES and p not in result:
+                result.append(p)
+    return result
+
+
+def infer_role(title, section=None):
+    t = (title or "").lower()
+    if "chairman" in t:
+        return "Chairman"
+    if "prayer" in t:
+        return "Prayer"
+    if "watchtower" in t and "reader" in t:
+        return "Watchtower Reader"
+    if "watchtower" in t:
+        return "Watchtower Conductor"
+    if "public talk" in t:
+        return "Public Talk"
+    if "reader" in t:
+        return "Reader"
+    if "bible study" in t or "conductor" in t:
+        return "Bible Study Conductor"
+    if "bible reading" in t:
+        return "Bible Reading"
+    if "gems" in t:
+        return "Spiritual Gems"
+    if "treasures" in t:
+        return "Treasures Talk"
+    if "living" in t:
+        return "Living Part"
+    if "disciple" in t:
+        return "Making Disciples"
+    if "explaining" in t or "belief" in t:
+        return "Explaining Beliefs"
+    if "presentation" in t or "conversation" in t or "following up" in t:
+        return "Initial Presentation"
+    if section == "Ministry":
+        return "Student Talk" if "talk" in t else "Initial Presentation"
+    if section == "Living":
+        return "Living Part"
+    return "Living Part"
+
+
+def default_section(role, meeting_type=MIDWEEK):
+    if meeting_type == WEEKEND:
+        return "Weekend"
+    if role in ("Chairman", "Aux Classroom Counselor"):
+        return "Opening"
+    if role in ("Treasures Talk", "Spiritual Gems", "Bible Reading"):
+        return "Treasures"
+    if role in STUDENT_ROLES:
+        return "Ministry"
+    return "Living"
+
+
+def make_slot(title, role, section, part_no=None, minutes=None, hall=MAIN_HALL):
+    return {
+        "hall": hall or MAIN_HALL,
+        "allow_visitor": False,
+        "part_no": part_no,
+        "title": nfc(title),
+        "role": role,
+        "section": section,
+        "minutes": minutes,
+        "student_part": role in STUDENT_ROLES,
+        "needs_assistant": role in ASSISTANT_ROLES,
+    }
+
+
+def slot_label(slot):
+    label = slot["title"]
+    if slot.get("minutes") and "min" not in label.lower():
+        label += f" ({slot['minutes']} min)"
+    label = f"{slot['part_no']}. {label}" if slot.get("part_no") else label
+    if slot.get("hall") == AUX_HALL:
+        label += " · Auxiliary classroom"
+    return label
+
+
+def slot_match_key(slot):
+    """Used to carry names across when the parts list is swapped."""
+    hall = slot.get("hall") or MAIN_HALL
+    if slot.get("part_no"):
+        return (hall, slot["role"], slot["part_no"])
+    return (hall, slot["role"], slot["title"].lower())
+
+
+def apply_aux(slots, aux_on):
+    """Add (or strip) the auxiliary-classroom counselor and a second slot per student part."""
+    base = [s for s in slots
+            if s.get("hall", MAIN_HALL) == MAIN_HALL and s["role"] != "Aux Classroom Counselor"]
+    if not aux_on:
+        return base
+    out = []
+    for s in base:
+        out.append(s)
+        if s["role"] == "Chairman":
+            out.append(make_slot("Auxiliary Classroom Counselor",
+                                 "Aux Classroom Counselor", s["section"]))
+        if s["student_part"]:
+            out.append(make_slot(s["title"], s["role"], s["section"],
+                                 s["part_no"], s.get("minutes"), hall=AUX_HALL))
+    return out

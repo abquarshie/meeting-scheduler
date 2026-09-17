@@ -3,3 +3,5 @@ pandas
 pypdf
 reportlab
 python-docx
+gspread>=6
+google-auth
