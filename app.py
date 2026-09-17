@@ -24,10 +24,45 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-from scheduler.core import *  # noqa: E402,F401,F403
-from scheduler.pages import (  # noqa: E402
-    admin, dashboard, export, month, participants, reports, schedule, view, workbook_page,
-)
+# If an upload went wrong, say exactly which files are missing instead of crashing.
+from pathlib import Path  # noqa: E402
+
+REQUIRED_FILES = [
+    "s140.py", "requirements.txt",
+    "scheduler/__init__.py", "scheduler/constants.py", "scheduler/utils.py",
+    "scheduler/db.py", "scheduler/parts.py", "scheduler/workbook.py",
+    "scheduler/pdfs.py", "scheduler/picking.py", "scheduler/backup.py",
+    "scheduler/sheets.py", "scheduler/auth.py", "scheduler/i18n.py",
+    "scheduler/core.py", "scheduler/pages/__init__.py",
+] + [f"scheduler/pages/{p}.py" for p in (
+    "admin", "dashboard", "export", "month", "participants",
+    "reports", "schedule", "view", "workbook_page")]
+
+try:
+    from scheduler.core import *  # noqa: E402,F401,F403
+    from scheduler.pages import (  # noqa: E402
+        admin, dashboard, export, month, participants, reports, schedule, view,
+        workbook_page,
+    )
+except ModuleNotFoundError as exc:
+    here = Path(__file__).resolve().parent
+    missing = [f for f in REQUIRED_FILES if not (here / f).is_file()]
+    st.error(f"The app can't start: Python couldn't find the module **{exc.name}**.")
+    if missing:
+        st.markdown("These files are missing from the repository "
+                    "(paths are relative to the folder that holds `app.py`):")
+        st.code("\n".join(missing), language=None)
+    else:
+        st.markdown(f"All app files are present, so **{exc.name}** is a package that "
+                    "isn't installed. Check that `requirements.txt` lists it and "
+                    "reboot the app.")
+    found = sorted(
+        str(f.relative_to(here)) for f in here.rglob("*")
+        if f.is_file() and ".git" not in f.parts and "__pycache__" not in f.parts
+    )
+    with st.expander("Files the app can see"):
+        st.code("\n".join(found), language=None)
+    st.stop()
 
 # --- sign-in, then bring data back if the server started fresh --------------
 init_db()
