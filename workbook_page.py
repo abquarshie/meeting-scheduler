@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """Upload PDF Brochure page."""
+import re
+
 from core import *  # noqa: F401,F403
 
 
@@ -71,12 +73,31 @@ def render(students_df, t, selected_lang, aux_default):
             for label, w in stored.items()
         ])
         st.dataframe(summary, width="stretch", hide_index=True)
+        unnamed = [l for l in stored if re.fullmatch(r"Week \d+( \(\d+\))?", l)]
+        if unnamed:
+            st.warning(
+                "The date line above these weeks wasn't recognised, so they are "
+                "numbered instead: " + ", ".join(unnamed) + ". The parts are still "
+                "right; rename them below so the S-140 shows the real heading.",
+                icon=":material/label_off:")
         if any(w.get("gaps") for w in stored.values()):
             st.warning("Some weeks have missing part numbers. Open the week below, "
                        "compare with the workbook text, and add the missing rows.")
 
         st.subheader("Review and correct a week")
         week = st.selectbox("Week", list(stored))
+        r1, r2 = st.columns([3, 1], vertical_alignment="bottom")
+        new_label = r1.text_input("Week heading", week, key=f"wblabel|{week}",
+                                  help="Shown on the S-140 and in the week lists.")
+        if r2.button("Rename", width="stretch", disabled=nfc(new_label) in ("", week)):
+            label = nfc(new_label)
+            if label in stored:
+                st.error(f"There is already a week called {label}.")
+            else:
+                renamed = {(label if l == week else l): w for l, w in stored.items()}
+                save_workbook(renamed, stored_file)
+                st.success(f"Renamed to {label}.")
+                st.rerun()
         left, right = st.columns([3, 2])
         with left:
             editor_df = pd.DataFrame(stored[week]["parts"])[

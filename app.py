@@ -72,16 +72,10 @@ if "menu" not in st.session_state:
 menu = st.session_state["menu"]
 sidebar(menu)
 
-selected_lang = st.sidebar.selectbox(tr("slip_language"), list(TRANSLATIONS))
-t = TRANSLATIONS[selected_lang]
-if selected_lang != "English" and not FONT_SUPPORTS_GA:
-    st.sidebar.warning(
-        "No font with ɛ, ɔ and ŋ was found, so Ga slips will show boxes. "
-        "Put DejaVuSans.ttf and DejaVuSans-Bold.ttf next to app.py."
-    )
-
 with st.sidebar.expander(tr("settings"), icon=":material/settings:"):
     st.selectbox(tr("ui_language"), UI_LANGUAGES, key="ui_lang")
+    # slip language only affects two pages, so it sits with the other settings
+    st.selectbox(tr("slip_language"), list(TRANSLATIONS), key="slip_lang")
     aux_setting = get_setting("use_aux", "1") == "1"
     aux_default = st.toggle(
         "Auxiliary classroom in use", value=aux_setting,
@@ -98,11 +92,20 @@ with st.sidebar.expander(tr("settings"), icon=":material/settings:"):
         set_setting("ga_convert", "1" if ga_on else "0")
     if st.button("Clear filters and unsaved picks", icon=":material/restart_alt:",
                  type="tertiary"):
-        keep = {k: st.session_state[k] for k in ("auth_ok", "user_name", "ui_lang")
+        keep = {k: st.session_state[k]
+                for k in ("auth_ok", "user_name", "ui_lang", "slip_lang", "menu")
                 if k in st.session_state}
         st.session_state.clear()
         st.session_state.update(keep)
         st.rerun()
+
+selected_lang = st.session_state.get("slip_lang") or list(TRANSLATIONS)[0]
+t = TRANSLATIONS[selected_lang]
+if selected_lang != "English" and not FONT_SUPPORTS_GA:
+    st.sidebar.warning(
+        "No font with ɛ, ɔ and ŋ was found, so Ga slips will show boxes. "
+        "Put DejaVuSans.ttf and DejaVuSans-Bold.ttf next to app.py."
+    )
 
 kind, text = status_text()
 icons = {"warning": ":material/cloud_off:", "error": ":material/sync_problem:",

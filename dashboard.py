@@ -21,18 +21,33 @@ def days_away(iso):
     return "today" if n == 0 else "tomorrow" if n == 1 else f"in {n} days"
 
 
-def next_unscheduled_week(schedules_df):
+def unscheduled_weeks(schedules_df, within_days=None):
+    """Workbook weeks whose midweek meeting is still ahead and has no schedule.
+
+    The meeting day is what matters, not the week: on a Thursday, the current
+    week's Wednesday meeting has already happened and must not be offered.
+    """
     workbook, _ = load_workbook()
     saved = {d for d, t_ in saved_meetings(schedules_df) if t_ == MIDWEEK}
-    today = date.today().isoformat()
+    today = date.today()
+    cutoff = today + timedelta(days=within_days) if within_days else None
+    out = []
     for label, w in workbook.items():
-        if not w.get("start") or w["end"] < today:
+        if not w.get("start"):
             continue
         if any(w["start"] <= d <= w["end"] for d in saved):
             continue
         start = datetime.strptime(w["start"], "%Y-%m-%d").date()
-        return label, start + timedelta(days=meeting_day(MIDWEEK))
-    return None
+        meeting = start + timedelta(days=meeting_day(MIDWEEK))
+        if meeting < today or (cutoff and meeting > cutoff):
+            continue
+        out.append((label, meeting))
+    return sorted(out, key=lambda pair: pair[1])
+
+
+def next_unscheduled_week(schedules_df):
+    weeks = unscheduled_weeks(schedules_df)
+    return weeks[0] if weeks else None
 
 
 def render(students_df, t, selected_lang, aux_default):
@@ -128,7 +143,15 @@ def render(students_df, t, selected_lang, aux_default):
         d += timedelta(days=1)
     away |= get_suspended(students_df, today.isoformat())
     m1, m2, m3 = st.columns(3)
-    m1.metric("Open slots in the next 4 weeks", open_soon, border=True)
+    not_created = unscheduled_weeks(schedules_df, within_days=28)
+    if not soon and not_created:
+        # no schedules ahead, so "0 open slots" would read as "nothing to do"
+        m1.metric("Weeks not yet created", len(not_created), border=True,
+                  help="Workbook weeks in the next 4 weeks with no schedule.")
+    else:
+        m1.metric("Open slots in the next 4 weeks", open_soon, border=True,
+                  help=(f"{len(not_created)} week(s) in this period still have no "
+                        "schedule." if not_created else None))
     m2.metric("Active participants", int((students_df["active"] == 1).sum()), border=True)
     m3.metric("Away or suspended this week", len(away), border=True)
 

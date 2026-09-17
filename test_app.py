@@ -244,3 +244,35 @@ def test_sidebar_navigation(people):
     active = [b for b in at.button if b.key and b.key.startswith("nav_")
               and b.proto.type == "primary"]
     assert [b.label for b in active] == ["Reports"]
+
+
+def test_a_past_meeting_day_is_not_offered(core, english_workbook, monkeypatch):
+    """On a Thursday, this week's Wednesday meeting has already happened."""
+    import datetime as dt
+
+    import dashboard
+
+    weeks, _, _ = core.parse_brochure(english_workbook)
+    core.save_workbook(core.assign_dates(weeks, dt.date(2026, 9, 14)), "en.pdf")
+    core.set_setting("midweek_day", "Wednesday")
+    schedules = core.get_schedules()
+
+    class Thursday(dt.date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 9, 17)          # the day after that week's meeting
+
+    monkeypatch.setattr(dashboard, "date", Thursday)
+    label, when = dashboard.next_unscheduled_week(schedules)
+    assert when == dt.date(2026, 9, 23)      # the following week, not the 16th
+    assert when > Thursday.today()
+    assert label == "SEPTEMBER 21–27"
+
+    class Tuesday(Thursday):
+        @classmethod
+        def today(cls):
+            return cls(2026, 9, 15)          # the day before it
+
+    monkeypatch.setattr(dashboard, "date", Tuesday)
+    _, when = dashboard.next_unscheduled_week(schedules)
+    assert when == dt.date(2026, 9, 16)      # still offered while it is ahead

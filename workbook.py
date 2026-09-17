@@ -136,8 +136,11 @@ def _parse_week(text):
 
 # A week heading is a capitalised word plus a day range, e.g. "SEPTEMBER 14-20"
 # or the same in Ga. Language-independent: the month word isn't looked up.
+# Leading bullets or box-drawing characters are common in exported PDFs, and
+# the dash may be any of several. The month word itself is never looked up.
+DASHES = "-\u2010\u2011\u2012\u2013\u2014\u2015\u2212"
 DAY_RANGE_RE = re.compile(
-    r"^[ \t]*([^\W\d_]{3,})\.?[ \t]+(\d{1,2})[ \t]*[-–—][ \t]*"
+    r"^[^\w]*([^\W\d_]{3,})\.?[ \t]+(\d{1,2})[ \t]*[" + DASHES + r"][ \t]*"
     r"(?:([^\W\d_]{3,})\.?[ \t]+)?(\d{1,2})\b"
 )
 ENGLISH_MONTHS = {m: i + 1 for i, m in enumerate(MONTHS.split("|"))}
@@ -145,7 +148,13 @@ ENGLISH_MONTHS = {m: i + 1 for i, m in enumerate(MONTHS.split("|"))}
 
 def _heading(line):
     m = DAY_RANGE_RE.match(line)
-    if not m or not m.group(1).isupper():
+    if not m:
+        return None
+    word = m.group(1)
+    # All caps is the usual printed form. A short line starting with a single
+    # capitalised word is accepted too, so a workbook that sets its headings in
+    # title case still gets a real label instead of "Week 1".
+    if not word.isupper() and not (word[:1].isupper() and len(line.strip()) <= 40):
         return None
     d1, d2 = int(m.group(2)), int(m.group(4))
     if not (1 <= d1 <= 31 and 1 <= d2 <= 31):

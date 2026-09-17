@@ -61,3 +61,29 @@ def test_workbook_is_stored(core, english_workbook):
     stored, name = core.load_workbook()
     assert name == "mwb_E_202609.pdf"
     assert stored["SEPTEMBER 21–27"]["start"] == "2026-09-21"
+
+
+def test_more_heading_shapes_are_recognised(core):
+    from workbook import _heading
+    # an en dash, an em dash, a figure dash and a minus sign all read the same
+    for dash in "-\u2010\u2012\u2013\u2014\u2212":
+        assert _heading(f"SEPTEMBER 14{dash}20")["label"] == "SEPTEMBER 14–20"
+    # a leading bullet from a PDF export
+    assert _heading("• SEPTEMBER 14-20")["day"] == 14
+    # title case on a short line
+    assert _heading("Sɛptɛmba 7-13")["label"] == "Sɛptɛmba 7–13"
+    # but not an ordinary sentence that happens to contain a range
+    assert _heading("Discuss the material on pages 4-6 with the householder") is None
+    assert _heading("4. Starting a Conversation (3 min.)") is None
+
+
+def test_a_week_can_be_renamed(core, english_workbook):
+    weeks, _, _ = core.parse_brochure(english_workbook)
+    core.save_workbook(core.assign_dates(weeks, date(2026, 9, 14)), "en.pdf")
+    stored, name = core.load_workbook()
+    old = "SEPTEMBER 14–20"
+    renamed = {("DEUTERONOMY 24-26" if l == old else l): w for l, w in stored.items()}
+    core.save_workbook(renamed, name)
+    after, _ = core.load_workbook()
+    assert "DEUTERONOMY 24-26" in after and old not in after
+    assert after["DEUTERONOMY 24-26"]["start"] == stored[old]["start"]   # dates kept
