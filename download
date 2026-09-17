@@ -1,9 +1,0 @@
-# never commit passwords or Google keys
-.streamlit/secrets.toml
-*.json.key
-service_account*.json
-
-# local data and caches
-*.db
-__pycache__/
-.pytest_cache/
