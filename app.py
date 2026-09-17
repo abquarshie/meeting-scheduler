@@ -55,15 +55,14 @@ except ModuleNotFoundError as exc:
         st.code("\n".join(found), language=None)
     st.stop()
 
-# --- sign-in, then bring data back if the server started fresh --------------
+# --- sign-in --------------------------------------------------------------
 inject_css()
-init_db()
+try:
+    init_db()
+except Exception as exc:
+    st.error(f"The app can't reach its database: {exc}")
+    st.stop()
 require_login()
-restored = restore_if_fresh()
-if restored == "restored":
-    st.toast("Data loaded from Google Sheets.", icon=":material/cloud_done:")
-elif restored:
-    st.error(restored)
 FONT_REGULAR, FONT_BOLD, FONT_SUPPORTS_GA = register_fonts()
 
 if "menu" not in st.session_state:
@@ -124,8 +123,4 @@ PAGES = {
     "Admin": admin.render,
 }
 students_df = get_students()
-try:
-    PAGES.get(menu, dashboard.render)(students_df, t, selected_lang, aux_default)
-finally:
-    # runs even when a page stops or reruns, so every change reaches the sheet
-    sync_if_dirty()
+PAGES.get(menu, dashboard.render)(students_df, t, selected_lang, aux_default)

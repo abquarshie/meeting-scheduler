@@ -3,10 +3,12 @@
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 import json
+import os
 import re
-import sqlite3
+import threading
 
 import pandas as pd
+import psycopg
 import streamlit as st
 
 from utils import *  # noqa: F401,F403
@@ -15,19 +17,99 @@ from utils import *  # noqa: F401,F403
 # =============================================================================
 # DATABASE
 # =============================================================================
+# Postgres, so the data outlives the container. The SQL below is written with
+# SQLite's "?" placeholders and translated on the way out, which keeps every
+# query readable and the port reviewable. No query contains a literal "?" or
+# "%", which is what makes that translation safe.
+
+
+def dsn():
+    """Connection string, from the app's secrets or the environment."""
+    env = os.environ.get("MEETING_DSN")
+    if env:
+        return env
+    try:
+        return st.secrets["database"]["url"]
+    except Exception:
+        raise RuntimeError(
+            "No database configured. Add a [database] url to the app's secrets "
+            "(Streamlit Cloud → Settings → Secrets), or set MEETING_DSN."
+        )
+
+
+def schema():
+    """Schema to work in. Tests point each test at its own."""
+    return os.environ.get("MEETING_SCHEMA", "public")
+
+
+def _sql(text):
+    return text.replace("?", "%s")
+
+
+class _Conn:
+    """The small part of the sqlite3 connection API this app uses."""
+
+    def __init__(self, raw):
+        self._raw = raw
+        self.total_changes = 0
+
+    def execute(self, sql, params=()):
+        cur = self._raw.cursor()
+        cur.execute(_sql(sql), tuple(params))
+        self.total_changes += max(cur.rowcount, 0)
+        return cur
+
+    def executemany(self, sql, seq):
+        cur = self._raw.cursor()
+        rows = [tuple(p) for p in seq]
+        if rows:
+            cur.executemany(_sql(sql), rows)
+            self.total_changes += max(cur.rowcount, 0)
+        return cur
+
+
+@st.cache_resource(show_spinner=False)
+def _pool(url, schema_name):
+    from psycopg_pool import ConnectionPool
+    return ConnectionPool(url, min_size=1, max_size=5, open=True,
+                          kwargs={"options": f"-c search_path={schema_name}"})
+
+
+_local = threading.local()
 
 
 @contextmanager
 def get_conn():
-    conn = sqlite3.connect(db_path())
-    conn.execute("PRAGMA foreign_keys = ON")
-    try:
-        yield conn
-        conn.commit()
+    """A connection from the pool, reused by nested calls.
+
+    Reentrancy matters: save_schedule() opens a connection and then calls
+    log_change(), which wants one too. With a pool, letting that take a second
+    connection deadlocks once every pooled connection is held by a caller
+    waiting for another. Joining the outer transaction also means a change and
+    its log entry commit or roll back together.
+    """
+    existing = getattr(_local, "conn", None)
+    if existing is not None:
+        yield existing
+        return
+    pool = _pool(dsn(), schema())
+    with pool.connection() as raw:          # returns the connection on exit
+        conn = _Conn(raw)
+        _local.conn = conn
+        try:
+            yield conn
+        finally:
+            _local.conn = None
         if conn.total_changes:
             mark_dirty()
-    finally:
-        conn.close()
+
+
+def read_df(sql, params=()):
+    """A DataFrame from one query, without handing pandas the raw driver."""
+    with get_conn() as conn:
+        cur = conn.execute(sql, params)
+        cols = [c.name for c in cur.description]
+        return pd.DataFrame(cur.fetchall(), columns=cols)
 
 
 def mark_dirty():
@@ -48,42 +130,58 @@ def current_user():
 def log_change(action, details=""):
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO audit_log (ts, user, action, details) VALUES (?, ?, ?, ?)",
+            'INSERT INTO audit_log (ts, "user", action, details) VALUES (?, ?, ?, ?)',
             (datetime.now().isoformat(timespec="seconds"), current_user(),
              action, details),
         )
 
 
 def get_log(limit=500):
-    with get_conn() as conn:
-        return pd.read_sql(
-            "SELECT ts, user, action, details FROM audit_log ORDER BY id DESC LIMIT ?",
-            conn, params=(limit,))
+    return read_df(
+        'SELECT ts, "user", action, details FROM audit_log ORDER BY id DESC LIMIT ?',
+        (limit,))
+
+
+def qcols(names):
+    """Quote a column list for interpolation — "user" is reserved in Postgres."""
+    return ", ".join(f'"{n}"' for n in names)
 
 
 def table_columns(conn, table):
-    return [row[1] for row in conn.execute(f"PRAGMA table_info({table})")]
+    return [r[0] for r in conn.execute(
+        """SELECT column_name FROM information_schema.columns
+            WHERE table_schema = ? AND table_name = ?
+            ORDER BY ordinal_position""", (schema(), table)).fetchall()]
 
 
 def _add_missing_columns(conn, table, columns):
-    existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
     for name, ddl in columns.items():
-        if name not in existing:
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+        conn.execute(f'ALTER TABLE {table} ADD COLUMN IF NOT EXISTS "{name}" {ddl}')
+
+
+def resync_identities():
+    """Move each id sequence past the largest id, after rows are restored with
+    their own ids (a backup or a Sheets load)."""
+    with get_conn() as conn:
+        for table in ("students", "schedules", "audit_log", "snapshots"):
+            conn.execute(
+                f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
+                f"COALESCE((SELECT MAX(id) FROM {table}), 0) + 1, false)")
 
 
 def init_db():
     with get_conn() as conn:
+        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {schema()}")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS students (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
                 name TEXT NOT NULL,
                 gender TEXT,
                 privileges TEXT
             )""")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS schedules (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
                 meeting_date TEXT,
                 meeting_type TEXT,
                 part_name TEXT,
@@ -133,8 +231,8 @@ def init_db():
         })
         conn.execute("""
             CREATE TABLE IF NOT EXISTS audit_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ts TEXT, user TEXT, action TEXT, details TEXT
+                id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                ts TEXT, "user" TEXT, action TEXT, details TEXT
             )""")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS workbook_weeks (
@@ -144,8 +242,8 @@ def init_db():
             )""")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS snapshots (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ts TEXT, user TEXT, reason TEXT,
+                id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                ts TEXT, "user" TEXT, reason TEXT,
                 meeting_date TEXT, meeting_type TEXT, data TEXT
             )""")
         conn.execute("""
@@ -201,8 +299,7 @@ def get_students(active_only=False):
              "suspended, suspended_until FROM students")
     if active_only:
         query += " WHERE active = 1"
-    with get_conn() as conn:
-        df = pd.read_sql(query + " ORDER BY name COLLATE NOCASE", conn)
+    df = read_df(query + " ORDER BY lower(name)")
     def text(v):
         return v if isinstance(v, str) else ""
 
@@ -276,8 +373,7 @@ def delete_student(student_id):
 
 
 def get_schedules():
-    with get_conn() as conn:
-        df = pd.read_sql(
+    df = read_df(
             """
             SELECT sc.id, sc.meeting_date, sc.meeting_type, sc.part_no, sc.part_name,
                    sc.minutes, sc.section, sc.role, sc.student_part, sc.needs_assistant,
@@ -289,9 +385,7 @@ def get_schedules():
               LEFT JOIN students s ON s.id = sc.student_id
               LEFT JOIN students a ON a.id = sc.assistant_id
              ORDER BY sc.meeting_date DESC, sc.meeting_type, sc.sort_order, sc.id
-            """,
-            conn,
-        )
+            """)
     # NaN is truthy, so turn missing names into None for simple `or` checks.
     for col in ("person", "assistant"):
         df[col] = df[col].astype(object).where(df[col].notna(), None)
@@ -386,11 +480,11 @@ def _take_snapshot(conn, meeting_date, meeting_type, reason):
     sched_cols = table_columns(conn, "schedules")
     meet_cols = table_columns(conn, "meetings")
     rows = conn.execute(
-        f"SELECT {', '.join(sched_cols)} FROM schedules "
+        f"SELECT {qcols(sched_cols)} FROM schedules "
         "WHERE meeting_date = ? AND meeting_type = ? ORDER BY sort_order, id",
         (str(meeting_date), meeting_type)).fetchall()
     meeting = conn.execute(
-        f"SELECT {', '.join(meet_cols)} FROM meetings "
+        f"SELECT {qcols(meet_cols)} FROM meetings "
         "WHERE meeting_date = ? AND meeting_type = ?",
         (str(meeting_date), meeting_type)).fetchone()
     data = {
@@ -398,8 +492,8 @@ def _take_snapshot(conn, meeting_date, meeting_type, reason):
         "meeting": dict(zip(meet_cols, meeting)) if meeting else None,
     }
     conn.execute(
-        """INSERT INTO snapshots (ts, user, reason, meeting_date, meeting_type, data)
-           VALUES (?, ?, ?, ?, ?, ?)""",
+        '''INSERT INTO snapshots (ts, "user", reason, meeting_date, meeting_type, data)
+           VALUES (?, ?, ?, ?, ?, ?)''',
         (datetime.now().isoformat(timespec="seconds"), current_user(), reason,
          str(meeting_date), meeting_type, json.dumps(data, ensure_ascii=False)))
     conn.execute(
@@ -448,12 +542,12 @@ def undo_last(meeting_date, meeting_type):
         for r in data["schedules"]:
             keep = {k: v for k, v in r.items() if k != "id"}
             conn.execute(
-                f"INSERT INTO schedules ({', '.join(keep)}) "
+                f"INSERT INTO schedules ({qcols(keep)}) "
                 f"VALUES ({', '.join('?' for _ in keep)})", list(keep.values()))
         if data["meeting"]:
             keep = data["meeting"]
             conn.execute(
-                f"INSERT INTO meetings ({', '.join(keep)}) "
+                f"INSERT INTO meetings ({qcols(keep)}) "
                 f"VALUES ({', '.join('?' for _ in keep)})", list(keep.values()))
     restored = len(data["schedules"])
     log_change("Save undone", f"{meeting_type} {meeting_date}: {restored} row(s) put back")

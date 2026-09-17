@@ -23,7 +23,6 @@ from backup import *  # noqa: F401,F403
 
 MAX_CELL = 45000  # Google's limit is 50,000 characters per cell
 _pushed = {}      # table -> hash of what was last sent (per process)
-_checked = set()  # database files already checked for a restore
 
 
 def config():
@@ -125,50 +124,25 @@ def remember_current_state():
         _pushed[table] = hashlib.sha1(json.dumps(values, default=str).encode()).hexdigest()
 
 
-def restore_if_fresh():
-    """On a fresh start, load the data back from the sheet. Returns a message."""
-    path = str(db_path())
-    if path in _checked or not enabled():
-        return None
-    _checked.add(path)
-    init_db()
-    if not is_empty():
-        return None
-    try:
-        data = pull()
-    except Exception as exc:  # network or permission problem
-        return f"Couldn't load data from Google Sheets: {exc}"
-    if not (data.get("students") or data.get("schedules")):
-        return None
-    import_all(data, log=False)
-    log_change("Restored from Google Sheets", "app started with an empty database")
-    remember_current_state()
-    return "restored"
-
-
 def sync_if_dirty():
-    """Called at the end of every run: copy changes, never crash the page."""
+    """Kept so callers don't have to change. The sheet is now a manual export,
+    so nothing is sent automatically; Postgres is the storage."""
     try:
-        dirty = st.session_state.pop("_db_dirty", False)
+        st.session_state.pop("_db_dirty", False)
     except Exception:
-        return
-    if not dirty or not enabled():
-        return
-    try:
-        push()
-        st.session_state["_sync_status"] = ("ok", datetime.now().strftime("%H:%M"))
-    except Exception as exc:
-        st.session_state["_db_dirty"] = True  # try again next time
-        st.session_state["_sync_status"] = ("error", str(exc)[:200])
+        pass
 
 
 def status_text():
-    if not enabled():
-        return "warning", ("Not backed up: connect Google Sheets, or download a "
-                           "backup from Admin, before the app restarts.")
+    """What the sidebar says about storage."""
+    try:
+        with get_conn() as conn:
+            conn.execute("SELECT 1")
+    except Exception as exc:
+        return "error", f"Database unreachable: {str(exc)[:120]}"
     state = st.session_state.get("_sync_status")
-    if not state:
-        return "info", "Google Sheets connected."
-    if state[0] == "ok":
-        return "success", f"Saved to Google Sheets at {state[1]}."
-    return "error", f"Google Sheets sync failed: {state[1]}"
+    if state and state[0] == "ok":
+        return "success", f"Database connected. Exported to Sheets at {state[1]}."
+    if state and state[0] == "error":
+        return "error", f"Database connected. Sheets export failed: {state[1]}"
+    return "success", "Database connected."

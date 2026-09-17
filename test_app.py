@@ -155,29 +155,47 @@ def test_login_required_when_password_set(people):
     assert "Xan" in set(core.get_log()["user"])
 
 
-def test_changes_are_copied_to_google_and_restored(people, core, fake_sheet, fresh_db):
+def test_sheets_export_is_manual_and_data_survives_a_restart(people, core, fake_sheet,
+                                                             fresh_db):
     at = app("Manage Participants")
     next(t for t in at.text_input if t.label == "Full name").set_value("Abena Asare")
     run(at)
     button(at, "Add participant").click()
     run(at)
-    assert "students" in fake_sheet.sheets
+    # nothing is sent to Google until someone asks for it
+    assert "students" not in fake_sheet.sheets
+
+    at.session_state["menu"] = "Admin"
+    run(at)
+    button(at, "Copy everything to Google Sheets now").click()
+    run(at)
     names = [r[1] for r in fake_sheet.sheets["students"].values[1:]]
     assert "Abena Asare" in names
-    # an unchanged table isn't sent again
+
+    # an unchanged table isn't sent again (the button forces a full copy, so
+    # check the digest short-circuit on a plain export)
     calls = fake_sheet.sheets["schedules"].calls
-    run(at)
+    core.push()
     assert fake_sheet.sheets["schedules"].calls == calls
 
-    # the server restarts with an empty database
-    import sheets
-    fresh_db.unlink()
-    sheets._checked.clear()
+    # the app restarting no longer loses anything, so there is nothing to restore
     at2 = AppTest.from_file(APP, default_timeout=90)
     run(at2)
-    restored = set(core.get_students()["name"])
-    assert "Abena Asare" in restored and "Kofi Mensah" in restored
-    assert "Restored from Google Sheets" in set(core.get_log()["action"])
+    kept = set(core.get_students()["name"])
+    assert "Abena Asare" in kept and "Kofi Mensah" in kept
+    assert "Restored from Google Sheets" not in set(core.get_log()["action"])
+
+
+def test_loading_back_from_sheets_keeps_ids_usable(people, core, fake_sheet):
+    """Rows come back with their own ids, so the id sequence must move past them."""
+    core.push(force=True)
+    core.delete_student(people["Yaw Adjei"])
+    core.import_all(core.pull())
+    assert "Yaw Adjei" in set(core.get_students()["name"])
+    core.add_student("Naa Dedei", "Sister", ["Initial Presentation"])   # must not clash
+    df = core.get_students()
+    assert "Naa Dedei" in set(df["name"])
+    assert df["id"].is_unique
 
 
 def test_admin_backup_restore(people, core):

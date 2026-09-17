@@ -2,8 +2,7 @@
 
 A Streamlit app for assigning meeting parts, printing S-89 slips and exporting
 the S-140 midweek schedule. It supports an auxiliary classroom, English and Ga
-slips, families, suspensions and away dates, and keeps a copy of all data in
-Google Sheets.
+slips, families, suspensions and away dates, and stores everything in Postgres.
 
 ## Monthly workflow
 
@@ -54,7 +53,24 @@ records their name. To give each person their own password, use `[auth.users]`
 instead (see `secrets.toml.example`). Without an `[auth]` section the
 app stays open to anyone with the link.
 
-### 2. Google Sheets
+### 2. Database
+
+The app stores its data in Postgres. Any provider works; Neon's free tier suits
+a congregation app because it wakes on the first connection instead of needing a
+manual restore after a quiet spell.
+
+1. Create a project and copy its connection string.
+2. Add it to the app's Secrets:
+
+```toml
+[database]
+url = "postgresql://user:password@host/dbname?sslmode=require"
+```
+
+Tables are created on first run. Nothing else is needed — the app no longer
+depends on anything surviving on the server's disk.
+
+### 3. Google Sheets (optional)
 
 1. Go to <https://console.cloud.google.com>, create a project, and enable the
    **Google Sheets API** and **Google Drive API**.
@@ -80,9 +96,9 @@ client_email = "…@….iam.gserviceaccount.com"
 5. Open **Admin → Data & backup** and click **Copy everything to Google Sheets
    now**. The sheet gets one tab per table.
 
-From then on every change is copied automatically, and when Streamlit Cloud
-restarts with an empty database the app loads everything back from the sheet.
-Don't edit the sheet by hand; treat it as the app's storage.
+The sheet is a readable export you ask for, not the app's storage — Postgres is.
+Nothing is copied automatically. **Load everything from Google Sheets** is still
+there for restoring from a sheet, and replaces what's in the database.
 
 ## Project layout
 
@@ -94,13 +110,13 @@ app.py                  entry point: sign-in, sidebar, page routing
 s140.py                 S-140 template filler
 constants.py            roles, privileges, slip wording
 utils.py                text, date and part-slot helpers
-db.py                   SQLite storage and the change log
+db.py                   Postgres storage, undo snapshots and the change log
 parts.py                default part lists
 workbook.py             workbook PDF reader and week dates
 pdfs.py                 slips, schedule PDF, S-140 data, reminders
 picking.py              eligibility, rotation, Suggest
 backup.py               full backup / restore
-sheets.py               Google Sheets copy and restore
+sheets.py               Google Sheets export
 auth.py                 password sign-in
 i18n.py                 interface wording
 ui.py                   look and feel: sidebar, headers, section colours
@@ -126,8 +142,9 @@ streamlit run app.py
 ## Tests
 
 ```
-pytest -q
+MEETING_DSN="postgresql://…" pytest -q
 ```
 
-The tests use their own temporary database and a fake Google Sheet, so they
-never touch real data.
+Each test gets its own throwaway Postgres schema and a fake Google Sheet, so
+they never touch real data. Point `MEETING_DSN` at a scratch database, not the
+congregation's.

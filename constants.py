@@ -8,12 +8,7 @@ import unicodedata
 # CONSTANTS
 # =============================================================================
 APP_DIR = Path(__file__).resolve().parent
-# MEETING_DB lets tests (or a second congregation) use another database file.
-DEFAULT_DB = APP_DIR / "meeting_scheduler.db"
-
-
-def db_path():
-    return Path(os.environ.get("MEETING_DB") or DEFAULT_DB)
+# Storage is Postgres; see db.dsn() and db.schema() for how it is configured.
 
 MIDWEEK = "Midweek Meeting"
 WEEKEND = "Weekend Meeting"

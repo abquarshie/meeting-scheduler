@@ -138,3 +138,40 @@ def test_undo_after_delete_and_after_a_first_save(core, people):
     core.undo_last("2026-09-23", core.MIDWEEK)
     rows = core.get_schedules()
     assert rows.empty or len(rows) == len(slots)
+
+
+def test_nested_writes_share_one_connection(core, people):
+    """save_schedule() logs a change while holding a connection. If that took a
+    second one from the pool, concurrent saves would deadlock."""
+    import db
+    slots = core.build_midweek_slots(core.default_midweek_parts())
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    with db.get_conn() as outer:
+        with db.get_conn() as inner:
+            assert inner is outer
+    core.save_schedule("2026-10-07", core.MIDWEEK, slots,
+                       {0: (people["Kofi Mensah"], None)}, {}, names)
+    assert "Schedule saved" in set(core.get_log()["action"])
+
+
+def test_writes_from_several_sessions_at_once(core):
+    """Two people editing at the same time is the case SQLite on a shared
+    filesystem handled badly."""
+    import threading
+    errors = []
+
+    def add(n):
+        try:
+            for i in range(10):
+                core.add_student(f"Tester {n}-{i}", "Sister", ["Initial Presentation"])
+        except Exception as exc:                      # pragma: no cover - failure path
+            errors.append(repr(exc))
+
+    threads = [threading.Thread(target=add, args=(n,)) for n in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors
+    df = core.get_students()
+    assert len(df) == 40 and df["id"].is_unique

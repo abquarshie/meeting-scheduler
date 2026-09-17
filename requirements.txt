@@ -1,5 +1,7 @@
 streamlit>=1.64
 pandas
+psycopg[binary]>=3.1
+psycopg_pool
 pypdf
 reportlab
 python-docx
