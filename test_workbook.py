@@ -48,7 +48,7 @@ def test_gaps_are_reported(core):
     text = "\n".join(["1. Talk (10 min.)", "2. Gems (10 min.)", "3. Bible Reading (4 min.)",
                       "4. Starting a Conversation (3 min.)", "7. Living Part (15 min.)",
                       "8. Another Part", "9. Congregation Bible Study (30 min.)"])
-    from scheduler.workbook import _parse_week
+    from workbook import _parse_week
     parts, _, gaps = _parse_week(text)
     assert gaps == [5, 6]
     assert [p["part_no"] for p in parts] == [1, 2, 3, 4, 7, 8, 9]

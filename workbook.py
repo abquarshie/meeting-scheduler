@@ -6,7 +6,7 @@ import re
 
 import pypdf
 
-from .parts import *  # noqa: F401,F403
+from parts import *  # noqa: F401,F403
 
 
 # =============================================================================

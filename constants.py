@@ -7,7 +7,7 @@ import unicodedata
 # =============================================================================
 # CONSTANTS
 # =============================================================================
-APP_DIR = Path(__file__).resolve().parent.parent
+APP_DIR = Path(__file__).resolve().parent
 # MEETING_DB lets tests (or a second congregation) use another database file.
 DEFAULT_DB = APP_DIR / "meeting_scheduler.db"
 

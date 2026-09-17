@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Who can take a part, rotation order and automatic suggestions."""
-from .pdfs import *  # noqa: F401,F403
+from pdfs import *  # noqa: F401,F403
 
 
 # =============================================================================

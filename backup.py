@@ -2,7 +2,7 @@
 """Full backup and restore of every table (used by the Admin page and Google sync)."""
 import json
 
-from .db import *  # noqa: F401,F403
+from db import *  # noqa: F401,F403
 
 TABLES = [
     "students", "schedules", "meetings", "settings",

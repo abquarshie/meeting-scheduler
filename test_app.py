@@ -48,7 +48,7 @@ def test_create_midweek_with_aux_and_family_assistant(people):
     run(at)
     assert any("Saved Midweek Meeting" in s.value for s in at.success)
     assert not any("different categories" in w.value for w in at.warning)
-    rows = __import__("scheduler.core", fromlist=["x"]).get_schedules()
+    rows = __import__("core").get_schedules()
     assert set(rows["hall"]) == {"main_hall", "aux_1"}
 
 
@@ -151,7 +151,7 @@ def test_login_required_when_password_set(people):
     at.button[0].click()
     run(at)
     assert any(b.label == "📋 View Schedules & Slips" for b in at.button)
-    import scheduler.core as core
+    import core
     assert "Xan" in set(core.get_log()["user"])
 
 
@@ -170,7 +170,7 @@ def test_changes_are_copied_to_google_and_restored(people, core, fake_sheet, fre
     assert fake_sheet.sheets["schedules"].calls == calls
 
     # the server restarts with an empty database
-    from scheduler import sheets
+    import sheets
     fresh_db.unlink()
     sheets._checked.clear()
     at2 = AppTest.from_file(APP, default_timeout=90)

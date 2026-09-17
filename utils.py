@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 import re
 import unicodedata
 
-from .constants import *  # noqa: F401,F403
+from constants import *  # noqa: F401,F403
 
 
 # =============================================================================

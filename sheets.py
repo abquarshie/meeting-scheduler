@@ -19,7 +19,7 @@ Secrets (Streamlit Cloud → Settings → Secrets, or .streamlit/secrets.toml):
 """
 import hashlib
 
-from .backup import *  # noqa: F401,F403
+from backup import *  # noqa: F401,F403
 
 MAX_CELL = 45000  # Google's limit is 50,000 characters per cell
 _pushed = {}      # table -> hash of what was last sent (per process)

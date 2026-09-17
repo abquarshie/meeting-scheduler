@@ -9,7 +9,7 @@ import sqlite3
 import pandas as pd
 import streamlit as st
 
-from .utils import *  # noqa: F401,F403
+from utils import *  # noqa: F401,F403
 
 
 # =============================================================================

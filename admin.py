@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Admin: Google Sheets sync, backup and restore, settings, wording, change log."""
-from scheduler.core import *  # noqa: F401,F403
-from scheduler.pages.month import WEEKDAYS
+from core import *  # noqa: F401,F403
+from month import WEEKDAYS
 
 
 def render(students_df, t, selected_lang, aux_default):

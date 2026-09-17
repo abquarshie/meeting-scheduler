@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Default part lists for each meeting."""
-from .db import *  # noqa: F401,F403
+from db import *  # noqa: F401,F403
 
 
 # =============================================================================

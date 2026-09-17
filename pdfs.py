@@ -14,7 +14,7 @@ from reportlab.platypus import (
     KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
 )
 
-from .workbook import *  # noqa: F401,F403
+from workbook import *  # noqa: F401,F403
 
 
 # =============================================================================
@@ -22,6 +22,7 @@ from .workbook import *  # noqa: F401,F403
 # =============================================================================
 FONT_DIR = APP_DIR / "fonts"
 FONT_CANDIDATES = [
+    (APP_DIR / "DejaVuSans.ttf", APP_DIR / "DejaVuSans-Bold.ttf"),
     (FONT_DIR / "DejaVuSans.ttf", FONT_DIR / "DejaVuSans-Bold.ttf"),
     (FONT_DIR / "NotoSans-Regular.ttf", FONT_DIR / "NotoSans-Bold.ttf"),
     (Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Month overview: every meeting in a month, open slots, and month-wide printing."""
-from scheduler.core import *  # noqa: F401,F403
+from core import *  # noqa: F401,F403
 
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 

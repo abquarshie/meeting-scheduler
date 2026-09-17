@@ -8,7 +8,7 @@ from conftest import legacy_db
 
 def test_upgrade_from_first_version(fresh_db):
     legacy_db(fresh_db)
-    import scheduler.core as core
+    import core
     core.init_db()
     df = core.get_schedules()
     assert len(df) == 3
@@ -73,7 +73,7 @@ def test_backup_round_trip(core, people):
 
 
 def test_report_counts_parts_and_assisting(core, people):
-    from scheduler.pages.reports import build_report
+    from reports import build_report
     slots = core.build_midweek_slots(core.default_midweek_parts())
     ip = next(i for i, s in enumerate(slots) if s["role"] == "Initial Presentation")
     core.save_schedule(date.today().isoformat(), core.MIDWEEK, slots,

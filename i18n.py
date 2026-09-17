@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Interface wording. English is built in; Ga wording is typed in on the Admin page."""
-from .auth import *  # noqa: F401,F403
+from auth import *  # noqa: F401,F403
 
 UI_TEXT = {
     "app_title": "📅 Meeting Scheduler",

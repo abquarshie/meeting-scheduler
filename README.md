@@ -51,7 +51,7 @@ password = "choose-a-shared-password"
 
 Everyone then signs in with their name and that password, and the change log
 records their name. To give each person their own password, use `[auth.users]`
-instead (see `.streamlit/secrets.toml.example`). Without an `[auth]` section the
+instead (see `secrets.toml.example`). Without an `[auth]` section the
 app stays open to anyone with the link.
 
 ### 2. Google Sheets
@@ -63,7 +63,7 @@ app stays open to anyone with the link.
 3. Create an empty Google Sheet. **Share** it with the service account's
    `client_email` (from the JSON file) as **Editor**.
 4. In the app's Secrets, add the sheet link and the JSON fields (the full
-   template is in `.streamlit/secrets.toml.example`):
+   template is in `secrets.toml.example`):
 
 ```toml
 [gsheets]
@@ -86,35 +86,37 @@ Don't edit the sheet by hand; treat it as the app's storage.
 
 ## Project layout
 
+Every file sits next to `app.py` (no folders), so uploading through the GitHub
+website can't break the structure.
+
 ```
-app.py                       entry point: sign-in, sidebar, page routing
-s140.py                      S-140 template filler
-scheduler/
-  constants.py               roles, privileges, slip wording
-  utils.py                   text, date and part-slot helpers
-  db.py                      SQLite storage and the change log
-  parts.py                   default part lists
-  workbook.py                workbook PDF reader and week dates
-  pdfs.py                    slips, schedule PDF, S-140 data, reminders
-  picking.py                 eligibility, rotation, Suggest
-  backup.py                  full backup / restore
-  sheets.py                  Google Sheets copy and restore
-  auth.py                    password sign-in
-  i18n.py                    interface wording
-  core.py                    one import for the pages
-  pages/                     one file per page
-tests/                       automated tests (pytest)
-fonts/                       DejaVu fonts for ɛ ɔ ŋ
-.streamlit/config.toml       dark theme
-.streamlit/secrets.toml.example
-.github/workflows/tests.yml  runs the tests on every push
+app.py                  entry point: sign-in, sidebar, page routing
+s140.py                 S-140 template filler
+constants.py            roles, privileges, slip wording
+utils.py                text, date and part-slot helpers
+db.py                   SQLite storage and the change log
+parts.py                default part lists
+workbook.py             workbook PDF reader and week dates
+pdfs.py                 slips, schedule PDF, S-140 data, reminders
+picking.py              eligibility, rotation, Suggest
+backup.py               full backup / restore
+sheets.py               Google Sheets copy and restore
+auth.py                 password sign-in
+i18n.py                 interface wording
+core.py                 one import for the pages
+dashboard.py, participants.py, schedule.py, view.py, month.py,
+workbook_page.py, reports.py, export.py, admin.py      one file per page
+conftest.py, test_*.py  automated tests (pytest)
+DejaVuSans*.ttf         fonts for ɛ ɔ ŋ
+config.toml             dark theme (copied into .streamlit/ automatically)
+secrets.toml.example    template for the app's Secrets
 ```
 
 ## Run locally
 
 ```
 pip install -r requirements-dev.txt
-cp .streamlit/secrets.toml.example .streamlit/secrets.toml   # then edit it
+mkdir -p .streamlit && cp secrets.toml.example .streamlit/secrets.toml   # then edit it
 streamlit run app.py
 ```
 
@@ -127,5 +129,4 @@ pytest -q
 ```
 
 The tests use their own temporary database and a fake Google Sheet, so they
-never touch real data. GitHub runs them on every push (see the **Actions**
-tab); a red ✗ means something broke.
+never touch real data.

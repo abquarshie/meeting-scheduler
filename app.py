@@ -26,31 +26,37 @@ st.markdown(
 
 # If an upload went wrong, say exactly which files are missing instead of crashing.
 from pathlib import Path  # noqa: E402
+import shutil  # noqa: E402
+
+# Streamlit only reads the theme from .streamlit/config.toml. When the repo keeps
+# config.toml next to app.py, copy it into place (used from the next reboot).
+_here = Path(__file__).resolve().parent
+if (_here / "config.toml").is_file() and not (_here / ".streamlit" / "config.toml").exists():
+    try:
+        (_here / ".streamlit").mkdir(exist_ok=True)
+        shutil.copy(_here / "config.toml", _here / ".streamlit" / "config.toml")
+    except OSError:
+        pass
 
 REQUIRED_FILES = [
     "s140.py", "requirements.txt",
-    "scheduler/__init__.py", "scheduler/constants.py", "scheduler/utils.py",
-    "scheduler/db.py", "scheduler/parts.py", "scheduler/workbook.py",
-    "scheduler/pdfs.py", "scheduler/picking.py", "scheduler/backup.py",
-    "scheduler/sheets.py", "scheduler/auth.py", "scheduler/i18n.py",
-    "scheduler/core.py", "scheduler/pages/__init__.py",
-] + [f"scheduler/pages/{p}.py" for p in (
+    "constants.py", "utils.py", "db.py", "parts.py", "workbook.py", "pdfs.py",
+    "picking.py", "backup.py", "sheets.py", "auth.py", "i18n.py", "core.py",
+] + [f"{p}.py" for p in (
     "admin", "dashboard", "export", "month", "participants",
     "reports", "schedule", "view", "workbook_page")]
 
 try:
-    from scheduler.core import *  # noqa: E402,F401,F403
-    from scheduler.pages import (  # noqa: E402
-        admin, dashboard, export, month, participants, reports, schedule, view,
-        workbook_page,
-    )
+    from core import *  # noqa: E402,F401,F403
+    import admin, dashboard, export, month, participants  # noqa: E402
+    import reports, schedule, view, workbook_page  # noqa: E402
 except ModuleNotFoundError as exc:
     here = Path(__file__).resolve().parent
     missing = [f for f in REQUIRED_FILES if not (here / f).is_file()]
     st.error(f"The app can't start: Python couldn't find the module **{exc.name}**.")
     if missing:
         st.markdown("These files are missing from the repository "
-                    "(paths are relative to the folder that holds `app.py`):")
+                    "(they all belong next to `app.py`):")
         st.code("\n".join(missing), language=None)
     else:
         st.markdown(f"All app files are present, so **{exc.name}** is a package that "

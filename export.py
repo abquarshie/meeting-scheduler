@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Export page."""
-from scheduler.core import *  # noqa: F401,F403
+from core import *  # noqa: F401,F403
 
 
 def render(students_df, t, selected_lang, aux_default):

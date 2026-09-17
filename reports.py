@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """How often each person has had parts, to spot anyone left out or overused."""
-from scheduler.core import *  # noqa: F401,F403
+from core import *  # noqa: F401,F403
 
 
 def build_report(students_df, schedules_df, start, end):

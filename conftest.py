@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
 APP = str(ROOT / "app.py")
@@ -17,7 +17,7 @@ def fresh_db(tmp_path, monkeypatch):
     """Every test gets its own empty database and no sync state."""
     db = tmp_path / "test.db"
     monkeypatch.setenv("MEETING_DB", str(db))
-    from scheduler import sheets
+    import sheets
     sheets._checked.clear()
     sheets._pushed.clear()
     yield db
@@ -25,7 +25,7 @@ def fresh_db(tmp_path, monkeypatch):
 
 @pytest.fixture
 def core():
-    import scheduler.core as c
+    import core as c
     c.init_db()
     return c
 
@@ -127,7 +127,7 @@ def english_workbook(tmp_path):
 
 @pytest.fixture
 def ga_workbook(tmp_path):
-    font = str(ROOT / "fonts" / "DejaVuSans.ttf")  # the app's own font has ɛ ɔ ŋ
+    font = str(ROOT / "DejaVuSans.ttf")  # the app's own font has ɛ ɔ ŋ
     first = week_lines("SƐPTƐMBA 14-20", "YESAIA 60-62", 4, "B", False, "Lala")
     return _pdf(tmp_path / "ga.pdf", [
         week_lines("SƐPTƐMBA 7-13", "YESAIA 58-59", 2, "A", False, "Lala"),
@@ -197,7 +197,7 @@ class FakeSpreadsheet:
 
 @pytest.fixture
 def fake_sheet(monkeypatch):
-    from scheduler import sheets
+    import sheets
     fake = FakeSpreadsheet()
     monkeypatch.setattr(sheets, "_open", lambda ref, sa: fake)
     monkeypatch.setattr(sheets, "config", lambda: ("fake-sheet", "{}"))
