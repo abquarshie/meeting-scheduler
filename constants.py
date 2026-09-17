@@ -77,8 +77,21 @@ STUDENT_ROLES = {
 }
 ASSISTANT_ROLES = {"Initial Presentation", "Making Disciples", "Explaining Beliefs"}
 
-MAIN_HALL, AUX_HALL = "main_hall", "aux_1"
-HALL_NAMES = {MAIN_HALL: "Main hall", AUX_HALL: "Auxiliary classroom"}
+# Halls, in the order the S-89 prints its tick boxes. The ids double as the
+# TRANSLATIONS keys for each hall's printed name, so slips can loop over them.
+HALLS = ["main_hall", "aux_1", "aux_2"]
+MAIN_HALL, AUX_HALL = HALLS[0], HALLS[1]
+HALL_NAMES = {
+    "main_hall": "Main hall",
+    "aux_1": "Auxiliary classroom 1",
+    "aux_2": "Auxiliary classroom 2",
+}
+# the same rooms in a sentence ("You have a part in …")
+HALL_WORDS = {
+    "main_hall": "the main hall",
+    "aux_1": "auxiliary classroom 1",
+    "aux_2": "auxiliary classroom 2",
+}
 
 SECTIONS = ["Opening", "Treasures", "Ministry", "Living", "Closing", "Weekend"]
 SECTION_TITLES = {
@@ -88,6 +101,28 @@ SECTION_TITLES = {
     "Living": "Living as Christians",
     "Closing": "Closing",
     "Weekend": "Weekend meeting",
+}
+
+# Colour carries meaning only: these three mark the workbook sections.
+SECTION_COLORS = {
+    "Treasures": "#5B6770",   # slate, as in the workbook
+    "Ministry": "#B7821F",    # ochre
+    "Living": "#8E2A2A",      # maroon
+    "Opening": "#8A94A0",
+    "Closing": "#8A94A0",
+    "Weekend": "#8A94A0",
+}
+# Roles printed in bold beside the name on the schedule sheet. Roles left out
+# here show the name alone, as the printed form does.
+ROLE_LABELS = {
+    "Prayer": "Prayer",
+    "Chairman": "Chairman",
+    "Weekend Chairman": "Chairman",
+    "Bible Study Conductor": "Conductor",
+    "Reader": "Reader",
+    "Watchtower Conductor": "Conductor",
+    "Watchtower Reader": "Reader",
+    "Aux Classroom Counselor": "Auxiliary Classroom Counselor",
 }
 
 GA_CHARS = "ɛɔŋƐƆŊ"

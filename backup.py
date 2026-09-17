@@ -6,13 +6,9 @@ from db import *  # noqa: F401,F403
 
 TABLES = [
     "students", "schedules", "meetings", "settings",
-    "unavailable", "workbook_weeks", "audit_log",
+    "unavailable", "workbook_weeks", "audit_log", "snapshots",
 ]
 BACKUP_VERSION = 1
-
-
-def table_columns(conn, table):
-    return [row[1] for row in conn.execute(f"PRAGMA table_info({table})")]
 
 
 def export_all():

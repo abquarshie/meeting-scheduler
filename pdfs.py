@@ -77,7 +77,11 @@ def generate_slips_pdf(slip_rows, lang):
         row = row or {}
 
         def tick(key):
-            return "[X]" if filled and key == row.get("hall", MAIN_HALL) else "[&nbsp;&nbsp;]"
+            # NaN and None both mean the main hall; NaN is truthy, so test it first
+            hall = row.get("hall") or MAIN_HALL
+            if hall != hall:                      # NaN
+                hall = MAIN_HALL
+            return "[X]" if filled and key == hall else "[&nbsp;&nbsp;]"
 
         name = xml_escape(row.get("person") or "")
         assistant = xml_escape(row.get("assistant") or "") or "_" * 25
@@ -99,9 +103,7 @@ def generate_slips_pdf(slip_rows, lang):
             Spacer(1, 4),
             Paragraph(f"<b>{xml_escape(lang['to_be_given'])}</b>", field_style),
             Paragraph(
-                f"{tick('main_hall')} {xml_escape(lang['main_hall'])}<br/>"
-                f"{tick('aux_1')} {xml_escape(lang['aux_1'])}<br/>"
-                f"{tick('aux_2')} {xml_escape(lang['aux_2'])}",
+                "<br/>".join(f"{tick(h)} {xml_escape(lang[h])}" for h in HALLS),
                 field_style,
             ),
             Spacer(1, 4),
@@ -211,7 +213,7 @@ def build_s140_data(meetings, schedules_df, congregation, group_label):
         }
         reader = ""
         main_items = {}
-        aux_week = bool(meta.get("aux")) or (rows["hall"] == AUX_HALL).any()
+        aux_week = bool(meta.get("aux")) or (rows["hall"] != MAIN_HALL).any()
         for _, r in rows.iterrows():
             title = re.sub(r"\s*\(\s*\d+\s*min\.?\s*\)\s*$", "", r["part_name"] or "",
                            flags=re.IGNORECASE)
@@ -219,7 +221,7 @@ def build_s140_data(meetings, schedules_df, congregation, group_label):
                     "min": str(int(r["minutes"])) if pd.notna(r["minutes"]) else "",
                     "name": r["person"] or ""}
             role, section = r["role"], r["section"]
-            if r["hall"] == AUX_HALL:
+            if r["hall"] != MAIN_HALL:
                 target = main_items.get((role, r["part_no"]))
                 if target is not None:
                     target["name2"] = item["name"]
@@ -264,9 +266,6 @@ def build_s140_data(meetings, schedules_df, congregation, group_label):
     return data, skipped
 
 
-HALL_WORDS = {MAIN_HALL: "the main hall", AUX_HALL: "the auxiliary classroom"}
-
-
 def row_slot(r):
     """make_slot() from a schedules row (dict or namedtuple)."""
     get = r.get if isinstance(r, dict) else lambda k, d=None: getattr(r, k, d)
@@ -292,8 +291,8 @@ def reminder_message(r, meeting_type, meeting_date, meta):
     lines.append(f"Part: {part_txt}")
     if r.role == "Public Talk" and talk_text(meta):
         lines.append(f"Talk: {talk_text(meta)}")
-    if r.hall == AUX_HALL:
-        lines.append(f"Room: {HALL_WORDS[AUX_HALL]}")
+    if r.hall and r.hall != MAIN_HALL:
+        lines.append(f"Room: {HALL_WORDS.get(r.hall, r.hall)}")
     if r.assistant and r.needs_assistant == 1:
         lines.append(f"Assistant: {r.assistant}")
     lines.append("Please let me know if you can't. Thank you!")

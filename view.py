@@ -46,13 +46,8 @@ def render(students_df, t, selected_lang, aux_default):
     if student_rows.empty:
         st.info("No student parts are assigned for this meeting, so there are no slips to print.")
     else:
-        slip_rows = [
-            {"person": r.person, "assistant": r.assistant,
-             "part_no": int(r.part_no) if pd.notna(r.part_no) else None,
-             "part_name": r.part_name, "meeting_date": meeting_date, "hall": r.hall}
-            for r in student_rows.sort_values(["hall", "sort_order"]).itertuples()
-        ]
-        n_aux = sum(1 for r in slip_rows if r["hall"] == AUX_HALL)
+        slip_rows = slip_rows_for(rows)
+        n_aux = sum(1 for r in slip_rows if r["hall"] != MAIN_HALL)
         if n_aux:
             st.caption(f"{len(slip_rows) - n_aux} main hall and {n_aux} auxiliary "
                        "classroom slip(s); each has its room ticked.")

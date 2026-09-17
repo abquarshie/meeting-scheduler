@@ -70,3 +70,43 @@ def test_s140_fills_both_halls(core, people, s140_template):
     cells = [c.text for r in doc.tables[0].rows for c in r.cells]
     assert "Efua Osei/Ama Owusu" in cells and "Ama Owusu/Efua Osei" in cells
     assert not any("0:00" == c for c in cells)
+
+
+def test_a_second_auxiliary_classroom_flows_through(core):
+    """The app only offers one auxiliary classroom, but nothing downstream
+    should silently drop a second one if a schedule ever carries it."""
+    slots = core.build_midweek_slots(core.default_midweek_parts())
+    reading = next(s for s in slots if s["role"] == "Bible Reading")
+    slots = slots + [
+        {**reading, "hall": "aux_1"},
+        {**reading, "hall": "aux_2"},
+    ]
+    picks = {len(slots) - 2: (None, None), len(slots) - 1: (None, None)}
+    core.add_student("Adjeley Ayi", "Sister", ["Bible Reading"])
+    core.add_student("Naa Koshie", "Sister", ["Bible Reading"])
+    ids = dict(zip(core.get_students()["name"], core.get_students()["id"]))
+    names = {v: k for k, v in ids.items()}
+    picks = {len(slots) - 2: (ids["Adjeley Ayi"], None),
+             len(slots) - 1: (ids["Naa Koshie"], None)}
+    core.save_schedule("2026-09-16", core.MIDWEEK, slots, picks, {"aux": True}, names)
+
+    rows = core.get_schedules()
+    assert set(rows["hall"]) == {"main_hall", "aux_1", "aux_2"}
+
+    # the slip ticks the third box, not the first
+    slip_rows = core.slip_rows_for(rows)
+    assert {r["hall"] for r in slip_rows} >= {"aux_1", "aux_2"}
+    text = _text(core.generate_slips_pdf(slip_rows, core.TRANSLATIONS["English"]))
+    assert "Auxiliary classroom 2" in text
+    assert text.count("[X]") == len(slip_rows)     # every slip has a room ticked
+
+    # the part label names the room it is in
+    label = core.slot_label({**reading, "hall": "aux_2"})
+    assert "Auxiliary classroom 2" in label
+
+    # and the S-140 pairing treats it as a classroom, not a duplicate main-hall part
+    data, skipped = core.build_s140_data([("2026-09-16", core.MIDWEEK)], rows,
+                                         "TEST CONG", "GROUP")
+    assert not skipped and data["aux"]
+    titles = [i["title"] for i in data["weeks"][0]["treasures"]]
+    assert titles.count("Bible Reading") == 1      # not repeated once per classroom

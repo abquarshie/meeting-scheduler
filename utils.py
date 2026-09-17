@@ -101,8 +101,9 @@ def slot_label(slot):
     if slot.get("minutes") and "min" not in label.lower():
         label += f" ({slot['minutes']} min)"
     label = f"{slot['part_no']}. {label}" if slot.get("part_no") else label
-    if slot.get("hall") == AUX_HALL:
-        label += " · Auxiliary classroom"
+    hall = slot.get("hall") or MAIN_HALL
+    if hall != MAIN_HALL:
+        label += f" · {HALL_NAMES.get(hall, hall)}"
     return label
 
 

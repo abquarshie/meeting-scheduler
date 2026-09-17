@@ -12,12 +12,6 @@ def meeting_day(meeting_type):
     return WEEKDAYS.index(name) if name in WEEKDAYS else WEEKDAYS.index(default)
 
 
-def open_slots(rows):
-    missing = rows["person"].isna().sum()
-    missing += ((rows["needs_assistant"] == 1) & rows["assistant"].isna()).sum()
-    return int(missing)
-
-
 def render(students_df, t, selected_lang, aux_default):
     page_header(tr("h_month"), tr("sub_month"))
     schedules_df = get_schedules()
@@ -39,12 +33,12 @@ def render(students_df, t, selected_lang, aux_default):
     for md, mt in sorted(saved_meetings(in_month)):
         r = in_month[(in_month["meeting_date"] == md) & (in_month["meeting_type"] == mt)]
         meta = get_meeting_meta(md, mt)
+        _filled, _needed = fill_counts(r)
         rows.append({
             "Date": fmt_date(md), "Meeting": mt,
-            "Filled": round(100 * (1 - open_slots(r) / max(
-                len(r) + int((r["needs_assistant"] == 1).sum()), 1))),
-            "Open slots": open_slots(r),
-            "Aux. classroom": "Yes" if (r["hall"] == AUX_HALL).any() else "",
+            "Filled": round(100 * _filled / max(_needed, 1)),
+            "Open slots": _needed - _filled,
+            "Aux. classroom": "Yes" if (r["hall"] != MAIN_HALL).any() else "",
             "Heading": meta.get("heading") or talk_text(meta),
         })
 

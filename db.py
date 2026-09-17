@@ -61,6 +61,10 @@ def get_log(limit=500):
             conn, params=(limit,))
 
 
+def table_columns(conn, table):
+    return [row[1] for row in conn.execute(f"PRAGMA table_info({table})")]
+
+
 def _add_missing_columns(conn, table, columns):
     existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
     for name, ddl in columns.items():
@@ -137,6 +141,12 @@ def init_db():
                 label TEXT PRIMARY KEY,
                 position INTEGER,
                 data TEXT
+            )""")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts TEXT, user TEXT, reason TEXT,
+                meeting_date TEXT, meeting_type TEXT, data TEXT
             )""")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS unavailable (
@@ -288,6 +298,20 @@ def get_schedules():
     return df
 
 
+def fill_counts(rows):
+    """(filled, needed) for a set of schedule rows: a part plus, where the part
+    calls for one, its assistant."""
+    needed = len(rows) + int((rows["needs_assistant"] == 1).sum())
+    filled = int(rows["person"].notna().sum()) + int(
+        ((rows["needs_assistant"] == 1) & rows["assistant"].notna()).sum())
+    return filled, needed
+
+
+def open_slots(rows):
+    filled, needed = fill_counts(rows)
+    return needed - filled
+
+
 def saved_meetings(schedules_df):
     """[(date, type), ...] newest first."""
     if schedules_df.empty:
@@ -349,6 +373,93 @@ def talk_text(meta):
     return " — ".join(parts)
 
 
+MAX_SNAPSHOTS = 40  # keep the history small enough to sync and restore cheaply
+
+
+def _take_snapshot(conn, meeting_date, meeting_type, reason):
+    """Store what's currently saved for this meeting so a save can be undone.
+
+    Called inside an open connection, before the rows are replaced. Saving a
+    meeting that has nothing stored yet records an empty snapshot, so undoing
+    a first save removes it again rather than leaving it half-there.
+    """
+    sched_cols = table_columns(conn, "schedules")
+    meet_cols = table_columns(conn, "meetings")
+    rows = conn.execute(
+        f"SELECT {', '.join(sched_cols)} FROM schedules "
+        "WHERE meeting_date = ? AND meeting_type = ? ORDER BY sort_order, id",
+        (str(meeting_date), meeting_type)).fetchall()
+    meeting = conn.execute(
+        f"SELECT {', '.join(meet_cols)} FROM meetings "
+        "WHERE meeting_date = ? AND meeting_type = ?",
+        (str(meeting_date), meeting_type)).fetchone()
+    data = {
+        "schedules": [dict(zip(sched_cols, r)) for r in rows],
+        "meeting": dict(zip(meet_cols, meeting)) if meeting else None,
+    }
+    conn.execute(
+        """INSERT INTO snapshots (ts, user, reason, meeting_date, meeting_type, data)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (datetime.now().isoformat(timespec="seconds"), current_user(), reason,
+         str(meeting_date), meeting_type, json.dumps(data, ensure_ascii=False)))
+    conn.execute(
+        "DELETE FROM snapshots WHERE id NOT IN "
+        "(SELECT id FROM snapshots ORDER BY id DESC LIMIT ?)", (MAX_SNAPSHOTS,))
+
+
+def last_snapshot(meeting_date, meeting_type):
+    """The most recent undo point for this meeting: (id, ts, user, reason, rows)."""
+    with get_conn() as conn:
+        row = conn.execute(
+            """SELECT id, ts, user, reason, data FROM snapshots
+               WHERE meeting_date = ? AND meeting_type = ?
+               ORDER BY id DESC LIMIT 1""",
+            (str(meeting_date), meeting_type)).fetchone()
+    if not row:
+        return None
+    data = json.loads(row[4])
+    return {"id": row[0], "ts": row[1], "user": row[2], "reason": row[3],
+            "rows": len(data["schedules"]),
+            "assigned": sum(1 for r in data["schedules"] if r.get("student_id"))}
+
+
+def undo_last(meeting_date, meeting_type):
+    """Put back what was stored before the last save or delete.
+
+    The current state is snapshotted first, so undo can itself be undone.
+    Returns the number of assignment rows restored, or None when there is
+    nothing to undo.
+    """
+    with get_conn() as conn:
+        row = conn.execute(
+            """SELECT id, data FROM snapshots
+               WHERE meeting_date = ? AND meeting_type = ?
+               ORDER BY id DESC LIMIT 1""",
+            (str(meeting_date), meeting_type)).fetchone()
+        if not row:
+            return None
+        snap_id, data = row[0], json.loads(row[1])
+        _take_snapshot(conn, meeting_date, meeting_type, "before undo")
+        conn.execute("DELETE FROM snapshots WHERE id = ?", (snap_id,))
+        conn.execute("DELETE FROM schedules WHERE meeting_date = ? AND meeting_type = ?",
+                     (str(meeting_date), meeting_type))
+        conn.execute("DELETE FROM meetings WHERE meeting_date = ? AND meeting_type = ?",
+                     (str(meeting_date), meeting_type))
+        for r in data["schedules"]:
+            keep = {k: v for k, v in r.items() if k != "id"}
+            conn.execute(
+                f"INSERT INTO schedules ({', '.join(keep)}) "
+                f"VALUES ({', '.join('?' for _ in keep)})", list(keep.values()))
+        if data["meeting"]:
+            keep = data["meeting"]
+            conn.execute(
+                f"INSERT INTO meetings ({', '.join(keep)}) "
+                f"VALUES ({', '.join('?' for _ in keep)})", list(keep.values()))
+    restored = len(data["schedules"])
+    log_change("Save undone", f"{meeting_type} {meeting_date}: {restored} row(s) put back")
+    return restored
+
+
 def save_schedule(meeting_date, meeting_type, slots, picks, meta, names):
     """Replace everything stored for this date + meeting type."""
     rows = []
@@ -362,6 +473,7 @@ def save_schedule(meeting_date, meeting_type, slots, picks, meta, names):
             slot.get("hall") or MAIN_HALL, picks.get(order + 10000) or None,
         ))
     with get_conn() as conn:
+        _take_snapshot(conn, meeting_date, meeting_type, "before save")
         conn.execute("DELETE FROM schedules WHERE meeting_date = ? AND meeting_type = ?",
                      (str(meeting_date), meeting_type))
         conn.executemany(
@@ -391,6 +503,7 @@ def save_schedule(meeting_date, meeting_type, slots, picks, meta, names):
 
 def delete_schedule(meeting_date, meeting_type):
     with get_conn() as conn:
+        _take_snapshot(conn, meeting_date, meeting_type, "before delete")
         conn.execute("DELETE FROM schedules WHERE meeting_date = ? AND meeting_type = ?",
                      (str(meeting_date), meeting_type))
         conn.execute("DELETE FROM meetings WHERE meeting_date = ? AND meeting_type = ?",

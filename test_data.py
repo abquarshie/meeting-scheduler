@@ -83,3 +83,58 @@ def test_report_counts_parts_and_assisting(core, people):
     assert report.loc["Ama Owusu", "Parts"] == 1
     assert report.loc["Efua Osei", "Assisting"] == 1
     assert report.loc["Yaw Adjei", "Total"] == 0
+
+
+def test_undo_restores_the_previous_save(core, people):
+    slots = core.build_midweek_slots(core.default_midweek_parts())
+    ip = next(i for i, s in enumerate(slots) if s["role"] == "Initial Presentation")
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+
+    assert core.last_snapshot("2026-09-16", core.MIDWEEK) is None
+    assert core.undo_last("2026-09-16", core.MIDWEEK) is None      # nothing to undo yet
+
+    core.save_schedule("2026-09-16", core.MIDWEEK, slots,
+                       {ip: (people["Ama Owusu"], people["Efua Osei"])},
+                       {"heading": "FIRST"}, names)
+    core.save_schedule("2026-09-16", core.MIDWEEK, slots,
+                       {ip: (people["Esi Mensah"], None)},
+                       {"heading": "SECOND"}, names)
+
+    df = core.get_schedules()
+    row = df[(df["meeting_date"] == "2026-09-16") & (df["role"] == "Initial Presentation")]
+    assert row["person"].iloc[0] == "Esi Mensah"
+
+    snap = core.last_snapshot("2026-09-16", core.MIDWEEK)
+    assert snap["reason"] == "before save" and snap["rows"] == len(slots)
+
+    core.undo_last("2026-09-16", core.MIDWEEK)
+    df = core.get_schedules()
+    row = df[(df["meeting_date"] == "2026-09-16") & (df["role"] == "Initial Presentation")]
+    assert row["person"].iloc[0] == "Ama Owusu"                    # the first save is back
+    assert row["assistant"].iloc[0] == "Efua Osei"
+    assert core.get_meeting_meta("2026-09-16", core.MIDWEEK)["heading"] == "FIRST"
+
+    core.undo_last("2026-09-16", core.MIDWEEK)                     # undo is itself undoable
+    df = core.get_schedules()
+    row = df[(df["meeting_date"] == "2026-09-16") & (df["role"] == "Initial Presentation")]
+    assert row["person"].iloc[0] == "Esi Mensah"
+    assert "Save undone" in set(core.get_log()["action"])
+
+
+def test_undo_after_delete_and_after_a_first_save(core, people):
+    slots = core.build_midweek_slots(core.default_midweek_parts())
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    core.save_schedule("2026-09-23", core.MIDWEEK, slots,
+                       {0: (people["Kofi Mensah"], None)}, {}, names)
+
+    core.delete_schedule("2026-09-23", core.MIDWEEK)
+    assert core.get_schedules().empty
+    core.undo_last("2026-09-23", core.MIDWEEK)
+    assert len(core.get_schedules()) == len(slots)                 # delete is undoable
+
+    # undoing back past the very first save leaves nothing, not a half-saved meeting
+    for _ in range(4):
+        core.undo_last("2026-09-23", core.MIDWEEK)
+    core.undo_last("2026-09-23", core.MIDWEEK)
+    rows = core.get_schedules()
+    assert rows.empty or len(rows) == len(slots)

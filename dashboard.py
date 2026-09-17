@@ -4,13 +4,6 @@ from core import *  # noqa: F401,F403
 from month import meeting_day
 
 
-def fill_counts(rows):
-    needed = len(rows) + int((rows["needs_assistant"] == 1).sum())
-    filled = int(rows["person"].notna().sum()) + int(
-        ((rows["needs_assistant"] == 1) & rows["assistant"].notna()).sum())
-    return filled, needed
-
-
 def greeting():
     hour = datetime.now().hour
     word = "Good morning" if hour < 12 else "Good afternoon" if hour < 17 else "Good evening"

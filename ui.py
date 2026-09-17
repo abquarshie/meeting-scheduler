@@ -8,23 +8,6 @@ from html import escape as html_escape
 
 from i18n import *  # noqa: F401,F403
 
-SECTION_COLORS = {
-    "Treasures": "#5B6770",   # slate, as in the workbook
-    "Ministry": "#B7821F",    # ochre
-    "Living": "#8E2A2A",      # maroon
-    "Opening": "#8A94A0",
-    "Closing": "#8A94A0",
-    "Weekend": "#8A94A0",
-}
-SECTION_NAMES = {
-    "Opening": "Opening",
-    "Treasures": "Treasures From God’s Word",
-    "Ministry": "Apply Yourself to the Field Ministry",
-    "Living": "Living as Christians",
-    "Closing": "Closing",
-    "Weekend": "Weekend meeting",
-}
-
 # page key, wording key, Material icon
 NAV = [
     ("Dashboard", "nav_home", ":material/space_dashboard:"),
@@ -134,7 +117,7 @@ def page_header(title, subtitle=None):
 
 def section_heading(section):
     color = SECTION_COLORS.get(section, "#8A94A0")
-    name = SECTION_NAMES.get(section, section or "")
+    name = SECTION_TITLES.get(section, section or "")
     st.markdown(f'<div class="ms-section" style="--ms-color:{color}">'
                 f'{html_escape(name)}</div>', unsafe_allow_html=True)
 
@@ -147,15 +130,13 @@ def section_bars(rows):
         part = rows[rows["section"] == section]
         if part.empty:
             continue
-        needed = len(part) + int((part["needs_assistant"] == 1).sum())
-        filled = int(part["person"].notna().sum()) + int(
-            ((part["needs_assistant"] == 1) & part["assistant"].notna()).sum())
+        filled, needed = fill_counts(part)
         pct = 0 if not needed else round(100 * filled / needed)
         color = SECTION_COLORS[section]
         html.append(
             f'<div class="ms-bar-row"><div class="ms-bar-name">'
             f'<span class="ms-swatch" style="background:{color}"></span>'
-            f'{html_escape(SECTION_NAMES[section])}</div>'
+            f'{html_escape(SECTION_TITLES[section])}</div>'
             f'<div class="ms-bar-track"><div class="ms-bar-fill" '
             f'style="width:{pct}%;background:{color}"></div></div>'
             f'<div class="ms-bar-count">{filled} of {needed}</div></div>')

@@ -296,6 +296,26 @@ def render(students_df, t, selected_lang, aux_default):
             for w in warnings:
                 st.warning(f"Check: {w}")
 
+    snap = last_snapshot(meeting_date, meeting_type)
+    if snap:
+        note = ("the schedule before it was deleted" if snap["reason"] == "before delete"
+                else f"{snap['assigned']} assignment(s) as saved at "
+                     f"{snap['ts'][11:16]}" + (f" by {snap['user']}" if snap["user"] else ""))
+        u1, u2 = st.columns([1, 1])
+        if u1.button("Undo last save", icon=":material/undo:", width="stretch",
+                     help=f"Puts back {note}."):
+            st.session_state["confirm_undo"] = (meeting_date, meeting_type)
+        if st.session_state.get("confirm_undo") == (meeting_date, meeting_type):
+            st.warning(f"Replace what's saved now with {note}?")
+            y, n = st.columns(2)
+            if y.button("Yes, undo", type="primary", key="do_undo"):
+                undo_last(meeting_date, meeting_type)
+                st.session_state.pop("confirm_undo")
+                st.rerun()
+            if n.button("Cancel", key="cancel_undo"):
+                st.session_state.pop("confirm_undo")
+                st.rerun()
+
     if saved_slots and b2.button("Delete this schedule", icon=":material/delete:",
                                      width="stretch"):
         st.session_state["confirm_delete"] = (meeting_date, meeting_type)
