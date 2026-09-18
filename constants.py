@@ -109,6 +109,37 @@ SECTION_COLORS = {
 }
 # Roles printed in bold beside the name on the schedule sheet. Roles left out
 # here show the name alone, as the printed form does.
+# Printed role labels per slip language. A role with no entry prints the name
+# with no label, which is right where the part title already names the role
+# (the Ga sheet's "Buu Mɔɔ Nikasemɔ" row needs no "Conductor" beside it).
+ROLE_LABELS_GA = {
+    "Prayer": "Sɔlemɔ",
+    "Chairman": "Sɛinɔtalɔ",
+    "Weekend Chairman": "Sɛinɔtalɔ",
+    "Reader": "Kanelɔ",
+    "Watchtower Reader": "Kanelɔ",
+    "Aux Classroom Counselor": "Ŋaawolɔ",
+}
+GA_WORDS = {
+    "public_talk": "Maŋshiɛmɔ",
+    "watchtower": "Buu Mɔɔ Nikasemɔ",
+    "theme": "Saneyitso",
+    "guest_speaker": "Wielɔ ni afɔ lɛ nine",
+    "chairman": "Sɛinɔtalɔ",
+    "opening_prayer": "Sɔlemɔ",
+    "closing_prayer": "Sɔlemɔ",
+    "group": "Kuu",
+}
+EN_WORDS = {
+    "public_talk": "Public Talk",
+    "watchtower": "Watchtower Study",
+    "theme": "Theme",
+    "guest_speaker": "Guest speaker",
+    "chairman": "Chairman",
+    "opening_prayer": "Opening Prayer",
+    "closing_prayer": "Closing Prayer",
+    "group": "Group",
+}
 ROLE_LABELS = {
     "Prayer": "Prayer",
     "Chairman": "Chairman",
@@ -152,9 +183,9 @@ TRANSLATIONS = {
         "date": "Gbi:",
         "part_no": "Nitsumɔ akara:",
         "to_be_given": "Abaatsɔo mli:",
-        "main_hall": "Maŋ tsu nukpa",
-        "aux_1": "Tsu bibioo 1",
-        "aux_2": "Tsu bibioo 2",
+        "main_hall": "Asa 1",
+        "aux_1": "Asa 2",
+        "aux_2": "Asa 3",
         "note": (
             "Nilelɔ nɔ ni akɛɛ: Nitsumɔ lɛ he nibii kɛ nikasemɔ nɔ ni kɔ kɛhɔ bo"
             " lɛ baanyɛ aná yɛ Kristowala Amɛ Wala kɛ Nitsumɔ Kpeeni Wolo lɛ mli."

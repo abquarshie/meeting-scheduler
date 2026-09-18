@@ -144,7 +144,7 @@ def test_printed_schedule_is_fully_ga(core, people):
     # section headings, meeting name and room label all in Ga
     assert "Nyɔŋmɔ Wiemɔ" in text and "Hii Shi Akɛ Kristofonyo" in text
     assert "Wɔshiŋmɔ" in text
-    assert "Tsu bibioo" in text                     # the auxiliary classroom
+    assert "Asa 2" in text                         # the auxiliary classroom
 
     for english in ("Treasures From God", "Living as Christians",
                     "Midweek Meeting", "Auxiliary classroom"):
@@ -168,4 +168,125 @@ def test_interface_labels_stay_english(core):
                           3, 4, core.AUX_HALL)
     assert "Auxiliary classroom 1" in core.slot_label(slot)
     ga_rooms = {h: core.TRANSLATIONS["Ga"][h] for h in core.HALLS}
-    assert "Tsu bibioo 1" in core.slot_label(slot, ga_rooms)
+    assert "Asa 2" in core.slot_label(slot, ga_rooms)
+
+
+def test_visitor_may_say_the_closing_prayer(core, people):
+    """A guest speaker is often asked to close. The flag must also survive
+    reopening a saved schedule, or the option vanishes on the next edit."""
+    slots = core.default_weekend_slots()
+    by_role = {(s["role"], s["title"]): s for s in slots}
+    assert by_role[("Public Talk", "Public Talk Speaker")]["allow_visitor"]
+    assert by_role[("Prayer", "Closing Prayer")]["allow_visitor"]
+    assert not by_role[("Prayer", "Opening Prayer")]["allow_visitor"]
+    assert not by_role[("Weekend Chairman", "Chairman")]["allow_visitor"]
+
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    closing = next(i for i, s in enumerate(slots)
+                   if s["role"] == "Prayer" and s["title"] == "Closing Prayer")
+    talk = next(i for i, s in enumerate(slots) if s["role"] == "Public Talk")
+    core.save_schedule("2026-09-27", core.WEEKEND, slots,
+                       {talk + 10000: "Bro. Addo — Osu",
+                        closing + 10000: "Bro. Tetteh — Osu"}, {}, names)
+
+    reopened, _, visitors = core.load_schedule("2026-09-27", core.WEEKEND,
+                                               core.get_schedules())
+    flags = {(s["role"], s["title"]): s["allow_visitor"] for s in reopened}
+    assert flags[("Prayer", "Closing Prayer")]        # still offered on re-edit
+    assert flags[("Public Talk", "Public Talk Speaker")]
+    assert not flags[("Prayer", "Opening Prayer")]
+    assert "Bro. Tetteh — Osu" in visitors.values()
+
+    text = _text(core.generate_schedule_pdf([("2026-09-27", core.WEEKEND)],
+                                            core.get_schedules()))
+    assert "Bro. Tetteh — Osu" in text
+
+
+def _weekend_with_guest(core, people):
+    slots = core.default_weekend_slots()
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    talk = next(i for i, s in enumerate(slots) if s["role"] == "Public Talk")
+    closing = next(i for i, s in enumerate(slots)
+                   if s["role"] == "Prayer" and s["title"] == "Closing Prayer")
+    picks = {i: (people["Kofi Mensah"], None) for i, s in enumerate(slots)}
+    picks[talk] = (None, None)
+    picks[talk + 10000] = "Bro. Addo — Osu"
+    picks[closing] = (None, None)
+    picks[closing + 10000] = "Bro. Tetteh — Osu"
+    core.save_schedule("2026-09-27", core.WEEKEND, slots, picks,
+                       {"talk_number": "12", "talk_title": "Is God Interested in You?"},
+                       names)
+
+
+def test_weekend_sheet_order_and_guest(core, people):
+    """The closing prayer ends the sheet; a visitor is marked as a guest."""
+    _weekend_with_guest(core, people)
+    text = _text(core.generate_schedule_pdf([("2026-09-27", core.WEEKEND)],
+                                            core.get_schedules()))
+    for word in ("Chairman", "Public Talk", "Watchtower Study", "Theme",
+                 "Guest speaker", "Opening Prayer", "Closing Prayer"):
+        assert word in text, word
+    assert text.index("Opening Prayer") < text.index("Public Talk")
+    assert text.index("Public Talk") < text.index("Watchtower Study")
+    assert text.index("Watchtower Study") < text.index("Closing Prayer")
+    assert text.rstrip().index("Closing Prayer") > text.index("Chairman")
+    assert "Bro. Tetteh — Osu" in text and "Bro. Addo — Osu" in text
+
+
+def test_weekend_sheet_in_ga_has_no_english(core, people):
+    _weekend_with_guest(core, people)
+    text = _text(core.generate_schedule_pdf([("2026-09-27", core.WEEKEND)],
+                                            core.get_schedules(),
+                                            core.TRANSLATIONS["Ga"]))
+    for word in ("Otsi Naagbee Kpee", "Sɛinɔtalɔ", "Maŋshiɛmɔ",
+                 "Buu Mɔɔ Nikasemɔ", "Kanelɔ", "Saneyitso",
+                 "Wielɔ ni afɔ lɛ nine", "Sɔlemɔ"):
+        assert word in text, word
+    for english in ("Chairman", "Public Talk", "Watchtower Study", "Theme",
+                    "Guest speaker", "Closing Prayer", "Weekend Meeting"):
+        assert english not in text, f"{english!r} leaked onto the Ga sheet"
+
+
+def test_midweek_and_weekend_get_different_layouts(core, people):
+    """One call, two sheets: the midweek running order and the weekend
+    programme are laid out differently."""
+    _full_week(core, people)
+    _weekend_with_guest(core, people)
+    text = _text(core.generate_schedule_pdf(
+        [("2026-09-16", core.MIDWEEK), ("2026-09-27", core.WEEKEND)],
+        core.get_schedules()))
+    assert "Midweek Meeting" in text and "Weekend Meeting" in text
+    assert "Treasures From God" in text          # midweek sections
+    assert "Watchtower Study" in text            # weekend parts
+    assert text.index("Midweek Meeting") < text.index("Weekend Meeting")
+
+
+def test_auxiliary_classroom_group_is_printed(core, people):
+    """Which group is using the classroom is stored per week and printed
+    beside the counselor."""
+    slots = core.apply_aux(core.build_midweek_slots(core.default_midweek_parts()), True)
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    counselor = next(i for i, s in enumerate(slots)
+                     if s["role"] == "Aux Classroom Counselor")
+    core.save_schedule("2026-09-16", core.MIDWEEK, slots,
+                       {counselor: (people["Kofi Mensah"], None)},
+                       {"aux": True, "aux_group": "1"}, names)
+    assert core.get_meeting_meta("2026-09-16", core.MIDWEEK)["aux_group"] == "1"
+
+    text = _text(core.generate_schedule_pdf([("2026-09-16", core.MIDWEEK)],
+                                            core.get_schedules()))
+    assert "Auxiliary classroom 1" in text and "Group 1" in text
+
+    ga = _text(core.generate_schedule_pdf([("2026-09-16", core.MIDWEEK)],
+                                          core.get_schedules(),
+                                          core.TRANSLATIONS["Ga"]))
+    assert "Asa 2" in ga and "Kuu 1" in ga
+    assert "Group 1" not in ga
+
+    # no group entered: the room is still named, with nothing after it
+    core.save_schedule("2026-09-16", core.MIDWEEK, slots,
+                       {counselor: (people["Kofi Mensah"], None)},
+                       {"aux": True, "aux_group": ""}, names)
+    plain = _text(core.generate_schedule_pdf([("2026-09-16", core.MIDWEEK)],
+                                             core.get_schedules()))
+    assert "Auxiliary classroom 1" in plain and "Group" not in plain

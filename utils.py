@@ -48,6 +48,25 @@ GA_ROLE_WORDS = [
 ]
 
 
+# English words infer_role() keys on, kept beside the Ga list so a caller can
+# ask whether a title actually named a part type or merely fell through.
+EN_ROLE_WORDS = (
+    "chairman", "prayer", "watchtower", "public talk", "reader", "bible study",
+    "conductor", "bible reading", "gems", "treasures", "living", "disciple",
+    "explaining", "belief", "presentation", "conversation", "following up", "talk",
+)
+
+
+def role_matched(title):
+    """True when the title names a part type rather than taking the default."""
+    t = nfc(title or "").lower()
+    if t.strip(" .:") == "wiemɔ":          # a bare Ga "Talk", handled below
+        return True
+    if any(word in t for word, _ in GA_ROLE_WORDS):
+        return True
+    return any(word in t for word in EN_ROLE_WORDS)
+
+
 def infer_role(title, section=None):
     t = nfc(title or "").lower()
     for word, role in GA_ROLE_WORDS:
@@ -102,10 +121,19 @@ def default_section(role, meeting_type=MIDWEEK):
     return "Living"
 
 
+def visitor_allowed(role, title):
+    """Parts a visitor from another congregation may take, typed by hand
+    instead of picked from the congregation's list: the public talk, and the
+    closing prayer, which a visiting speaker is often asked to say."""
+    if role == "Public Talk":
+        return True
+    return role == "Prayer" and nfc(title).lower().startswith("closing")
+
+
 def make_slot(title, role, section, part_no=None, minutes=None, hall=MAIN_HALL):
     return {
         "hall": hall or MAIN_HALL,
-        "allow_visitor": False,
+        "allow_visitor": visitor_allowed(role, title),
         "part_no": part_no,
         "title": nfc(title),
         "role": role,

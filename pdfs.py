@@ -5,6 +5,7 @@ import re
 from xml.sax.saxutils import escape as xml_escape
 
 from reportlab.lib import colors
+from reportlab.lib.enums import TA_RIGHT
 from reportlab.lib.fonts import addMapping
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
@@ -151,71 +152,296 @@ SECTION_TITLES_BY_LANG = {
         "Weekend": "Otsi Naagbee Kpee",
     },
 }
+ACCENT = colors.HexColor("#24527A")          # the app's ink blue
+MUTED = colors.HexColor("#6B7683")
+RULE = colors.HexColor("#D7DBE0")
+
+
+def _lang_name(lang):
+    for name, strings in TRANSLATIONS.items():
+        if strings is lang:
+            return name
+    return "English"
+
+
+def _sheet_styles(regular, bold):
+    """One place for the look of both sheets."""
+    return {
+        "title": ParagraphStyle("T", fontName=bold, fontSize=16, leading=19),
+        "cong": ParagraphStyle("C", fontName=bold, fontSize=11, leading=19,
+                               alignment=TA_RIGHT, textColor=MUTED),
+        "when": ParagraphStyle("W", fontName=bold, fontSize=11.5, leading=15,
+                               textColor=ACCENT, spaceBefore=10, spaceAfter=3),
+        "section": ParagraphStyle("S", fontName=bold, fontSize=12, leading=16),
+        "part": ParagraphStyle("P", fontName=regular, fontSize=9, leading=12,
+                               leftIndent=11, firstLineIndent=-11),
+        "name": ParagraphStyle("N", fontName=regular, fontSize=9, leading=12),
+        "label": ParagraphStyle("L", fontName=bold, fontSize=8, leading=12,
+                                alignment=TA_RIGHT, textColor=MUTED),
+        "sub": ParagraphStyle("U", fontName=bold, fontSize=7, leading=9,
+                              textColor=MUTED),
+        "theme": ParagraphStyle("H", fontName=regular, fontSize=9, leading=12,
+                                textColor=MUTED, leftIndent=11),
+    }
+
+
+def _clean(value):
+    """'' for None, NaN and blanks. NaN is truthy, so `or` alone is not enough."""
+    if value is None or value != value:
+        return ""
+    return str(value).strip()
+
+
+def _people(person, assistant):
+    person, assistant = _clean(person), _clean(assistant)
+    return f"{person} & {assistant}" if person and assistant else person
+
+
+def _part_text(part_name, minutes):
+    title = _clean(part_name)
+    try:
+        mins = int(float(minutes))
+    except (TypeError, ValueError):
+        mins = None
+    if mins and "min" not in title.lower():
+        title += f" ({mins} min.)"
+    return title
+
+
+def _banner(meeting_name, congregation, width, st_):
+    return Table(
+        [[Paragraph(xml_escape(meeting_name), st_["title"]),
+          Paragraph(xml_escape(congregation), st_["cong"])]],
+        colWidths=[width * 0.62, width * 0.38],
+        style=[("LEFTPADDING", (0, 0), (-1, -1), 0),
+               ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+               ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+               ("LINEBELOW", (0, 0), (-1, -1), 1.4, ACCENT)])
+
+
+def _midweek_block(rows, meta, lang, st_, widths, section_titles, hall_names,
+                   role_labels, words):
+    """The running order: sections in their workbook colours, songs in place,
+    a second name column on auxiliary-classroom weeks."""
+    aux_week = bool((rows["hall"] != MAIN_HALL).any())
+    n_cols = 4 if aux_week else 3
+    data, style = [], [
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 2.5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+    ]
+
+    def pad(cells):
+        return list(cells) + [""] * (n_cols - len(cells))
+
+    def row(part="", aux="", label="", name="", colour=None, wide_label=False):
+        left = Paragraph(
+            (f'<font color="{colour}">\u25cf</font> ' if colour and part else "")
+            + xml_escape(part), st_["part"]) if part else ""
+        label_cell = Paragraph(xml_escape(label), st_["label"]) if label else ""
+        cells = [left]
+        if aux_week and wide_label:
+            # a span shows its top-left cell, so the label has to sit there
+            cells += [label_cell, ""]
+            style.append(("SPAN", (1, len(data)), (2, len(data))))
+        else:
+            if aux_week:
+                cells.append(Paragraph(xml_escape(aux), st_["name"]) if aux else "")
+            cells.append(label_cell)
+        cells.append(Paragraph(xml_escape(name), st_["name"]) if name else "")
+        data.append(pad(cells))
+
+    def section(name):
+        colour = SECTION_COLORS.get(name, "#8A94A0")
+        data.append(pad([Paragraph(
+            f'<font color="{colour}">\u25a0</font>&nbsp;&nbsp;'
+            f'<font color="{colour}">{xml_escape(section_titles.get(name, name))}</font>',
+            st_["section"])]))
+        i = len(data) - 1
+        style.extend([("SPAN", (0, i), (-1, i)), ("TOPPADDING", (0, i), (-1, i), 10)])
+        return colour
+
+    by_section = {}
+    for r in rows.itertuples():
+        by_section.setdefault(r.section or "", []).append(r)
+    opening = by_section.get("Opening", [])
+    closing = by_section.get("Closing", [])
+    open_prayer = next((r for r in opening if r.role == "Prayer"), None)
+    close_prayer = next((r for r in closing if r.role == "Prayer"), None)
+    song_colour = SECTION_COLORS.get("Living", "#8A94A0")
+
+    if meta.get("opening_song") or open_prayer:
+        row(_clean(meta.get("opening_song")), label=role_labels.get("Prayer", ""),
+            name=_clean(open_prayer.person) if open_prayer is not None else "",
+            colour=song_colour, wide_label=True)
+    for r in opening:
+        if r.role == "Prayer":
+            continue
+        title = ""
+        if r.role == "Aux Classroom Counselor":
+            # name the room and, when it is known, the group using it
+            title = hall_names.get(AUX_HALL, "")
+            group = _clean(meta.get("aux_group"))
+            if group:
+                title = f"{title} – {words['group']} {group}"
+        row(title, label=role_labels.get(r.role, ""), name=_clean(r.person),
+            wide_label=True)
+
+    sub_done = False
+    for name in ("Treasures", "Ministry", "Living"):
+        members = by_section.get(name)
+        if not members:
+            continue
+        colour = section(name)
+        if name == "Living" and meta.get("middle_song"):
+            row(_clean(meta["middle_song"]), colour=song_colour, wide_label=True)
+        main = [r for r in members if r.hall == MAIN_HALL]
+        extra = {(r.role, r.part_no): r for r in members if r.hall != MAIN_HALL}
+        for r in main:
+            other = extra.get((r.role, r.part_no))
+            if other is not None and not sub_done:
+                data.append(pad(["",
+                                 Paragraph(xml_escape(hall_names.get(AUX_HALL, "")),
+                                           st_["sub"]), "",
+                                 Paragraph(xml_escape(hall_names.get(MAIN_HALL, "")),
+                                           st_["sub"])]))
+                sub_done = True
+            row("" if r.role == "Reader" else _part_text(r.part_name, r.minutes),
+                aux=_people(other.person, other.assistant) if other is not None else "",
+                label=role_labels.get(r.role, ""),
+                name=_people(r.person, r.assistant), colour=colour)
+
+    if meta.get("closing_song") or close_prayer:
+        row(_clean(meta.get("closing_song")), label=role_labels.get("Prayer", ""),
+            name=_clean(close_prayer.person) if close_prayer is not None else "",
+            colour=song_colour, wide_label=True)
+
+    table = Table(data, colWidths=widths[:n_cols] if n_cols == 4 else widths[-3:])
+    table.setStyle(TableStyle(style))
+    return table
+
+
+def _weekend_block(rows, meta, lang, st_, width, section_titles, role_labels, words):
+    """The weekend sheet: talk, theme, Watchtower study, prayers."""
+    data, style = [], [
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("LINEBELOW", (0, 0), (-1, -1), 0.4, RULE),
+    ]
+    colour = SECTION_COLORS.get("Weekend", "#8A94A0")
+    widths = [width * 0.46, width * 0.18, width * 0.36]
+
+    def row(part, label, name, guest=False):
+        left = Paragraph(f'<font color="{colour}">\u25cf</font> ' + xml_escape(part),
+                         st_["part"]) if part else ""
+        if guest and name:
+            name = f"{name}  ({words['guest_speaker']})"
+        data.append([
+            left,
+            Paragraph(xml_escape(label), st_["label"]) if label else "",
+            Paragraph(xml_escape(name), st_["name"]) if name else ""])
+
+    def note(text):
+        data.append([Paragraph("<i>" + xml_escape(text) + "</i>", st_["theme"]), "", ""])
+        i = len(data) - 1
+        style.extend([("SPAN", (0, i), (-1, i)),
+                      ("LINEBELOW", (0, i), (-1, i), 0, colors.white)])
+
+    def closing(r):
+        return r.role == "Prayer" and _clean(r.part_name).lower().startswith("closing")
+
+    def rank(r):
+        if r.role == "Weekend Chairman":
+            return 0
+        if r.role == "Prayer":
+            return 9 if closing(r) else 1      # the closing prayer ends the sheet
+        return {"Public Talk": 2, "Watchtower Conductor": 4,
+                "Watchtower Reader": 5}.get(r.role, 3)
+
+    def printed_title(r):
+        """The left column names the part in the chosen language; the stored
+        part name is English and would leak onto the Ga sheet."""
+        if r.role == "Weekend Chairman":
+            return words["chairman"]
+        if r.role == "Prayer":
+            return words["closing_prayer" if closing(r) else "opening_prayer"]
+        if r.role == "Public Talk":
+            return words["public_talk"]
+        if r.role == "Watchtower Conductor":
+            return words["watchtower"]
+        if r.role == "Watchtower Reader":
+            return ""                          # sits under the study, labelled
+        return _clean(r.part_name)
+
+    listed = sorted(rows.itertuples(),
+                    key=lambda r: (rank(r), int(r.sort_order or 0)))
+    for r in listed:
+        # the label is only for a part that sits under another one
+        label = role_labels.get(r.role, "") if r.role == "Watchtower Reader" else ""
+        row(printed_title(r), label, _people(r.person, r.assistant),
+            guest=bool(_clean(getattr(r, "visitor", ""))))
+        if r.role == "Public Talk":
+            theme = _clean(meta.get("talk_title"))
+            number = _clean(meta.get("talk_number"))
+            if theme or number:
+                bits = f"No. {number}" if number else ""
+                note(f"{words['theme']}: " + " — ".join(b for b in (bits, theme) if b))
+
+    table = Table(data, colWidths=widths)
+    table.setStyle(TableStyle(style))
+    return table
 
 
 def generate_schedule_pdf(meetings, schedules_df, lang=None):
-    """One printable block per (date, type). lang is a TRANSLATIONS entry, or
-    None for the section names already used elsewhere in the app (English)."""
+    """A printable sheet per meeting: the midweek running order, or the
+    weekend programme. lang is a TRANSLATIONS entry; None means English."""
     lang = lang or TRANSLATIONS["English"]
-    section_titles = SECTION_TITLES_BY_LANG.get(
-        next((k for k, v in TRANSLATIONS.items() if v is lang), "English"),
-        SECTION_TITLES)
-    hall_names = {h: lang[h] for h in HALLS if h in lang}
+    name = _lang_name(lang)
+    section_titles = SECTION_TITLES_BY_LANG.get(name, SECTION_TITLES)
+    role_labels = ROLE_LABELS_GA if name == "Ga" else ROLE_LABELS
+    words = GA_WORDS if name == "Ga" else EN_WORDS
+    hall_names = {h: lang.get(h, HALL_NAMES.get(h, h)) for h in HALLS}
+
     regular, bold, _ = register_fonts()
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=36, leftMargin=36,
                             topMargin=36, bottomMargin=36)
-    title_style = ParagraphStyle("T", fontName=bold, fontSize=12, leading=15, spaceAfter=4)
-    sub_style = ParagraphStyle("S", fontName=regular, fontSize=9, leading=11,
-                               textColor=colors.grey, spaceAfter=6)
-    cell_style = ParagraphStyle("C", fontName=regular, fontSize=9, leading=11)
-    sec_style = ParagraphStyle("H", fontName=bold, fontSize=9, leading=11,
-                               textColor=colors.white)
+    st_ = _sheet_styles(regular, bold)
+    width = A4[0] - 72
+    widths = [width * 0.46, width * 0.19, width * 0.12, width * 0.23]
+    congregation = get_setting("congregation", "")
     story = []
+
     for meeting_date, meeting_type in meetings:
         rows = schedules_df[(schedules_df["meeting_date"] == meeting_date)
                             & (schedules_df["meeting_type"] == meeting_type)]
+        if rows.empty:
+            continue
         meta = get_meeting_meta(meeting_date, meeting_type)
-        title_key = "midweek_meeting" if meeting_type == MIDWEEK else "weekend_meeting"
-        meeting_name = lang.get(title_key, meeting_type)
-        block = [Paragraph(
-            xml_escape(f"{meeting_name} — {fmt_date(meeting_date)}"), title_style)]
-        heading_line = meta.get("book") or meta.get("heading")
-        if heading_line:
-            block.append(Paragraph(xml_escape(heading_line), sub_style))
-        data, style = [], [
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("LINEBELOW", (0, 0), (-1, -1), 0.25, colors.lightgrey),
-            ("TOPPADDING", (0, 0), (-1, -1), 3),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ]
-        current = None
-        for _, r in rows.iterrows():
-            section = r["section"] or ""
-            if section != current:
-                current = section
-                data.append([Paragraph(xml_escape(section_titles.get(section, section)),
-                                       sec_style), ""])
-                style += [("SPAN", (0, len(data) - 1), (1, len(data) - 1)),
-                          ("BACKGROUND", (0, len(data) - 1), (1, len(data) - 1),
-                           colors.HexColor("#30363d"))]
-            slot = make_slot(r["part_name"], r["role"] or "", section,
-                             int(r["part_no"]) if pd.notna(r["part_no"]) else None,
-                             int(r["minutes"]) if pd.notna(r["minutes"]) else None,
-                             r["hall"])
-            who = r["person"] or "—"
-            if r["assistant"]:
-                who += f" / {r['assistant']}"
-            data.append([Paragraph(xml_escape(slot_label(slot, hall_names)), cell_style),
-                         Paragraph(xml_escape(who), cell_style)])
-            if r["role"] == "Public Talk" and talk_text(meta):
-                data.append([Paragraph("<i>" + xml_escape(talk_text(meta)) + "</i>",
-                                       cell_style), ""])
-                style.append(("SPAN", (0, len(data) - 1), (1, len(data) - 1)))
-        table = Table(data, colWidths=[300, 223])
-        table.setStyle(TableStyle(style))
-        block += [table, Spacer(1, 18)]
+        midweek = meeting_type == MIDWEEK
+        meeting_name = lang.get("midweek_meeting" if midweek else "weekend_meeting",
+                                meeting_type)
+        block = [_banner(meeting_name, congregation, width, st_)]
+        heading = _clean(meta.get("book")) or _clean(meta.get("heading"))
+        when = fmt_date(meeting_date)
+        block.append(Paragraph(
+            xml_escape(when) + (f"&nbsp;&nbsp;|&nbsp;&nbsp;{xml_escape(heading)}"
+                                if heading else ""), st_["when"]))
+        if midweek:
+            block.append(_midweek_block(rows, meta, lang, st_, widths,
+                                        section_titles, hall_names, role_labels,
+                                        words))
+        else:
+            block.append(_weekend_block(rows, meta, lang, st_, width,
+                                        section_titles, role_labels, words))
+        block.append(Spacer(1, 18))
         story.append(KeepTogether(block))
+
     doc.build(story)
     return buffer.getvalue()
 

@@ -109,6 +109,37 @@ def _pool(url, schema_name):
 _local = threading.local()
 
 
+def _live_connection(pool):
+    """A connection proven alive, or a fresh one.
+
+    The pool's own check is not enough here: a connection can be handed out
+    healthy and be dead by the next use, and a suspended Neon compute kills
+    every connection at once. Proving it before the request starts costs one
+    cheap round trip and turns a crash into a reconnect.
+    """
+    last = None
+    for _ in range(3):
+        try:
+            raw = pool.getconn(timeout=POOL_TIMEOUT)
+        except Exception as exc:
+            last = exc
+            continue
+        try:
+            raw.execute("SELECT 1")
+            return raw
+        except psycopg.Error as exc:       # dead: let the pool bin it, try again
+            last = exc
+            try:
+                raw.close()
+            except Exception:
+                pass
+            try:
+                pool.putconn(raw)
+            except Exception:
+                pass
+    raise last if last else RuntimeError("no database connection")
+
+
 @contextmanager
 def get_conn():
     """A connection from the pool, reused by nested calls.
@@ -124,15 +155,26 @@ def get_conn():
         yield existing
         return
     pool = _pool(dsn(), schema())
-    with pool.connection() as raw:          # returns the connection on exit
-        conn = _Conn(raw)
-        _local.conn = conn
+    raw = _live_connection(pool)
+    conn = _Conn(raw)
+    _local.conn = conn
+    try:
+        yield conn
+        raw.commit()
+    except BaseException:
         try:
-            yield conn
-        finally:
-            _local.conn = None
-        if conn.total_changes:
-            mark_dirty()
+            raw.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        _local.conn = None
+        try:
+            pool.putconn(raw)
+        except Exception:
+            pass
+    if conn.total_changes:
+        mark_dirty()
 
 
 def read_df(sql, params=()):
@@ -270,6 +312,7 @@ def init_db():
         _add_missing_columns(conn, "meetings", {
             "aux": "INTEGER",
             "book": "TEXT",
+            "aux_group": "TEXT",
             "talk_number": "TEXT",
             "talk_title": "TEXT",
         })
@@ -490,7 +533,7 @@ def load_schedule(meeting_date, meeting_type, schedules_df=None):
         minutes = int(r["minutes"]) if pd.notna(r["minutes"]) else None
         section = r["section"] or default_section(role, meeting_type)
         slot = make_slot(r["part_name"], role, section, part_no, minutes, r["hall"])
-        slot["allow_visitor"] = role == "Public Talk"
+        slot["allow_visitor"] = visitor_allowed(role, r["part_name"])
         slots.append(slot)
         sid = int(r["student_id"]) if pd.notna(r["student_id"]) else None
         aid = int(r["assistant_id"]) if pd.notna(r["assistant_id"]) else None
@@ -504,17 +547,17 @@ def get_meeting_meta(meeting_date, meeting_type):
     with get_conn() as conn:
         row = conn.execute(
             """SELECT heading, opening_song, middle_song, closing_song, aux,
-                      talk_number, talk_title, book FROM meetings
+                      talk_number, talk_title, book, aux_group FROM meetings
                WHERE meeting_date = ? AND meeting_type = ?""",
             (str(meeting_date), meeting_type),
         ).fetchone()
     keys = ["heading", "opening_song", "middle_song", "closing_song", "aux",
-            "talk_number", "talk_title", "book"]
+            "talk_number", "talk_title", "book", "aux_group"]
     meta = dict(zip(keys, row)) if row else {k: "" for k in keys}
     if not row:
         meta["aux"] = None
     for k in ("heading", "opening_song", "middle_song", "closing_song",
-              "talk_number", "talk_title", "book"):
+              "talk_number", "talk_title", "book", "aux_group"):
         meta[k] = meta.get(k) or ""
     return meta
 
@@ -642,18 +685,20 @@ def save_schedule(meeting_date, meeting_type, slots, picks, meta, names):
         )
         conn.execute(
             """INSERT INTO meetings (meeting_date, meeting_type, heading, opening_song,
-                   middle_song, closing_song, aux, talk_number, talk_title, book)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   middle_song, closing_song, aux, talk_number, talk_title, book,
+                   aux_group)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(meeting_date, meeting_type) DO UPDATE SET
                    heading = excluded.heading, opening_song = excluded.opening_song,
                    middle_song = excluded.middle_song, closing_song = excluded.closing_song,
                    aux = excluded.aux, talk_number = excluded.talk_number,
-                   talk_title = excluded.talk_title, book = excluded.book""",
+                   talk_title = excluded.talk_title, book = excluded.book,
+                   aux_group = excluded.aux_group""",
             (str(meeting_date), meeting_type, meta.get("heading", ""),
              meta.get("opening_song", ""), meta.get("middle_song", ""),
              meta.get("closing_song", ""), int(bool(meta.get("aux"))),
              meta.get("talk_number", ""), meta.get("talk_title", ""),
-             meta.get("book", "")),
+             meta.get("book", ""), meta.get("aux_group", "")),
         )
     _forget_schedules()
     log_change("Schedule saved", f"{meeting_type} {meeting_date}: "

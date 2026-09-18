@@ -114,6 +114,13 @@ def render(students_df, t, selected_lang, aux_default):
             help="Adds a counselor and a second student (and assistant) for the "
                  "Bible reading and each field-ministry part.",
         )
+    aux_group = ""
+    if aux_on:
+        aux_group = nfc(st.text_input(
+            "Group using the auxiliary classroom",
+            meta.get("aux_group", ""), key=f"{meeting_date}|{meeting_type}|auxgroup",
+            placeholder="e.g. 1",
+            help="Printed beside the classroom on the schedule, e.g. “Asa 2 – Kuu 1”."))
     slots = apply_aux(slots, aux_on)
 
     active = students_df[students_df["active"] == 1]
@@ -159,6 +166,7 @@ def render(students_df, t, selected_lang, aux_default):
             "closing_song": m2.text_input("Closing song", meta.get("closing_song", ""),
                                           key=f"{ns}|song3"),
             "aux": aux_on,
+            "aux_group": aux_group,
         }
 
     talk_in = {"talk_number": meta.get("talk_number", ""),
@@ -186,18 +194,23 @@ def render(students_df, t, selected_lang, aux_default):
         if aux_on and slot["student_part"] and slot["hall"] == MAIN_HALL:
             text += " · Main hall"
 
-        # a visiting public-talk speaker is typed by hand, not chosen from the list
+        # a visitor from another congregation is typed by hand, not chosen from
+        # the list — the public talk speaker, or a guest saying the closing prayer
         if slot.get("allow_visitor"):
             vkey = f"{wkey}|visitor"
             saved_visitor = saved_visitors.get(slot_match_key(slot), "")
-            is_visitor = st.checkbox("Visiting speaker (another congregation)",
-                                     value=bool(saved_visitor), key=f"{wkey}|isvis")
+            label = ("Visiting speaker (another congregation)"
+                     if slot["role"] == "Public Talk"
+                     else "Said by a visitor (another congregation)")
+            is_visitor = st.checkbox(label, value=bool(saved_visitor),
+                                     key=f"{wkey}|isvis")
             if is_visitor:
                 vis = st.text_input(text, saved_visitor, key=vkey,
                                     placeholder="Name — Congregation")
                 picks[i] = (None, None)
                 picks[i + 10000] = apply_ga_substitutes(nfc(vis))
-                talk_inputs()
+                if slot["role"] == "Public Talk":
+                    talk_inputs()      # the talk fields belong to the talk only
                 return
 
         role_dates = last_role_dates(slot["role"])
