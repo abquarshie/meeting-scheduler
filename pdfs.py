@@ -139,8 +139,26 @@ def generate_slips_pdf(slip_rows, lang):
     return buffer.getvalue()
 
 
-def generate_schedule_pdf(meetings, schedules_df):
-    """One printable block per (date, type)."""
+SECTION_TITLES_BY_LANG = {
+    "English": SECTION_TITLES,
+    "Ga": {
+        "Opening": "Hiɛkpamɔ",
+        "Treasures": "Nyɔŋmɔ Wiemɔ Lɛ Mli Jwetrii",
+        "Ministry": "Kasemɔ Bɔ Ni Ashiɛɔ Jogbaŋŋ",
+        "Living": "Hii Shi Akɛ Kristofoi",
+        "Closing": "Naamuɔ",
+        "Weekend": "Kpee Ni Yɔɔ Otsiu Gbi Lɛ",
+    },
+}
+
+
+def generate_schedule_pdf(meetings, schedules_df, lang=None):
+    """One printable block per (date, type). lang is a TRANSLATIONS entry, or
+    None for the section names already used elsewhere in the app (English)."""
+    lang = lang or TRANSLATIONS["English"]
+    section_titles = SECTION_TITLES_BY_LANG.get(
+        next((k for k, v in TRANSLATIONS.items() if v is lang), "English"),
+        SECTION_TITLES)
     regular, bold, _ = register_fonts()
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=36, leftMargin=36,
@@ -157,8 +175,9 @@ def generate_schedule_pdf(meetings, schedules_df):
                             & (schedules_df["meeting_type"] == meeting_type)]
         meta = get_meeting_meta(meeting_date, meeting_type)
         block = [Paragraph(xml_escape(f"{meeting_type} — {fmt_date(meeting_date)}"), title_style)]
-        if meta.get("heading"):
-            block.append(Paragraph(xml_escape(meta["heading"]), sub_style))
+        heading_line = meta.get("book") or meta.get("heading")
+        if heading_line:
+            block.append(Paragraph(xml_escape(heading_line), sub_style))
         data, style = [], [
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ("LINEBELOW", (0, 0), (-1, -1), 0.25, colors.lightgrey),
@@ -170,7 +189,7 @@ def generate_schedule_pdf(meetings, schedules_df):
             section = r["section"] or ""
             if section != current:
                 current = section
-                data.append([Paragraph(xml_escape(SECTION_TITLES.get(section, section)),
+                data.append([Paragraph(xml_escape(section_titles.get(section, section)),
                                        sec_style), ""])
                 style += [("SPAN", (0, len(data) - 1), (1, len(data) - 1)),
                           ("BACKGROUND", (0, len(data) - 1), (1, len(data) - 1),

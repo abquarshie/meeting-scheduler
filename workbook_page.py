@@ -67,7 +67,8 @@ def render(students_df, t, selected_lang, aux_default):
 
         st.subheader("Weeks found")
         summary = pd.DataFrame([
-            {"Week": label, "Dates": week_dates_text(w), "Parts": len(w["parts"]),
+            {"Week": label, "Reading": w.get("book", ""),
+             "Dates": week_dates_text(w), "Parts": len(w["parts"]),
              "Numbers": ", ".join(str(p["part_no"]) for p in w["parts"]),
              "Missing": ", ".join(map(str, w.get("gaps", []))) or "—"}
             for label, w in stored.items()

@@ -160,7 +160,16 @@ def _heading(line):
     if not (1 <= d1 <= 31 and 1 <= d2 <= 31):
         return None
     label = f"{m.group(1)} {d1}–" + (f"{m.group(3)} " if m.group(3) else "") + str(d2)
-    return {"label": label, "month": m.group(1), "day": d1}
+    # the printed heading carries the week's reading after a separator,
+    # e.g. "SEPTEMBER 7-13 | YEREMIA 32-33". Escaping each dash keeps a
+    # literal "-" from being read as a range boundary inside the class.
+    lead_chars = r"\s|\u00b7\u2022" + "".join(re.escape(c) for c in DASHES)
+    book = re.sub(r"^[" + lead_chars + r"]+", "", line[m.end():])
+    # a page number sits right-aligned on the same line, set off by a wide gap
+    book = re.sub(r"\s{2,}\d{1,3}\s*$", "", book)
+    book = re.sub(r"\s+", " ", book).strip()
+    book = "" if len(book) > 60 or not re.search(r"\d", book) else book
+    return {"label": label, "month": m.group(1), "day": d1, "book": book}
 
 
 def _timed_part_lines(lines):
@@ -214,7 +223,8 @@ def parse_brochure(pdf_bytes):
     for g in range(len(groups)):
         end = starts[g + 1] if g + 1 < len(groups) else len(lines)
         text = "\n".join(lines[starts[g]:end])
-        head = heads[g] or {"label": f"Week {g + 1}", "month": None, "day": None}
+        head = heads[g] or {"label": f"Week {g + 1}", "month": None, "day": None,
+                            "book": ""}
         label = head["label"]
         if label in weeks:
             label = f"{label} ({g + 1})"
@@ -222,7 +232,7 @@ def parse_brochure(pdf_bytes):
         if parts:
             weeks[label] = {"parts": parts, "songs": songs, "gaps": gaps,
                             "text": text.strip(), "month": head["month"],
-                            "day": head["day"]}
+                            "day": head["day"], "book": head.get("book", "")}
         else:
             empty.append(label)
     raw = "\n".join(f"--- Page {i + 1} ---\n{t}" for i, t in enumerate(pages))

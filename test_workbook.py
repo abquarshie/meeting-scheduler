@@ -77,6 +77,40 @@ def test_more_heading_shapes_are_recognised(core):
     assert _heading("4. Starting a Conversation (3 min.)") is None
 
 
+def test_heading_with_scripture_and_page_number(core):
+    """SEPTEMBER 7-13  |  YEREMIA 32-33                    2  — the exact shape
+    printed on the real Ga workbook: a book/chapter reading after the date,
+    and a right-aligned page number sharing the same line."""
+    from workbook import _heading
+    h = _heading("SEPTEMBER 7-13  |  YEREMIA 32-33                          2")
+    assert h["label"] == "SEPTEMBER 7–13"
+    assert h["book"] == "YEREMIA 32-33"          # page number stripped
+
+    h2 = _heading("SEPTEMBER 21-27  |  YEREMIA 34-36")   # no trailing page number
+    assert h2["book"] == "YEREMIA 34-36"
+
+    h3 = _heading("SEPTEMBER 7-13")                        # nothing after the date
+    assert h3["book"] == ""
+
+
+def test_ga_week_with_min_before_the_number(core):
+    """The real Ga workbook writes '(Min. 10)', not '(10 min.)'."""
+    from workbook import _parse_week
+    text = ("1. Jwɛŋmɔ Yehowa Sui\n(Min. 10)\n"
+            "2. Peimɔ Ŋmalɛ (Min. 10)\n"
+            "3. Biblia Kanemɔ (Min. 4)\n"
+            "4. Kɛ Oyaaje (Min. 3)\n"
+            "5. Kɛ Oyaaje (Min. 4)\n"
+            "6. Kɛ Oyaatsa (Min. 5)\n"
+            "7. Kaafɔ Otswerɛi (Min. 15)\n"
+            "8. Asafoŋ Biblia Nikasemɔ (Min. 30)\n")
+    parts, _, gaps = _parse_week(text)
+    assert gaps == []
+    sections = [p["section"] for p in parts]
+    assert sections == (["Treasures"] * 3 + ["Ministry"] * 3 + ["Living"] * 2)
+    assert parts[-1]["role"] == "Bible Study Conductor"   # 30 min, no English keyword
+
+
 def test_a_week_can_be_renamed(core, english_workbook):
     weeks, _, _ = core.parse_brochure(english_workbook)
     core.save_workbook(core.assign_dates(weeks, date(2026, 9, 14)), "en.pdf")

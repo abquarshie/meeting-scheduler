@@ -58,6 +58,28 @@ def test_schedule_pdf_and_talk_title(core, people):
     assert "No. 12" in text and "Is God Interested in You?" in text
 
 
+def test_schedule_pdf_in_ga(core, people):
+    """Section headings switch language; the scripture reading, when saved,
+    replaces the week label on the blue heading line."""
+    _full_week(core, people)
+    core.save_schedule("2026-09-16", core.MIDWEEK,
+                       core.apply_aux(core.build_midweek_slots(
+                           core.default_midweek_parts()), True),
+                       {}, {"heading": "SEPTEMBER 14–20", "book": "YEREMIA 32-33",
+                            "aux": True}, {})
+    text_en = _text(core.generate_schedule_pdf(
+        [("2026-09-16", core.MIDWEEK)], core.get_schedules()))
+    assert "Treasures From God" in text_en
+    assert "YEREMIA 32-33" in text_en          # the book line, not the week label
+    assert "SEPTEMBER 14" not in text_en
+
+    text_ga = _text(core.generate_schedule_pdf(
+        [("2026-09-16", core.MIDWEEK)], core.get_schedules(), core.TRANSLATIONS["Ga"]))
+    assert "Nyɔŋmɔ Wiemɔ" in text_ga
+    assert "Treasures From God" not in text_ga
+    assert "YEREMIA 32-33" in text_ga           # the reading itself is language-neutral
+
+
 def test_s140_fills_both_halls(core, people, s140_template):
     _full_week(core, people)
     data, skipped = core.build_s140_data([("2026-09-16", core.MIDWEEK)],

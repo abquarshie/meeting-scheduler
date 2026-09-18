@@ -81,7 +81,7 @@ def render(students_df, t, selected_lang, aux_default):
         chosen = sorted(chosen)
         st.download_button(
             "Download schedule PDF", icon=":material/print:",
-            data=generate_schedule_pdf(chosen, schedules_df),
+            data=generate_schedule_pdf(chosen, schedules_df, t),
             file_name=f"schedule_{chosen[0][0]}_to_{chosen[-1][0]}.pdf",
             mime="application/pdf",
         )

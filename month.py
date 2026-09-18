@@ -101,7 +101,7 @@ def render(students_df, t, selected_lang, aux_default):
     month_meetings = sorted(saved_meetings(in_month))
     c2.download_button(
         f"Schedule PDF ({len(month_meetings)} meetings)", icon=":material/print:",
-        data=generate_schedule_pdf(month_meetings, schedules_df),
+        data=generate_schedule_pdf(month_meetings, schedules_df, t),
         file_name=f"schedule_{month}.pdf", mime="application/pdf", width="stretch",
     )
 

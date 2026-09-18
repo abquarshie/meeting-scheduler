@@ -226,6 +226,7 @@ def init_db():
         })
         _add_missing_columns(conn, "meetings", {
             "aux": "INTEGER",
+            "book": "TEXT",
             "talk_number": "TEXT",
             "talk_title": "TEXT",
         })
@@ -442,17 +443,17 @@ def get_meeting_meta(meeting_date, meeting_type):
     with get_conn() as conn:
         row = conn.execute(
             """SELECT heading, opening_song, middle_song, closing_song, aux,
-                      talk_number, talk_title FROM meetings
+                      talk_number, talk_title, book FROM meetings
                WHERE meeting_date = ? AND meeting_type = ?""",
             (str(meeting_date), meeting_type),
         ).fetchone()
     keys = ["heading", "opening_song", "middle_song", "closing_song", "aux",
-            "talk_number", "talk_title"]
+            "talk_number", "talk_title", "book"]
     meta = dict(zip(keys, row)) if row else {k: "" for k in keys}
     if not row:
         meta["aux"] = None
     for k in ("heading", "opening_song", "middle_song", "closing_song",
-              "talk_number", "talk_title"):
+              "talk_number", "talk_title", "book"):
         meta[k] = meta.get(k) or ""
     return meta
 
@@ -579,17 +580,18 @@ def save_schedule(meeting_date, meeting_type, slots, picks, meta, names):
         )
         conn.execute(
             """INSERT INTO meetings (meeting_date, meeting_type, heading, opening_song,
-                   middle_song, closing_song, aux, talk_number, talk_title)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   middle_song, closing_song, aux, talk_number, talk_title, book)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(meeting_date, meeting_type) DO UPDATE SET
                    heading = excluded.heading, opening_song = excluded.opening_song,
                    middle_song = excluded.middle_song, closing_song = excluded.closing_song,
                    aux = excluded.aux, talk_number = excluded.talk_number,
-                   talk_title = excluded.talk_title""",
+                   talk_title = excluded.talk_title, book = excluded.book""",
             (str(meeting_date), meeting_type, meta.get("heading", ""),
              meta.get("opening_song", ""), meta.get("middle_song", ""),
              meta.get("closing_song", ""), int(bool(meta.get("aux"))),
-             meta.get("talk_number", ""), meta.get("talk_title", "")),
+             meta.get("talk_number", ""), meta.get("talk_title", ""),
+             meta.get("book", "")),
         )
     log_change("Schedule saved", f"{meeting_type} {meeting_date}: "
                f"{sum(1 for v in picks.values() if isinstance(v, tuple) and v[0])} assigned")

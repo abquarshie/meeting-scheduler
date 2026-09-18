@@ -80,6 +80,7 @@ def render(students_df, t, selected_lang, aux_default):
                 meta = {
                     **meta,
                     "heading": week,
+                    "book": brochure[week].get("book", ""),
                     "opening_song": f"Song {songs[0]}" if len(songs) > 0 else "",
                     "middle_song": f"Song {songs[1]}" if len(songs) > 1 else "",
                     "closing_song": f"Song {songs[2]}" if len(songs) > 2 else "",
@@ -148,6 +149,9 @@ def render(students_df, t, selected_lang, aux_default):
         m1, m2 = st.columns(2)
         meta_in = {
             "heading": m1.text_input("Heading", meta.get("heading", ""), key=f"{ns}|heading"),
+            "book": m2.text_input("Bible reading", meta.get("book", ""),
+                                  key=f"{ns}|book",
+                                  help="Shown on the printable schedule, e.g. YEREMIA 32-33."),
             "opening_song": m2.text_input("Opening song", meta.get("opening_song", ""),
                                           key=f"{ns}|song1"),
             "middle_song": m1.text_input("Middle song", meta.get("middle_song", ""),
