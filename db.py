@@ -78,10 +78,24 @@ POOL_TIMEOUT = 10       # seconds to wait for a free connection
 @st.cache_resource(show_spinner=False)
 def _pool(url, schema_name):
     from psycopg_pool import ConnectionPool
+    # Connect once directly first. The pool retries in the background and only
+    # ever reports "couldn't get a connection after N sec", which hides the
+    # reason — a wrong password, an unknown host, a missing database. A plain
+    # connect surfaces the actual message from the server.
+    try:
+        psycopg.connect(url, connect_timeout=CONNECT_TIMEOUT).close()
+    except Exception as exc:
+        raise RuntimeError(f"{str(exc).strip() or exc.__class__.__name__}") from exc
     return ConnectionPool(
         url, min_size=1, max_size=5, open=True, timeout=POOL_TIMEOUT,
+        # prepare_threshold=None turns off automatic server-side prepared
+        # statements. psycopg enables them after a query repeats, which breaks
+        # against a transaction-pooling proxy such as Neon's "-pooler" endpoint,
+        # and only once the app has been up a while. The app has its own pool,
+        # so nothing is lost by switching them off.
         kwargs={"options": f"-c search_path={schema_name}",
-                "connect_timeout": CONNECT_TIMEOUT},
+                "connect_timeout": CONNECT_TIMEOUT,
+                "prepare_threshold": None},
     )
 
 
