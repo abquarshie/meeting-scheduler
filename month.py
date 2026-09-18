@@ -92,7 +92,7 @@ def render(students_df, t, selected_lang, aux_default):
     if slips:
         c1.download_button(
             f"All {len(slips)} S-89 slips ({selected_lang})", icon=":material/receipt_long:",
-            data=generate_slips_pdf(slips, t),
+            data=slips_pdf(slips, t, selected_lang),
             file_name=f"S89_slips_{month}_{selected_lang}.pdf",
             mime="application/pdf", width="stretch",
         )

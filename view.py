@@ -53,7 +53,7 @@ def render(students_df, t, selected_lang, aux_default):
                        "classroom slip(s); each has its room ticked.")
         st.download_button(
             f"Download {len(slip_rows)} slip(s) ({selected_lang})", icon=":material/receipt_long:",
-            data=generate_slips_pdf(slip_rows, t),
+            data=slips_pdf(slip_rows, t, selected_lang),
             file_name=f"S89_slips_{meeting_date}_{selected_lang}.pdf",
             mime="application/pdf",
         )

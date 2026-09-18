@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """Slips, printable schedules and the S-140."""
 import io
+from pathlib import Path
+
+import pytest
 
 import docx
 import pypdf
@@ -290,3 +293,58 @@ def test_auxiliary_classroom_group_is_printed(core, people):
     plain = _text(core.generate_schedule_pdf([("2026-09-16", core.MIDWEEK)],
                                              core.get_schedules()))
     assert "Auxiliary classroom 1" in plain and "Group" not in plain
+
+
+S89_BLANK = Path(__file__).resolve().parent / "tests_data" / "S-89_s-Mlt_GA.pdf"
+
+
+@pytest.mark.skipif(not S89_BLANK.is_file(), reason="blank S-89 not in the repo")
+def test_official_s89_is_filled_not_redrawn(core):
+    """Printing on the real form gets its exact wording, so the app never has
+    to carry a hand-typed copy of it."""
+    blank = S89_BLANK.read_bytes()
+    rows = [
+        {"person": "Ɛfua Ɔsei", "assistant": "Naa Ŋmɛnɛ", "part_no": 4,
+         "part_name": "x", "meeting_date": "2026-09-23", "hall": "aux_1"},
+        {"person": "Samuel Oquaye", "assistant": None, "part_no": 5,
+         "part_name": "x", "meeting_date": "2026-09-23", "hall": "aux_2"},
+        {"person": "Vera Akitah", "assistant": None, "part_no": 3,
+         "part_name": "x", "meeting_date": "2026-09-23", "hall": core.MAIN_HALL},
+    ]
+    text = _text(core.fill_s89(blank, rows))
+
+    # the form's own wording, which the app does not store anywhere. Its Ga
+    # labels cannot be read back by pypdf (the form's fonts carry no Unicode
+    # mapping, as the workbook's do not), so check what does extract.
+    assert "KPEE ASAIM" in text                  # the form's title
+    assert "Asa 1" in text and "Asa 3" in text   # its room list
+    # our values, Ga characters intact
+    assert "Ɛfua Ɔsei" in text and "Naa Ŋmɛnɛ" in text
+    assert "23 September 2026" in text
+    assert text.count("X") == 3                  # one room ticked per filled slip
+
+    # four slips to a page: three rows plus a blank still fills one sheet
+    import pypdf, io
+    assert len(pypdf.PdfReader(io.BytesIO(core.fill_s89(blank, rows))).pages) == 1
+    assert len(pypdf.PdfReader(io.BytesIO(core.fill_s89(blank, rows * 2))).pages) == 2
+
+
+@pytest.mark.skipif(not S89_BLANK.is_file(), reason="blank S-89 not in the repo")
+def test_slip_printing_falls_back_without_a_blank(core):
+    """No blank stored, or a PDF that isn't the S-89: print our own slip rather
+    than failing the download."""
+    rows = [{"person": "Kofi Mensah", "assistant": None, "part_no": 3,
+             "part_name": "x", "meeting_date": "2026-09-23", "hall": core.MAIN_HALL}]
+    own = _text(core.slips_pdf(rows, core.TRANSLATIONS["Ga"], "Ga"))
+    assert "Kofi Mensah" in own
+
+    assert "KRISTOWALA" in own                   # our own slip's heading
+
+    core.save_template("s89_Ga", "S-89.pdf", S89_BLANK.read_bytes())
+    official = _text(core.slips_pdf(rows, core.TRANSLATIONS["Ga"], "Ga"))
+    assert "KPEE ASAIM" in official              # now the real form
+    assert "KRISTOWALA" not in official
+    assert "Kofi Mensah" in official
+
+    with pytest.raises(core.S89Error):
+        core.fill_s89(b"%PDF-1.4\n%%EOF\n", rows)

@@ -397,6 +397,96 @@ def _weekend_block(rows, meta, lang, st_, width, section_titles, role_labels, wo
     return table
 
 
+class S89Error(Exception):
+    pass
+
+
+def fill_s89(template_bytes, slip_rows, lang=None):
+    """The official blank S-89, filled, four slips to a page.
+
+    The text is drawn into the form's field rectangles and the fields removed,
+    rather than set as form values: the form's own font carries no ɛ ɔ ŋ, so a
+    filled field would silently drop them from Ga names.
+    """
+    try:
+        import pymupdf
+    except ImportError as exc:                              # pragma: no cover
+        raise S89Error("PyMuPDF is needed to fill the official form.") from exc
+    regular, _, supports_ga = register_fonts()
+    font_path = None
+    for candidate, _bold in FONT_CANDIDATES:
+        if candidate and Path(candidate).exists():
+            font_path = str(candidate)
+            break
+    if font_path is None:
+        raise S89Error("No font with ɛ, ɔ and ŋ was found for the slips.")
+
+    try:
+        template = pymupdf.open(stream=template_bytes, filetype="pdf")
+        widgets = sorted(template[0].widgets(),
+                         key=lambda w: int(w.field_name.split("_")[1]))
+    except Exception as exc:
+        # PyMuPDF raises its own error types for a damaged or non-PDF file;
+        # everything here has to arrive as S89Error so printing can fall back
+        raise S89Error(
+            "This file couldn't be read as the fillable S-89 blank form: "
+            f"{str(exc)[:120]}") from exc
+    if len(widgets) < 7:
+        raise S89Error(
+            f"Expected the S-89's form fields; found {len(widgets)}. "
+            "Upload the fillable blank form, not a scan or a printout.")
+    # the rectangles come from the template: copying a page does not copy its
+    # form fields, so the copies have none to read
+    boxes = [w.rect for w in widgets]
+    per_page = len(boxes) // 7
+
+    out = pymupdf.open()
+    rows = list(slip_rows)
+    while len(rows) % per_page:
+        rows.append(None)                       # spare blanks fill the sheet
+
+    for start in range(0, len(rows), per_page):
+        out.insert_pdf(template, from_page=0, to_page=0)
+        page = out[-1]
+        for slot, row in enumerate(rows[start:start + per_page]):
+            fields = boxes[slot * 7:(slot + 1) * 7]
+            if row is None or len(fields) < 7:
+                continue
+            part_no = row.get("part_no")
+            values = [
+                str(row.get("person") or ""),
+                str(row.get("assistant") or ""),
+                fmt_date(row["meeting_date"]) if row.get("meeting_date") else "",
+                str(part_no) if part_no else str(row.get("part_name") or ""),
+            ]
+            for rect, value in zip(fields[:4], values):
+                if value:
+                    page.insert_text((rect.x0 + 2, rect.y1 - 5), value,
+                                     fontname="SlipTTF", fontfile=font_path,
+                                     fontsize=9)
+            hall = row.get("hall") or MAIN_HALL
+            if hall != hall:                    # NaN
+                hall = MAIN_HALL
+            index = HALLS.index(hall) if hall in HALLS else 0
+            tick = fields[4 + index]
+            page.insert_text((tick.x0 + 1.5, tick.y1 - 2), "X",
+                             fontname="SlipTTF", fontfile=font_path, fontsize=9)
+        for widget in list(page.widgets() or []):
+            page.delete_widget(widget)
+    return out.tobytes()
+
+
+def slips_pdf(slip_rows, lang, language_name):
+    """The official blank if one is stored for this language, else our own."""
+    blank, _ = load_template(f"s89_{language_name}")
+    if blank:
+        try:
+            return fill_s89(blank, slip_rows, lang)
+        except S89Error:
+            pass                       # fall back rather than fail the download
+    return generate_slips_pdf(slip_rows, lang)
+
+
 def generate_schedule_pdf(meetings, schedules_df, lang=None):
     """A printable sheet per meeting: the midweek running order, or the
     weekend programme. lang is a TRANSLATIONS entry; None means English."""

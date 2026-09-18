@@ -3,12 +3,15 @@
 import json
 
 from db import *  # noqa: F401,F403
-from db import _forget_schedules, _forget_settings  # underscored: not in *
+from db import (_forget_schedules, _forget_settings,  # underscored: not in *
+                _forget_templates)
 
 TABLES = [
     "students", "schedules", "meetings", "settings",
-    "unavailable", "workbook_weeks", "audit_log", "snapshots",
+    "unavailable", "workbook_weeks", "audit_log", "snapshots", "templates",
 ]
+# a stored PDF is far past Google's 50,000-character cell limit
+SHEET_TABLES = [t for t in TABLES if t != "templates"]
 BACKUP_VERSION = 1
 
 
@@ -63,6 +66,7 @@ def import_all(data, log=True):
     resync_identities()  # rows came back with their own ids
     _forget_schedules()
     _forget_settings()
+    _forget_templates()
     if log:
         log_change("Data restored",
                    f"{counts.get('students', 0)} participants, "

@@ -41,6 +41,32 @@ def render(students_df, t, selected_lang, aux_default):
         else:
             st.caption("See the README for the one-time Google setup.")
 
+        st.subheader("Official S-89 blank")
+        st.caption("Upload the fillable blank S-89 for each slip language and the "
+                   "app prints on the real form, with its exact wording. Without "
+                   "one it draws its own slip.")
+        for language in TRANSLATIONS:
+            stored, file_name = load_template(f"s89_{language}")
+            c1, c2 = st.columns([4, 1])
+            if stored:
+                c1.success(f"{language}: **{file_name}**")
+                if c2.button("Remove", key=f"rm_s89_{language}", width="stretch"):
+                    delete_template(f"s89_{language}")
+                    st.rerun()
+            else:
+                c1.info(f"{language}: no blank form uploaded.")
+            blank = st.file_uploader(f"Blank S-89 ({language})", type=["pdf"],
+                                     key=f"up_s89_{language}")
+            if blank is not None:
+                try:
+                    fill_s89(blank.getvalue(), [])      # check it before storing
+                except S89Error as exc:
+                    st.error(str(exc))
+                else:
+                    save_template(f"s89_{language}", blank.name, blank.getvalue())
+                    st.success(f"Saved the {language} blank form.")
+                    st.rerun()
+
         st.subheader("Backup file")
         st.download_button(
             "Download full backup (.json)", data=backup_bytes(), icon=":material/download:",

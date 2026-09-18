@@ -83,7 +83,7 @@ def push(force=False):
     data = export_all()
     existing = {ws.title: ws for ws in sheet.worksheets()}
     sent = []
-    for table in TABLES:
+    for table in SHEET_TABLES:
         values = _table_values(data, table)
         digest = hashlib.sha1(json.dumps(values, default=str).encode()).hexdigest()
         if not force and _pushed.get(table) == digest:
@@ -95,6 +95,7 @@ def push(force=False):
         ws.update(range_name="A1", values=values, value_input_option="RAW")
         _pushed[table] = digest
         sent.append(table)
+    set_setting("last_export", date.today().isoformat())
     return sent
 
 
@@ -103,7 +104,7 @@ def pull():
     import gspread
     sheet = _spreadsheet()
     data = {"_version": BACKUP_VERSION}
-    for table in TABLES:
+    for table in SHEET_TABLES:
         try:
             values = sheet.worksheet(table).get_all_values()
         except gspread.WorksheetNotFound:
@@ -119,7 +120,7 @@ def pull():
 def remember_current_state():
     """Treat what's in the database now as already copied."""
     data = export_all()
-    for table in TABLES:
+    for table in SHEET_TABLES:
         values = _table_values(data, table)
         _pushed[table] = hashlib.sha1(json.dumps(values, default=str).encode()).hexdigest()
 
@@ -131,6 +132,28 @@ def sync_if_dirty():
         st.session_state.pop("_db_dirty", False)
     except Exception:
         pass
+
+
+BACKUP_REMINDER_DAYS = 14
+
+
+def days_since_export():
+    """Whole days since the last copy to Sheets, or None if never done."""
+    stamp = get_setting("last_export", "")
+    if not stamp:
+        return None
+    try:
+        return (date.today() - datetime.strptime(stamp, "%Y-%m-%d").date()).days
+    except ValueError:
+        return None
+
+
+def backup_overdue():
+    """(overdue, days) — the sheet is now the only second copy of the data."""
+    days = days_since_export()
+    if days is None:
+        return True, None
+    return days >= BACKUP_REMINDER_DAYS, days
 
 
 def status_text():

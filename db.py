@@ -283,6 +283,12 @@ def init_db():
                 PRIMARY KEY (meeting_date, meeting_type)
             )""")
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS templates (
+                name TEXT PRIMARY KEY,
+                file_name TEXT,
+                data TEXT
+            )""")
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT
@@ -495,6 +501,54 @@ def get_schedules():
     for col in ("person", "assistant"):
         df[col] = df[col].astype(object).where(df[col].notna(), None)
     return df
+
+
+def save_template(name, file_name, raw):
+    """Store a blank form (the official S-89) so printing is one click."""
+    import base64
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO templates (name, file_name, data) VALUES (?, ?, ?) "
+            "ON CONFLICT(name) DO UPDATE SET file_name = excluded.file_name, "
+            "data = excluded.data",
+            (name, file_name, base64.b64encode(raw).decode("ascii")))
+    _forget_templates()
+    log_change("Blank form saved", f"{name}: {file_name}")
+
+
+def delete_template(name):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM templates WHERE name = ?", (name,))
+    _forget_templates()
+    log_change("Blank form removed", name)
+
+
+@st.cache_data(show_spinner=False)
+def _templates(schema_name):
+    with get_conn() as conn:
+        rows = conn.execute("SELECT name, file_name, data FROM templates").fetchall()
+    return {name: (file_name, data) for name, file_name, data in rows}
+
+
+def _forget_templates():
+    _templates.clear()
+
+
+def load_template(name):
+    """(bytes, file name) for a stored blank form, or (None, "")."""
+    import base64
+    entry = _templates(schema()).get(name)
+    if not entry:
+        return None, ""
+    file_name, data = entry
+    try:
+        return base64.b64decode(data), file_name
+    except Exception:
+        return None, ""
+
+
+def template_names():
+    return sorted(_templates(schema()))
 
 
 def fill_counts(rows):
