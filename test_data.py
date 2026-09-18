@@ -175,3 +175,31 @@ def test_writes_from_several_sessions_at_once(core):
     assert not errors
     df = core.get_students()
     assert len(df) == 40 and df["id"].is_unique
+
+
+def test_survives_the_database_dropping_connections(core):
+    """Neon suspends its compute when idle and terminates open connections.
+    The pool must notice before handing one out, or the next page load dies
+    with AdminShutdown."""
+    import os
+
+    import psycopg
+
+    core.add_student("Kofi Mensah", "Brother", ["Chairman"])
+    assert len(core.get_students()) == 1
+
+    def kill_backends():
+        dsn = os.environ["MEETING_DSN"]
+        with psycopg.connect(dsn, autocommit=True) as raw:
+            raw.execute("""SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+                            WHERE pid <> pg_backend_pid()
+                              AND datname = current_database()""")
+
+    for n in range(3):
+        kill_backends()
+        core.add_student(f"Person {n}", "Sister", ["Initial Presentation"])
+
+    assert len(core.get_students()) == 4
+    # reads recover too, not just writes
+    kill_backends()
+    assert core.get_setting("nothing", "default") == "default"

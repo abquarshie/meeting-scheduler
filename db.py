@@ -86,8 +86,15 @@ def _pool(url, schema_name):
         psycopg.connect(url, connect_timeout=CONNECT_TIMEOUT).close()
     except Exception as exc:
         raise RuntimeError(f"{str(exc).strip() or exc.__class__.__name__}") from exc
+    from psycopg_pool import ConnectionPool as _CP
     return ConnectionPool(
         url, min_size=1, max_size=5, open=True, timeout=POOL_TIMEOUT,
+        # Neon suspends its compute when idle and terminates the connections.
+        # check runs a liveness test before handing one out, so a suspended
+        # database costs one reconnect instead of an AdminShutdown crash.
+        check=_CP.check_connection,
+        max_idle=60,        # recycle before Neon gets to them
+        max_lifetime=600,
         # prepare_threshold=None turns off automatic server-side prepared
         # statements. psycopg enables them after a query repeats, which breaks
         # against a transaction-pooling proxy such as Neon's "-pooler" endpoint,
