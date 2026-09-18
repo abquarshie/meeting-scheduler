@@ -61,6 +61,11 @@ try:
     init_db()
 except Exception as exc:
     st.error(f"The app can't reach its database: {exc}")
+    st.caption(
+        "Check the `[database] url` in Settings → Secrets: the host, the "
+        "password, and `?sslmode=require` at the end. The app needs a working "
+        "database before any page will load."
+    )
     st.stop()
 require_login()
 FONT_REGULAR, FONT_BOLD, FONT_SUPPORTS_GA = register_fonts()

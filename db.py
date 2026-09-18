@@ -68,11 +68,21 @@ class _Conn:
         return cur
 
 
+# Fail fast and say why. Without these, a wrong password or host makes every
+# page wait the full default (30s) before showing an error, which looks like
+# the app failing to start rather than a setting being wrong.
+CONNECT_TIMEOUT = 8     # seconds to reach the server
+POOL_TIMEOUT = 10       # seconds to wait for a free connection
+
+
 @st.cache_resource(show_spinner=False)
 def _pool(url, schema_name):
     from psycopg_pool import ConnectionPool
-    return ConnectionPool(url, min_size=1, max_size=5, open=True,
-                          kwargs={"options": f"-c search_path={schema_name}"})
+    return ConnectionPool(
+        url, min_size=1, max_size=5, open=True, timeout=POOL_TIMEOUT,
+        kwargs={"options": f"-c search_path={schema_name}",
+                "connect_timeout": CONNECT_TIMEOUT},
+    )
 
 
 _local = threading.local()
