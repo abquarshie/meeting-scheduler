@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """Reading workbook PDFs into weeks, parts and dates."""
 from datetime import date
+from pathlib import Path
+
+import pytest
 
 
 def test_english_weeks_parts_and_wrapped_titles(core, english_workbook):
@@ -195,3 +198,55 @@ def test_section_heading_split_over_two_lines(core):
     wrapped_en = "APPLY YOURSELF TO\nTHE FIELD MINISTRY"
     from workbook import HEADING_RES
     assert HEADING_RES["Ministry"].search(wrapped_en)
+
+
+def test_page_number_before_or_after_the_date(core):
+    """The page number shares the date line and swaps side with the page, so
+    week 1 parsed and week 2 did not."""
+    from workbook import _heading
+    right = _heading("SEPTEMBER 7-13  |  YEREMIA 32-33            2")
+    left = _heading("4   SEPTEMBER 14-20  |  YEREMIA 34-36")
+    assert right["label"] == "SEPTEMBER 7–13" and right["book"] == "YEREMIA 32-33"
+    assert left["label"] == "SEPTEMBER 14–20" and left["book"] == "YEREMIA 34-36"
+    assert _heading("12  SƐPTƐMBA 21-27")["label"] == "SƐPTƐMBA 21–27"
+    assert _heading("SEPTEMBER 28-OCTOBER 4")["label"] == "SEPTEMBER 28–OCTOBER 4"
+    # numbered part lines and ordinary prose must still be rejected
+    assert _heading("4. Starting a Conversation (3 min.)") is None
+    assert _heading("5. Kɛ́ Oyaatsa Nɔ (Min. 4)") is None
+    assert _heading("Discuss the material on pages 4-6 with the householder") is None
+
+
+REAL_GA = Path(__file__).resolve().parent / "tests_data" / "mwb_GA_202609.pdf"
+
+
+@pytest.mark.skipif(not REAL_GA.is_file(), reason="the real Ga workbook is not in the repo")
+def test_the_real_ga_workbook_parses_completely(core):
+    """The printed Ga workbook, end to end.
+
+    Its fonts carry no Unicode mapping, so before the per-font repair this file
+    yielded 2 weeks out of 8, with most parts missing and titles unreadable.
+    """
+    weeks, empty, _ = core.parse_brochure(REAL_GA.read_bytes())
+    assert len(weeks) == 8 and not empty
+    assert not [label for label in weeks if label.startswith("Week ")]
+    assert not [w for w in weeks.values() if w["gaps"]]
+
+    first = weeks["SEPTEMBER 7–13"]
+    assert first["book"] == "YEREMIA 32-33"
+    assert first["songs"] == ["1", "128", "143"]
+
+    titles = {p["part_no"]: p["title"] for p in first["parts"]}
+    assert titles[2] == "Pɛimɔ Ŋmalɛi Lɛ Amli Jogbaŋŋ"   # the Ŋ must survive
+    assert titles[3] == "Biblia Kanemɔ"
+    roles = {p["part_no"]: p["role"] for p in first["parts"]}
+    assert roles[3] == "Bible Reading" and roles[8] == "Bible Study Conductor"
+
+    # every week has its three songs and a scripture reading
+    for label, w in weeks.items():
+        assert len(w["songs"]) == 3, label
+        assert w["book"].startswith("YEREMIA"), label
+
+    # and no repaired text still carries the stand-in characters
+    for w in weeks.values():
+        for p in w["parts"]:
+            assert not set(p["title"]) & set("½Á¿"), p["title"]

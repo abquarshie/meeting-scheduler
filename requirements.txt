@@ -3,6 +3,7 @@ pandas
 psycopg[binary]>=3.1
 psycopg_pool
 pypdf
+pymupdf
 reportlab
 python-docx
 gspread>=6

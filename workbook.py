@@ -3,6 +3,7 @@
 import io
 import json
 import re
+import unicodedata
 
 import pypdf
 
@@ -151,8 +152,11 @@ def _parse_week(text):
 # Leading bullets or box-drawing characters are common in exported PDFs, and
 # the dash may be any of several. The month word itself is never looked up.
 DASHES = "-\u2010\u2011\u2012\u2013\u2014\u2015\u2212"
+# The page number shares the date line and swaps side with the page: right on
+# odd pages, left on even ones. Allow it in front, so week 2 parses like week 1.
 DAY_RANGE_RE = re.compile(
-    r"^[^\w]*([^\W\d_]{3,})\.?[ \t]+(\d{1,2})[ \t]*[" + DASHES + r"][ \t]*"
+    r"^[^\w]*(?:\d{1,3}[ \t]+)?([^\W\d_]{3,})\.?[ \t]+(\d{1,2})[ \t]*["
+    + DASHES + r"][ \t]*"
     r"(?:([^\W\d_]{3,})\.?[ \t]+)?(\d{1,2})\b"
 )
 ENGLISH_MONTHS = {m: i + 1 for i, m in enumerate(MONTHS.split("|"))}
@@ -180,6 +184,8 @@ def _heading(line):
     # a page number sits right-aligned on the same line, set off by a wide gap
     book = re.sub(r"\s{2,}\d{1,3}\s*$", "", book)
     book = re.sub(r"\s+", " ", book).strip()
+    # the printed reading has loose spacing around its dash: "YEREMIA 34 -35"
+    book = re.sub(r"\s*([" + DASHES + r"])\s*", r"\1", book)
     book = "" if len(book) > 60 or not re.search(r"\d", book) else book
     return {"label": label, "month": m.group(1), "day": d1, "book": book}
 
@@ -201,12 +207,152 @@ def _timed_part_lines(lines):
     return out
 
 
+# ---------------------------------------------------------------- extraction
+# The Ga workbook's fonts carry no Unicode mapping, so a plain text extraction
+# returns ɛ ɔ ŋ as ½ Á ¿ and the capitals as control codes — and the codes are
+# assigned per font when the file is built, so they differ between faces and
+# between months. What does not change is the glyph NAME in each font's
+# /Differences array, so the encoding is read out of the PDF itself.
+GLYPH_UNICODE = {
+    "africanO": "Ɔ", "africanE": "Ɛ", "africanNG": "Ŋ",
+    "189lc": "ɛ", "191lc": "ŋ", "193lc": "ɔ",     # named for the code they stand in for
+    "tilde": "\u02dc",
+}
+# the same three letters when they arrive as their stand-in characters
+DIRECT = {"\u00bd": "ɛ", "\u00bf": "ŋ", "\u00c1": "ɔ"}
+# a modifier letter is printed before the vowel it belongs to: "h ˜aa" is hãa
+ACCENTS = [("\u02dc", "\u0303"), ("\u00b4", "\u0301")]
+
+
+def _font_encodings(pdf_bytes):
+    """One {font name: {code: character}} per page.
+
+    Per page, not per document: the same face is subset separately on each
+    page, so a code that means Ŋ on one page may be unused or mean something
+    else on another. Reusing the first page's table silently drops letters.
+    """
+    try:
+        reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+    except Exception:                                      # pragma: no cover
+        return []
+    pages = []
+    for page in reader.pages:
+        per_page = {}
+        try:
+            fonts = page["/Resources"]["/Font"]
+        except Exception:
+            pages.append(per_page)
+            continue
+        for ref in list(fonts.values()):
+            try:
+                font = ref.get_object()
+                name = str(font.get("/BaseFont", "")).lstrip("/").split("+")[-1]
+                encoding = font.get("/Encoding")
+                if encoding is None or isinstance(encoding, str):
+                    continue
+                differences = encoding.get_object().get("/Differences")
+                if not differences:
+                    continue
+            except Exception:
+                continue
+            table, code = {}, 0
+            for item in differences:
+                if isinstance(item, int):
+                    code = item
+                else:
+                    glyph = str(item).lstrip("/")
+                    if glyph in GLYPH_UNICODE:
+                        table[chr(code)] = GLYPH_UNICODE[glyph]
+                    code += 1
+            if table:
+                per_page.setdefault(name, {}).update(table)
+        pages.append(per_page)
+    return pages
+
+
+def _encoding_for(font, encodings):
+    """The table for a span's font. PyMuPDF truncates font names to 24
+    characters, so an exact lookup misses the longer ones."""
+    table = encodings.get(font)
+    if table is not None:
+        return table
+    for name, candidate in encodings.items():
+        if name.startswith(font) or font.startswith(name):
+            return candidate
+    return {}
+
+
+def _repair(text, font, encodings):
+    """Put the Ga letters back. Anything still unmapped below space is an
+    ornament from a decorative font (rules, bullets, the music note)."""
+    table = _encoding_for(font, encodings)
+    text = "".join(table.get(c, c) for c in text)
+    text = "".join(DIRECT.get(c, c) for c in text)
+    return "".join(c for c in text if ord(c) >= 32)
+
+
+def _heading_first(lines):
+    """Move the week's date line to the top of its page.
+
+    Only the first heading-shaped line is considered, and only when it is not
+    already first: a scripture reading on its own line ("YESAIA 5-6") has the
+    same shape as a date line, so hoisting a later match would promote the
+    reading over the real heading.
+    """
+    for i, line in enumerate(lines):
+        if _heading(line):
+            if i == 0:
+                return lines
+            return [lines[i]] + lines[:i] + lines[i + 1:]
+    return lines
+
+
+def _fix_accents(text):
+    for modifier, combining in ACCENTS:
+        text = re.sub(r"\s*" + modifier + r"\s*(\w)",
+                      lambda m: m.group(1) + combining, text)
+    return unicodedata.normalize("NFC", text)
+
+
+def _pdf_pages(pdf_bytes):
+    """One string per page, with the Ga characters repaired.
+
+    PyMuPDF rather than pypdf: it reports the font of every run of text, which
+    the repair needs, and pypdf glues words together on this workbook
+    ("MLIJWETRII"), which breaks the headings and the part titles.
+
+    The blocks are left in the document's own order, which follows the printed
+    columns. Sorting them by position interleaves the two columns, so the part
+    numbering looks like it restarts mid-page and one week becomes three. The
+    date heading is the one thing out of place — printed at the top, written
+    late — so it is moved back to the front of its page afterwards.
+    """
+    try:
+        import pymupdf
+    except ImportError:                                    # pragma: no cover
+        reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+        return [nfc(page.extract_text() or "") for page in reader.pages]
+    per_page = _font_encodings(pdf_bytes)
+    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+    pages = []
+    for number, page in enumerate(doc):
+        encodings = per_page[number] if number < len(per_page) else {}
+        lines = []
+        for block in page.get_text("dict")["blocks"]:
+            for line in block.get("lines", []):
+                text = "".join(
+                    _repair(sp["text"], sp["font"], encodings) for sp in line["spans"])
+                if text.strip():
+                    lines.append(_fix_accents(text.rstrip()))
+        pages.append("\n".join(_heading_first(lines)))
+    return pages
+
+
 @st.cache_data(show_spinner="Reading workbook…")
 def parse_brochure(pdf_bytes):
     """Split the workbook into weeks. A new week starts whenever the part
     numbering restarts; its heading is the first date line before part 1."""
-    reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
-    pages = [nfc(page.extract_text() or "") for page in reader.pages]
+    pages = _pdf_pages(pdf_bytes)
     lines = "\n".join(pages).split("\n")
 
     groups, prev = [], None
