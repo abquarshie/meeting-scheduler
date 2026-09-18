@@ -25,10 +25,22 @@ PART_RE = re.compile(
     re.MULTILINE | re.IGNORECASE,
 )
 SONG_RE = re.compile(r"\b(?:Song|Lala)\s+(\d{1,3})\b", re.IGNORECASE)
+# Both editions. With the Ga headings recognised, sections are read from the
+# page instead of being guessed from part numbers and durations.
+def _heading_re(*variants):
+    """Headings wrap across lines in the printed workbook, so every gap between
+    words has to match a newline as well as a space."""
+    return re.compile(
+        "|".join(r"\s+".join(v.split()) for v in variants), re.IGNORECASE)
+
+
 HEADING_RES = {
-    "Treasures": re.compile(r"TREASURES FROM GOD", re.IGNORECASE),
-    "Ministry": re.compile(r"APPLY YOURSELF TO THE FIELD MINISTRY", re.IGNORECASE),
-    "Living": re.compile(r"LIVING AS CHRISTIANS", re.IGNORECASE),
+    "Treasures": _heading_re(
+        "TREASURES FROM GOD", "NY[ƆO]ŊM[ƆO] WIEM[ƆO] L[ƐE] MLI JWETRII"),
+    "Ministry": _heading_re(
+        "APPLY YOURSELF TO THE FIELD MINISTRY", "KASEM[ƆO] B[ƆO] NI ASHI[ƐE][ƆO]"),
+    "Living": _heading_re(
+        "LIVING AS CHRISTIANS", "HII SHI AK[ƐE] KRISTOFONYO"),
 }
 
 

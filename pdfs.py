@@ -145,8 +145,8 @@ SECTION_TITLES_BY_LANG = {
     "Ga": {
         "Opening": "Hiɛkpamɔ",
         "Treasures": "Nyɔŋmɔ Wiemɔ Lɛ Mli Jwetrii",
-        "Ministry": "Kasemɔ Bɔ Ni Ashieɔ Jogbaŋŋ",
-        "Living": "Hii Shi Ake Kristofonyo",
+        "Ministry": "Kasemɔ Bɔ Ni Ashiɛɔ Jogbaŋŋ",
+        "Living": "Hii Shi Akɛ Kristofonyo",
         "Closing": "Naamuu",
         "Weekend": "Otsi Naagbee Kpee",
     },

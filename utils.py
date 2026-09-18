@@ -33,8 +33,28 @@ def parse_privileges(value):
     return result
 
 
+# Ga part titles, from the printed workbook. Checked before the English
+# keywords because a Ga title matches none of them and would otherwise fall
+# through to the section default, making every ministry part the same role.
+GA_ROLE_WORDS = [
+    ("biblia kanem", "Bible Reading"),
+    ("biblia nikasem", "Bible Study Conductor"),      # Asafoŋ Biblia Nikasemɔ
+    ("ŋmalɛi", "Spiritual Gems"),                     # Pɛimɔ Ŋmalɛi Lɛ Amli Jogbaŋŋ
+    ("sanegbaa shishi", "Initial Presentation"),      # Kɛ́ Oyaaje Sanegbaa Shishi
+    ("oyaatsa", "Initial Presentation"),              # Kɛ́ Oyaatsa Nɔ — following up
+    ("obaakɛɛ", "Initial Presentation"),              # Mɛni Obaakɛɛ?
+    ("kaselɔi", "Making Disciples"),                  # Kɛ́ Oofee Mɛi Kaselɔi
+    ("gbalamɔ ohemɔkɛyeli", "Explaining Beliefs"),
+]
+
+
 def infer_role(title, section=None):
-    t = (title or "").lower()
+    t = nfc(title or "").lower()
+    for word, role in GA_ROLE_WORDS:
+        if word in t:
+            return role
+    if section == "Ministry" and t.strip(" .:") == "wiemɔ":   # a student talk
+        return "Student Talk"
     if "chairman" in t:
         return "Chairman"
     if "prayer" in t:

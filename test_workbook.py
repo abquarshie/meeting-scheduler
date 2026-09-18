@@ -121,3 +121,77 @@ def test_a_week_can_be_renamed(core, english_workbook):
     after, _ = core.load_workbook()
     assert "DEUTERONOMY 24-26" in after and old not in after
     assert after["DEUTERONOMY 24-26"]["start"] == stored[old]["start"]   # dates kept
+
+
+GA_WEEK = """SEPTEMBER 14-20  |  YEREMIA 34-36                     4
+
+NYƆŊMƆ WIEMƆ LƐ MLI JWETRII
+
+1. Jwɛŋmɔ Yehowa Sui Ye Anɔ (Min. 10)
+2. Pɛimɔ Ŋmalɛi Lɛ Amli Jogbaŋŋ (Min. 10)
+3. Biblia Kanemɔ (Min. 4)
+
+KASEMƆ BƆ NI ASHIƐƆ JOGBAŊŊ
+
+4. Kɛ́ Oyaaje Sanegbaa Shishi (Min. 3)
+5. Kɛ́ Oyaatsa Nɔ (Min. 4)
+6. Mɛni Obaakɛɛ? (Min. 4)
+7. Kɛ́ Oofee Mɛi Kaselɔi (Min. 5)
+8. Gbalamɔ Ohemɔkɛyeli Lɛ Mli (Min. 5)
+9. Wiemɔ (Min. 5)
+
+HII SHI AKƐ KRISTOFONYO
+
+10. Kaafɔ Otswerɛi Lɛ (Min. 15)
+11. Asafoŋ Biblia Nikasemɔ (Min. 30)
+"""
+
+
+def test_ga_titles_get_the_right_roles(core):
+    """Role drives who is eligible and how rotation is tracked. Without the Ga
+    words every ministry part collapsed to Initial Presentation, so anyone whose
+    privilege was Making Disciples or Explaining Beliefs was never offered."""
+    from workbook import _parse_week
+    parts, _, gaps = _parse_week(GA_WEEK)
+    assert gaps == []
+    roles = {p["part_no"]: p["role"] for p in parts}
+    assert roles == {
+        1: "Treasures Talk", 2: "Spiritual Gems", 3: "Bible Reading",
+        4: "Initial Presentation",      # Kɛ́ Oyaaje Sanegbaa Shishi
+        5: "Initial Presentation",      # Kɛ́ Oyaatsa Nɔ — following up
+        6: "Initial Presentation",      # Mɛni Obaakɛɛ?
+        7: "Making Disciples",          # Kɛ́ Oofee Mɛi Kaselɔi
+        8: "Explaining Beliefs",        # Gbalamɔ Ohemɔkɛyeli Lɛ Mli
+        9: "Student Talk",              # Wiemɔ
+        10: "Living Part", 11: "Bible Study Conductor",
+    }
+
+
+def test_ga_section_headings_are_read_not_guessed(core):
+    """With the Ga headings recognised, sections come from the page."""
+    from workbook import _parse_week, HEADING_RES
+    assert HEADING_RES["Treasures"].search("NYƆŊMƆ WIEMƆ LƐ MLI JWETRII")
+    assert HEADING_RES["Ministry"].search("KASEMƆ BƆ NI ASHIƐƆ JOGBAŊŊ")
+    assert HEADING_RES["Living"].search("HII SHI AKƐ KRISTOFONYO")
+    parts, _, _ = _parse_week(GA_WEEK)
+    sections = {p["part_no"]: p["section"] for p in parts}
+    # part 9 is a 5-minute part AFTER the ministry section: guessing from
+    # numbers and durations alone could not place it reliably
+    assert sections[9] == "Ministry" and sections[10] == "Living"
+
+
+def test_section_heading_split_over_two_lines(core):
+    """The printed heading wraps: "HII SHI AKƐ" / "KRISTOFONYO". Missing it is
+    worse than finding no headings at all, because everything after it falls
+    into the previous section."""
+    from workbook import _parse_week
+    wrapped = GA_WEEK.replace("HII SHI AKƐ KRISTOFONYO", "HII SHI AKƐ\nKRISTOFONYO")
+    parts, _, _ = _parse_week(wrapped)
+    sections = {p["part_no"]: p["section"] for p in parts}
+    roles = {p["part_no"]: p["role"] for p in parts}
+    assert sections[10] == "Living" and sections[11] == "Living"
+    assert roles[11] == "Bible Study Conductor"
+    # the English heading wraps too
+    wrapped_en = "APPLY YOURSELF TO\nTHE FIELD MINISTRY"
+    from workbook import HEADING_RES
+    assert HEADING_RES["Ministry"].search(wrapped_en)

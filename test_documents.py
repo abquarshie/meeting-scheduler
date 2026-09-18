@@ -142,7 +142,7 @@ def test_printed_schedule_is_fully_ga(core, people):
         [("2026-09-16", core.MIDWEEK)], rows, core.TRANSLATIONS["Ga"]))
 
     # section headings, meeting name and room label all in Ga
-    assert "Nyɔŋmɔ Wiemɔ" in text and "Hii Shi Ake Kristofonyo" in text
+    assert "Nyɔŋmɔ Wiemɔ" in text and "Hii Shi Akɛ Kristofonyo" in text
     assert "Wɔshiŋmɔ" in text
     assert "Tsu bibioo" in text                     # the auxiliary classroom
 
