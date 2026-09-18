@@ -6,8 +6,8 @@ from month import WEEKDAYS
 
 def render(students_df, t, selected_lang, aux_default):
     page_header(tr("h_admin"), tr("sub_admin"))
-    tab_data, tab_settings, tab_words, tab_log = st.tabs(
-        ["Data & backup", "Meeting days", "Interface wording", "Change log"])
+    tab_data, tab_settings, tab_log = st.tabs(
+        ["Data & backup", "Meeting days", "Change log"])
 
     with tab_data:
         st.subheader("Google Sheets")
@@ -76,25 +76,6 @@ def render(students_df, t, selected_lang, aux_default):
             set_setting("midweek_day", mid)
             set_setting("weekend_day", wkd)
             log_change("Meeting days changed", f"midweek {mid}, weekend {wkd}")
-            st.success("Saved.")
-
-    with tab_words:
-        lang = st.selectbox("Language", [l for l in UI_LANGUAGES if l != "English"],
-                            key="words_lang")
-        current = ui_overrides(lang)
-        table = pd.DataFrame([
-            {"key": k, "English": v, lang: current.get(k, "")}
-            for k, v in UI_TEXT.items()
-        ])
-        edited = st.data_editor(
-            table, hide_index=True, width="stretch", key=f"words_{lang}",
-            disabled=["key", "English"],
-            column_config={"key": None},
-        )
-        st.caption("Leave a box empty to keep the English wording. Choose the "
-                   "interface language in the sidebar settings.")
-        if st.button(f"Save {lang} wording", type="primary"):
-            save_ui_overrides(lang, dict(zip(edited["key"], edited[lang].fillna(""))))
             st.success("Saved.")
 
     with tab_log:

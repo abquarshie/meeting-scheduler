@@ -33,29 +33,11 @@ UI_TEXT = {
     "save_schedule": "Save schedule",
     "suggest": "Suggest",
     "slip_language": "Slip language",
-    "ui_language": "Interface language",
     "settings": "Settings",
 }
-UI_LANGUAGES = ["English", "Ga"]
-
-
-def ui_overrides(lang):
-    if lang == "English":
-        return {}
-    try:
-        return json.loads(get_setting(f"ui_text_{lang}", "{}") or "{}")
-    except ValueError:
-        return {}
 
 
 def tr(key):
-    """Interface text in the chosen language, falling back to English."""
-    lang = st.session_state.get("ui_lang", "English")
-    text = ui_overrides(lang).get(key)
-    return text or UI_TEXT.get(key, key)
-
-
-def save_ui_overrides(lang, mapping):
-    clean = {k: nfc(v) for k, v in mapping.items() if k in UI_TEXT and nfc(v)}
-    set_setting(f"ui_text_{lang}", json.dumps(clean, ensure_ascii=False))
-    log_change("Interface wording changed", f"{lang}: {len(clean)} item(s)")
+    """Interface text. The interface is English only; Ga appears on the printed
+    slips, schedule and S-140, chosen with the slip-language setting."""
+    return UI_TEXT.get(key, key)

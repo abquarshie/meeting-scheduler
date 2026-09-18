@@ -132,3 +132,40 @@ def test_a_second_auxiliary_classroom_flows_through(core):
     assert not skipped and data["aux"]
     titles = [i["title"] for i in data["weeks"][0]["treasures"]]
     assert titles.count("Bible Reading") == 1      # not repeated once per classroom
+
+
+def test_printed_schedule_is_fully_ga(core, people):
+    """Interface stays English; everything on the printed sheet is Ga."""
+    _full_week(core, people)
+    rows = core.get_schedules()
+    text = _text(core.generate_schedule_pdf(
+        [("2026-09-16", core.MIDWEEK)], rows, core.TRANSLATIONS["Ga"]))
+
+    # section headings, meeting name and room label all in Ga
+    assert "Nyɔŋmɔ Wiemɔ" in text and "Hii Shi Ake Kristofonyo" in text
+    assert "Wɔshiŋmɔ" in text
+    assert "Tsu bibioo" in text                     # the auxiliary classroom
+
+    for english in ("Treasures From God", "Living as Christians",
+                    "Midweek Meeting", "Auxiliary classroom"):
+        assert english not in text, f"{english!r} still on the Ga sheet"
+
+
+def test_weekend_sheet_is_ga(core, people):
+    slots = core.default_weekend_slots()
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    core.save_schedule("2026-09-20", core.WEEKEND, slots,
+                       {2: (people["Nii Tetteh"], None)}, {}, names)
+    text = _text(core.generate_schedule_pdf(
+        [("2026-09-20", core.WEEKEND)], core.get_schedules(), core.TRANSLATIONS["Ga"]))
+    assert "Otsi Naagbee Kpee" in text
+    assert "Weekend Meeting" not in text
+
+
+def test_interface_labels_stay_english(core):
+    """slot_label without hall names is the interface version."""
+    slot = core.make_slot("Bible Reading", "Bible Reading", "Treasures",
+                          3, 4, core.AUX_HALL)
+    assert "Auxiliary classroom 1" in core.slot_label(slot)
+    ga_rooms = {h: core.TRANSLATIONS["Ga"][h] for h in core.HALLS}
+    assert "Tsu bibioo 1" in core.slot_label(slot, ga_rooms)

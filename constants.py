@@ -142,6 +142,8 @@ TRANSLATIONS = {
             " Instructions for Our Christian Life and Ministry Meeting (S-38)."
         ),
         "form_code": "S-89-E 11/23",
+        "midweek_meeting": "Midweek Meeting",
+        "weekend_meeting": "Weekend Meeting",
     },
     "Ga": {
         "slip_title": "KRISTOWALA AMƐ WALA KƐ NITSUMƆ\nKPEENI NITSUMƆ",
@@ -159,7 +161,10 @@ TRANSLATIONS = {
             " Ofainɛ kwɛmɔ nitsumɔ lɛ he gbɛtsɔɔmɔi ni yɔɔ Kristowala Amɛ Wala kɛ"
             " Nitsumɔ Kpeeni Gbɛtsɔɔmɔi (S-38) lɛ mli."
         ),
-        "form_code": "S-89-Ga 11/23",
+        "form_code": "S-89-GA 11/23",
+        # printed as the heading of the schedule sheet
+        "midweek_meeting": "Wɔshiŋmɔ Kɛ Wɔshihilɛ Kpee",
+        "weekend_meeting": "Otsi Naagbee Kpee",
     },
 }
 TRANSLATIONS = {

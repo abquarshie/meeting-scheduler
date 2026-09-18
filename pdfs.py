@@ -141,13 +141,14 @@ def generate_slips_pdf(slip_rows, lang):
 
 SECTION_TITLES_BY_LANG = {
     "English": SECTION_TITLES,
+    # Taken from the printed Ga workbook, not translated by hand.
     "Ga": {
         "Opening": "Hiɛkpamɔ",
         "Treasures": "Nyɔŋmɔ Wiemɔ Lɛ Mli Jwetrii",
-        "Ministry": "Kasemɔ Bɔ Ni Ashiɛɔ Jogbaŋŋ",
-        "Living": "Hii Shi Akɛ Kristofoi",
-        "Closing": "Naamuɔ",
-        "Weekend": "Kpee Ni Yɔɔ Otsiu Gbi Lɛ",
+        "Ministry": "Kasemɔ Bɔ Ni Ashieɔ Jogbaŋŋ",
+        "Living": "Hii Shi Ake Kristofonyo",
+        "Closing": "Naamuu",
+        "Weekend": "Otsi Naagbee Kpee",
     },
 }
 
@@ -159,6 +160,7 @@ def generate_schedule_pdf(meetings, schedules_df, lang=None):
     section_titles = SECTION_TITLES_BY_LANG.get(
         next((k for k, v in TRANSLATIONS.items() if v is lang), "English"),
         SECTION_TITLES)
+    hall_names = {h: lang[h] for h in HALLS if h in lang}
     regular, bold, _ = register_fonts()
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=36, leftMargin=36,
@@ -174,7 +176,10 @@ def generate_schedule_pdf(meetings, schedules_df, lang=None):
         rows = schedules_df[(schedules_df["meeting_date"] == meeting_date)
                             & (schedules_df["meeting_type"] == meeting_type)]
         meta = get_meeting_meta(meeting_date, meeting_type)
-        block = [Paragraph(xml_escape(f"{meeting_type} — {fmt_date(meeting_date)}"), title_style)]
+        title_key = "midweek_meeting" if meeting_type == MIDWEEK else "weekend_meeting"
+        meeting_name = lang.get(title_key, meeting_type)
+        block = [Paragraph(
+            xml_escape(f"{meeting_name} — {fmt_date(meeting_date)}"), title_style)]
         heading_line = meta.get("book") or meta.get("heading")
         if heading_line:
             block.append(Paragraph(xml_escape(heading_line), sub_style))
@@ -201,7 +206,7 @@ def generate_schedule_pdf(meetings, schedules_df, lang=None):
             who = r["person"] or "—"
             if r["assistant"]:
                 who += f" / {r['assistant']}"
-            data.append([Paragraph(xml_escape(slot_label(slot)), cell_style),
+            data.append([Paragraph(xml_escape(slot_label(slot, hall_names)), cell_style),
                          Paragraph(xml_escape(who), cell_style)])
             if r["role"] == "Public Talk" and talk_text(meta):
                 data.append([Paragraph("<i>" + xml_escape(talk_text(meta)) + "</i>",

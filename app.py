@@ -78,7 +78,6 @@ menu = st.session_state["menu"]
 sidebar(menu)
 
 with st.sidebar.expander(tr("settings"), icon=":material/settings:"):
-    st.selectbox(tr("ui_language"), UI_LANGUAGES, key="ui_lang")
     # slip language only affects two pages, so it sits with the other settings
     st.selectbox(tr("slip_language"), list(TRANSLATIONS), key="slip_lang")
     aux_setting = get_setting("use_aux", "1") == "1"
@@ -98,7 +97,7 @@ with st.sidebar.expander(tr("settings"), icon=":material/settings:"):
     if st.button("Clear filters and unsaved picks", icon=":material/restart_alt:",
                  type="tertiary"):
         keep = {k: st.session_state[k]
-                for k in ("auth_ok", "user_name", "ui_lang", "slip_lang", "menu")
+                for k in ("auth_ok", "user_name", "slip_lang", "menu")
                 if k in st.session_state}
         st.session_state.clear()
         st.session_state.update(keep)

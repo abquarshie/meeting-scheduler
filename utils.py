@@ -96,14 +96,17 @@ def make_slot(title, role, section, part_no=None, minutes=None, hall=MAIN_HALL):
     }
 
 
-def slot_label(slot):
+def slot_label(slot, hall_names=None):
+    """hall_names lets printed output name the room in the slip language;
+    the interface passes nothing and gets English."""
     label = slot["title"]
     if slot.get("minutes") and "min" not in label.lower():
         label += f" ({slot['minutes']} min)"
     label = f"{slot['part_no']}. {label}" if slot.get("part_no") else label
     hall = slot.get("hall") or MAIN_HALL
     if hall != MAIN_HALL:
-        label += f" · {HALL_NAMES.get(hall, hall)}"
+        names = hall_names or HALL_NAMES
+        label += f" · {names.get(hall, HALL_NAMES.get(hall, hall))}"
     return label
 
 
