@@ -197,6 +197,28 @@ def _people(person, assistant):
     return f"{person} & {assistant}" if person and assistant else person
 
 
+def midweek_widths(width, aux_week):
+    """Column widths for the midweek sheet: part, [aux name], label, name.
+
+    Without the auxiliary column the part title takes that space back. Reusing
+    the four-column widths gave the title a fifth of the page and wrapped every
+    line of it.
+    """
+    if aux_week:
+        return [width * 0.46, width * 0.19, width * 0.12, width * 0.23]
+    return [width * 0.54, width * 0.13, width * 0.33]
+
+
+def _song_text(value, words):
+    """"Song 74" is stored from an English workbook and "Lala 74" from a Ga one;
+    print whichever word matches the sheet."""
+    text = _clean(value)
+    if not text:
+        return ""
+    found = re.search(r"\d+", text)
+    return f"{words['song']} {found.group()}" if found else text
+
+
 def _part_text(part_name, minutes):
     title = _clean(part_name)
     try:
@@ -219,12 +241,13 @@ def _banner(meeting_name, congregation, width, st_):
                ("LINEBELOW", (0, 0), (-1, -1), 1.4, ACCENT)])
 
 
-def _midweek_block(rows, meta, lang, st_, widths, section_titles, hall_names,
+def _midweek_block(rows, meta, lang, st_, width, section_titles, hall_names,
                    role_labels, words):
     """The running order: sections in their workbook colours, songs in place,
     a second name column on auxiliary-classroom weeks."""
     aux_week = bool((rows["hall"] != MAIN_HALL).any())
     n_cols = 4 if aux_week else 3
+    widths = midweek_widths(width, aux_week)
     data, style = [], [
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("TOPPADDING", (0, 0), (-1, -1), 2.5),
@@ -273,7 +296,7 @@ def _midweek_block(rows, meta, lang, st_, widths, section_titles, hall_names,
     song_colour = SECTION_COLORS.get("Living", "#8A94A0")
 
     if meta.get("opening_song") or open_prayer:
-        row(_clean(meta.get("opening_song")), label=role_labels.get("Prayer", ""),
+        row(_song_text(meta.get("opening_song"), words), label=role_labels.get("Prayer", ""),
             name=_clean(open_prayer.person) if open_prayer is not None else "",
             colour=song_colour, wide_label=True)
     for r in opening:
@@ -296,7 +319,7 @@ def _midweek_block(rows, meta, lang, st_, widths, section_titles, hall_names,
             continue
         colour = section(name)
         if name == "Living" and meta.get("middle_song"):
-            row(_clean(meta["middle_song"]), colour=song_colour, wide_label=True)
+            row(_song_text(meta["middle_song"], words), colour=song_colour, wide_label=True)
         main = [r for r in members if r.hall == MAIN_HALL]
         extra = {(r.role, r.part_no): r for r in members if r.hall != MAIN_HALL}
         for r in main:
@@ -314,11 +337,11 @@ def _midweek_block(rows, meta, lang, st_, widths, section_titles, hall_names,
                 name=_people(r.person, r.assistant), colour=colour)
 
     if meta.get("closing_song") or close_prayer:
-        row(_clean(meta.get("closing_song")), label=role_labels.get("Prayer", ""),
+        row(_song_text(meta.get("closing_song"), words), label=role_labels.get("Prayer", ""),
             name=_clean(close_prayer.person) if close_prayer is not None else "",
             colour=song_colour, wide_label=True)
 
-    table = Table(data, colWidths=widths[:n_cols] if n_cols == 4 else widths[-3:])
+    table = Table(data, colWidths=widths)
     table.setStyle(TableStyle(style))
     return table
 
@@ -503,7 +526,6 @@ def generate_schedule_pdf(meetings, schedules_df, lang=None):
                             topMargin=36, bottomMargin=36)
     st_ = _sheet_styles(regular, bold)
     width = A4[0] - 72
-    widths = [width * 0.46, width * 0.19, width * 0.12, width * 0.23]
     congregation = get_setting("congregation", "")
     story = []
 
@@ -523,7 +545,7 @@ def generate_schedule_pdf(meetings, schedules_df, lang=None):
             xml_escape(when) + (f"&nbsp;&nbsp;|&nbsp;&nbsp;{xml_escape(heading)}"
                                 if heading else ""), st_["when"]))
         if midweek:
-            block.append(_midweek_block(rows, meta, lang, st_, widths,
+            block.append(_midweek_block(rows, meta, lang, st_, width,
                                         section_titles, hall_names, role_labels,
                                         words))
         else:

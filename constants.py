@@ -129,6 +129,7 @@ GA_WORDS = {
     "opening_prayer": "Sɔlemɔ",
     "closing_prayer": "Sɔlemɔ",
     "group": "Kuu",
+    "song": "Lala",
 }
 EN_WORDS = {
     "public_talk": "Public Talk",
@@ -139,6 +140,7 @@ EN_WORDS = {
     "opening_prayer": "Opening Prayer",
     "closing_prayer": "Closing Prayer",
     "group": "Group",
+    "song": "Song",
 }
 ROLE_LABELS = {
     "Prayer": "Prayer",

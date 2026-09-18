@@ -348,3 +348,34 @@ def test_slip_printing_falls_back_without_a_blank(core):
 
     with pytest.raises(core.S89Error):
         core.fill_s89(b"%PDF-1.4\n%%EOF\n", rows)
+
+
+def test_midweek_column_widths(core):
+    """A week without the auxiliary classroom must give the part title the
+    space back — it was getting a fifth of the page and wrapping every line."""
+    page = 523.0
+    four = core.midweek_widths(page, True)
+    three = core.midweek_widths(page, False)
+    assert len(four) == 4 and len(three) == 3
+    for widths in (four, three):
+        assert abs(sum(widths) - page) < 1.0        # the full text width, no more
+    assert three[0] > page * 0.5                    # the title has room
+    assert three[0] > four[0]                       # more than when aux is shown
+    assert three[-1] > four[-1]                     # names get room too
+
+
+def test_songs_print_in_the_sheet_language(core, people):
+    """A Ga workbook stores "Lala 74" and an English one "Song 74"; the sheet
+    prints whichever word matches it."""
+    slots = core.build_midweek_slots(core.default_midweek_parts())
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    core.save_schedule("2026-09-16", core.MIDWEEK, slots, {},
+                       {"opening_song": "Song 74", "closing_song": "Lala 134"}, names)
+    rows = core.get_schedules()
+    english = _text(core.generate_schedule_pdf([("2026-09-16", core.MIDWEEK)], rows))
+    assert "Song 74" in english and "Song 134" in english
+    assert "Lala" not in english
+    ga = _text(core.generate_schedule_pdf([("2026-09-16", core.MIDWEEK)], rows,
+                                          core.TRANSLATIONS["Ga"]))
+    assert "Lala 74" in ga and "Lala 134" in ga
+    assert "Song" not in ga
