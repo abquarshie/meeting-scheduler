@@ -58,7 +58,7 @@ except ModuleNotFoundError as exc:
 # --- sign-in --------------------------------------------------------------
 inject_css()
 try:
-    init_db()
+    ensure_db()
 except Exception as exc:
     st.error(f"The app can't reach its database: {exc}")
     st.caption(

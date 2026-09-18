@@ -26,6 +26,11 @@ def fresh_db(monkeypatch):
     monkeypatch.setenv("MEETING_SCHEMA", name)
     import db
     db._pool.clear()                      # the pool is bound to the schema
+    db._schema_ready.clear()
+    db._all_settings.clear()
+    db._role_dates.clear()
+    import workbook
+    workbook._workbook.clear()
     with psycopg.connect(DSN, autocommit=True) as raw:
         raw.execute(f"CREATE SCHEMA {name}")
     import sheets

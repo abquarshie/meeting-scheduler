@@ -313,7 +313,22 @@ def week_for_date(weeks, meeting_date):
     return None
 
 
+@st.cache_data(show_spinner=False)
+def _workbook(schema_name):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT label, data FROM workbook_weeks ORDER BY position").fetchall()
+        name = conn.execute(
+            "SELECT value FROM settings WHERE key = 'workbook_file'").fetchone()
+    return {label: json.loads(data) for label, data in rows}, (name[0] if name else "")
+
+
 def load_workbook():
+    """Read once per run; several pages ask for it more than once."""
+    return _workbook(schema())
+
+
+def _load_workbook_uncached():
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT label, data FROM workbook_weeks ORDER BY position").fetchall()
@@ -333,6 +348,7 @@ def save_workbook(weeks, file_name):
         conn.execute(
             "INSERT INTO settings (key, value) VALUES ('workbook_file', ?) "
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (file_name,))
+    _workbook.clear()
     log_change("Workbook saved", f"{file_name or '(removed)'}: {len(weeks)} week(s)")
 
 

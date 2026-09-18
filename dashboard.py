@@ -136,11 +136,7 @@ def render(students_df, t, selected_lang, aux_default):
                                           & (schedules_df["meeting_type"] == mt)])
         open_soon += n_ - f_
     week_end = (today + timedelta(days=6)).isoformat()
-    away = set()
-    d = today
-    while d.isoformat() <= week_end:
-        away |= get_unavailable(d.isoformat())
-        d += timedelta(days=1)
+    away = get_unavailable_between(today.isoformat(), week_end)
     away |= get_suspended(students_df, today.isoformat())
     m1, m2, m3 = st.columns(3)
     not_created = unscheduled_weeks(schedules_df, within_days=28)

@@ -3,6 +3,7 @@
 import json
 
 from db import *  # noqa: F401,F403
+from db import _forget_schedules, _forget_settings  # underscored: not in *
 
 TABLES = [
     "students", "schedules", "meetings", "settings",
@@ -60,6 +61,8 @@ def import_all(data, log=True):
             counts[table] = len(rows)
     init_db()           # upgrade anything restored from an older version
     resync_identities()  # rows came back with their own ids
+    _forget_schedules()
+    _forget_settings()
     if log:
         log_change("Data restored",
                    f"{counts.get('students', 0)} participants, "

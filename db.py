@@ -193,6 +193,18 @@ def resync_identities():
                 f"COALESCE((SELECT MAX(id) FROM {table}), 0) + 1, false)")
 
 
+@st.cache_resource(show_spinner=False)
+def _schema_ready(schema_name):
+    """init_db() is ~30 statements. Over a network that is seconds, and the
+    schema cannot change between reruns, so do it once per process."""
+    init_db()
+    return True
+
+
+def ensure_db():
+    _schema_ready(schema())
+
+
 def init_db():
     with get_conn() as conn:
         conn.execute(f"CREATE SCHEMA IF NOT EXISTS {schema()}")
@@ -304,7 +316,24 @@ def init_db():
                          WHERE meeting_type = ? AND role = 'Chairman'""", (WEEKEND,))
 
 
+@st.cache_data(show_spinner=False)
+def _all_settings(schema_name):
+    with get_conn() as conn:
+        return dict(conn.execute("SELECT key, value FROM settings").fetchall())
+
+
 def get_setting(key, default=""):
+    """Settings are read many times per page (wording, meeting days, flags), so
+    fetch the table once and serve every lookup from it."""
+    value = _all_settings(schema()).get(key)
+    return default if value is None else value
+
+
+def _forget_settings():
+    _all_settings.clear()
+
+
+def get_setting_uncached(key, default=""):
     with get_conn() as conn:
         row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
     return row[0] if row else default
@@ -317,6 +346,7 @@ def set_setting(key, value):
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             (key, value),
         )
+    _forget_settings()
 
 
 def get_students(active_only=False):
@@ -575,6 +605,7 @@ def undo_last(meeting_date, meeting_type):
                 f"INSERT INTO meetings ({qcols(keep)}) "
                 f"VALUES ({', '.join('?' for _ in keep)})", list(keep.values()))
     restored = len(data["schedules"])
+    _forget_schedules()
     log_change("Save undone", f"{meeting_type} {meeting_date}: {restored} row(s) put back")
     return restored
 
@@ -617,6 +648,7 @@ def save_schedule(meeting_date, meeting_type, slots, picks, meta, names):
              meta.get("talk_number", ""), meta.get("talk_title", ""),
              meta.get("book", "")),
         )
+    _forget_schedules()
     log_change("Schedule saved", f"{meeting_type} {meeting_date}: "
                f"{sum(1 for v in picks.values() if isinstance(v, tuple) and v[0])} assigned")
 
@@ -628,6 +660,7 @@ def delete_schedule(meeting_date, meeting_type):
                      (str(meeting_date), meeting_type))
         conn.execute("DELETE FROM meetings WHERE meeting_date = ? AND meeting_type = ?",
                      (str(meeting_date), meeting_type))
+    _forget_schedules()
     log_change("Schedule deleted", f"{meeting_type} {meeting_date}")
 
 
@@ -647,16 +680,34 @@ def last_assignment_dates(exclude_date):
     return {pid: d for pid, d in rows}
 
 
-def last_role_dates(role):
-    """student_id -> most recent date they had this same role (either hall)."""
+@st.cache_data(show_spinner=False)
+def _role_dates(schema_name):
+    """{role: {student_id: last date}} for every role, in one query.
+
+    The schedule page asks for this once per slot — a dozen round trips for one
+    page render. Cleared by _forget_schedules() on every write, so it cannot
+    serve stale rotation order. A change-token query was the obvious
+    alternative, but that costs one round trip per call and saves nothing.
+    """
     with get_conn() as conn:
         rows = conn.execute(
-            """SELECT student_id, MAX(meeting_date) FROM schedules
-                WHERE role = ? AND student_id IS NOT NULL
-                GROUP BY student_id""",
-            (role,),
-        ).fetchall()
-    return {pid: d for pid, d in rows}
+            """SELECT role, student_id, MAX(meeting_date) FROM schedules
+                WHERE student_id IS NOT NULL
+                GROUP BY role, student_id""").fetchall()
+    out = {}
+    for role, pid, last in rows:
+        out.setdefault(role, {})[pid] = last
+    return out
+
+
+def _forget_schedules():
+    """Call after anything that changes the schedules table."""
+    _role_dates.clear()
+
+
+def last_role_dates(role):
+    """student_id -> most recent date they had this same role (either hall)."""
+    return _role_dates(schema()).get(role, {})
 
 
 def role_history(student_id, limit=8):
@@ -717,6 +768,17 @@ def upcoming_assignments(student_id, until=None):
         params.append(until)
     with get_conn() as conn:
         return conn.execute(query + " ORDER BY meeting_date", params).fetchall()
+
+
+def get_unavailable_between(start, end):
+    """Everyone away on any date in the range. The dashboard needs a whole
+    week, which was seven separate queries."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT student_id FROM unavailable WHERE meeting_date BETWEEN ? AND ?",
+            (str(start), str(end)),
+        ).fetchall()
+    return {r[0] for r in rows}
 
 
 def get_unavailable(meeting_date):
