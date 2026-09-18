@@ -250,3 +250,28 @@ def test_the_real_ga_workbook_parses_completely(core):
     for w in weeks.values():
         for p in w["parts"]:
             assert not set(p["title"]) & set("½Á¿"), p["title"]
+
+
+def test_past_weeks_are_dropped_but_still_anchor_the_dates(core, english_workbook):
+    """Dates are assigned from the first week's heading, so the past weeks have
+    to be dated before they are dropped — otherwise the remaining weeks land on
+    the wrong days."""
+    weeks, _, _ = core.parse_brochure(english_workbook)
+    dated = core.assign_dates(dict(weeks), date(2026, 9, 14))
+    assert dated["SEPTEMBER 21–27"]["start"] == "2026-09-21"
+
+    # mid-week: the week we are in is kept, the one before it is not
+    kept, dropped = core.drop_past_weeks(dated, date(2026, 9, 17))
+    assert dropped == []                                  # both weeks still running
+    kept, dropped = core.drop_past_weeks(dated, date(2026, 9, 23))
+    assert list(kept) == ["SEPTEMBER 21–27"]
+    assert dropped == ["SEPTEMBER 14–20"]
+    assert kept["SEPTEMBER 21–27"]["start"] == "2026-09-21"   # dates unchanged
+
+    # the last day of a week still counts as current
+    kept, _ = core.drop_past_weeks(dated, date(2026, 9, 20))
+    assert "SEPTEMBER 14–20" in kept
+
+    # an entirely past workbook is kept whole rather than emptied
+    kept, dropped = core.drop_past_weeks(dated, date(2027, 1, 1))
+    assert len(kept) == 2 and dropped == []

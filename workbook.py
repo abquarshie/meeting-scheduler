@@ -453,6 +453,26 @@ def assign_dates(weeks, first_start):
     return weeks
 
 
+def drop_past_weeks(weeks, today=None):
+    """Weeks whose last day is still ahead, plus the one we are in.
+
+    Dates have to be assigned first: the whole run is anchored on the first
+    week's heading, so the past weeks are what place the future ones. Returns
+    (kept, dropped labels). If every week has finished, nothing is dropped —
+    an old workbook is more likely a mistake than a request for an empty list.
+    """
+    today = (today or date.today()).isoformat()
+    kept, dropped = {}, []
+    for label, w in weeks.items():
+        if w.get("end") and w["end"] < today:
+            dropped.append(label)
+        else:
+            kept[label] = w
+    if not kept:
+        return weeks, []
+    return kept, dropped
+
+
 def week_dates_text(w):
     if not w.get("start"):
         return "no dates"

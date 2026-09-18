@@ -20,6 +20,14 @@ def render(students_df, t, selected_lang, aux_default):
             save_workbook({}, "")
             st.rerun()
 
+    skip_past = st.checkbox(
+        "Start from the current week", value=get_setting("skip_past_weeks", "1") == "1",
+        help="Weeks that finished before today are left out. Untick to keep the "
+             "whole workbook, for example to fill in a week you missed.",
+    )
+    if skip_past != (get_setting("skip_past_weeks", "1") == "1"):
+        set_setting("skip_past_weeks", "1" if skip_past else "0")
+
     uploaded_pdf = st.file_uploader("Choose PDF file", type=["pdf"])
     raw_text = ""
     if uploaded_pdf is not None:
@@ -29,8 +37,13 @@ def render(students_df, t, selected_lang, aux_default):
             st.session_state["brochure_file"] = file_id
             if weeks:
                 first, sure = guess_first_monday(weeks, uploaded_pdf.name)
-                save_workbook(assign_dates(dict(weeks), first), uploaded_pdf.name)
+                dated = assign_dates(dict(weeks), first)
+                dropped = []
+                if skip_past:
+                    dated, dropped = drop_past_weeks(dated)
+                save_workbook(dated, uploaded_pdf.name)
                 set_setting("workbook_dates_sure", "1" if sure else "0")
+                st.session_state["weeks_dropped"] = dropped
                 stored, stored_file = load_workbook()
         if not weeks:
             st.error(
@@ -39,6 +52,10 @@ def render(students_df, t, selected_lang, aux_default):
             )
         else:
             st.success(f"Found parts for {len(weeks)} week(s).")
+            dropped = st.session_state.get("weeks_dropped") or []
+            if dropped:
+                st.info(f"{len(dropped)} week(s) already finished and were left out: "
+                        + ", ".join(dropped), icon=":material/history:")
         if empty:
             st.warning("No parts found under: " + ", ".join(empty))
         if weeks and not any(w.get("month") in ENGLISH_MONTHS for w in weeks.values()):
@@ -60,7 +77,10 @@ def render(students_df, t, selected_lang, aux_default):
             help="The Monday of the first week in the workbook.",
         )
         if d2.button("Apply dates", width="stretch"):
-            save_workbook(assign_dates(stored, first_date), stored_file)
+            dated = assign_dates(stored, first_date)
+            if skip_past:
+                dated, _ = drop_past_weeks(dated)
+            save_workbook(dated, stored_file)
             set_setting("workbook_dates_sure", "1")
             st.success("Week dates updated.")
             st.rerun()
