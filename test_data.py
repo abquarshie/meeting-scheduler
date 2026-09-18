@@ -203,3 +203,158 @@ def test_survives_the_database_dropping_connections(core):
     # reads recover too, not just writes
     kill_backends()
     assert core.get_setting("nothing", "default") == "default"
+
+    # the exact path that crashed in production: sign-in writes the change log
+    # as the first query after the database has been idle
+    for n in range(3):
+        kill_backends()
+        core.log_change("Signed in", f"Tester {n}")
+    assert len(core.get_log()) >= 3
+
+
+# --------------------------------------------------------------- caches
+# Four caches sit between the app and the database (schema setup, settings,
+# workbook, role dates), each cleared by hand on write. Manual invalidation is
+# where stale-data bugs live, and a stale rotation cache is invisible: Suggest
+# keeps working, it just stops offering whoever has waited longest.
+
+def _count_queries(monkeypatch):
+    """Count database round trips made inside the block."""
+    import db
+    calls = []
+    original = db._Conn.execute
+
+    def spy(self, sql, params=()):
+        calls.append(" ".join(str(sql).split())[:60])
+        return original(self, sql, params)
+
+    monkeypatch.setattr(db._Conn, "execute", spy)
+    return calls
+
+
+def test_settings_cache_serves_repeats_and_clears_on_write(core, monkeypatch):
+    core.set_setting("midweek_day", "Wednesday")
+    assert core.get_setting("midweek_day") == "Wednesday"
+
+    calls = _count_queries(monkeypatch)
+    for _ in range(10):
+        core.get_setting("midweek_day")
+    assert calls == [], "settings should be served from cache, not re-queried"
+
+    core.set_setting("midweek_day", "Thursday")
+    assert core.get_setting("midweek_day") == "Thursday"
+    assert core.get_setting("never_set", "fallback") == "fallback"
+
+
+def test_role_dates_cache_clears_on_every_schedule_write(core, people):
+    """The rotation cache is the dangerous one: if it goes stale the app still
+    works, it just stops rotating fairly."""
+    slots = core.build_midweek_slots(core.default_midweek_parts())
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    talk = next(i for i, s in enumerate(slots) if s["role"] == "Treasures Talk")
+
+    assert core.last_role_dates("Treasures Talk") == {}
+
+    core.save_schedule("2026-09-16", core.MIDWEEK, slots,
+                       {talk: (people["Kofi Mensah"], None)}, {}, names)
+    after_save = core.last_role_dates("Treasures Talk")
+    assert after_save == {people["Kofi Mensah"]: "2026-09-16"}
+
+    # a later date replaces the earlier one
+    core.save_schedule("2026-09-23", core.MIDWEEK, slots,
+                       {talk: (people["Kofi Mensah"], None)}, {}, names)
+    assert core.last_role_dates("Treasures Talk")[people["Kofi Mensah"]] == "2026-09-23"
+
+    # undo must roll the rotation back too
+    core.undo_last("2026-09-23", core.MIDWEEK)
+    assert core.last_role_dates("Treasures Talk")[people["Kofi Mensah"]] == "2026-09-16"
+
+    core.delete_schedule("2026-09-16", core.MIDWEEK)
+    assert core.last_role_dates("Treasures Talk") == {}
+
+
+def test_workbook_cache_clears_when_the_workbook_changes(core, english_workbook,
+                                                         monkeypatch):
+    weeks, _, _ = core.parse_brochure(english_workbook)
+    core.save_workbook(core.assign_dates(weeks, date(2026, 9, 14)), "en.pdf")
+    stored, name = core.load_workbook()
+    assert name == "en.pdf" and len(stored) == 2
+
+    calls = _count_queries(monkeypatch)
+    for _ in range(5):
+        core.load_workbook()
+    assert calls == [], "the workbook should be read once per run"
+
+    core.save_workbook({}, "")
+    assert core.load_workbook() == ({}, "")
+
+
+def test_restoring_a_backup_clears_the_caches(core, people):
+    """import_all replaces every table, so anything cached is stale."""
+    slots = core.build_midweek_slots(core.default_midweek_parts())
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    talk = next(i for i, s in enumerate(slots) if s["role"] == "Treasures Talk")
+    core.set_setting("congregation", "BEFORE")
+    backup = json.loads(core.backup_bytes())
+
+    core.save_schedule("2026-09-16", core.MIDWEEK, slots,
+                       {talk: (people["Kofi Mensah"], None)}, {}, names)
+    core.set_setting("congregation", "AFTER")
+    assert core.get_setting("congregation") == "AFTER"
+    assert core.last_role_dates("Treasures Talk")
+
+    core.import_all(backup)
+    assert core.get_setting("congregation") == "BEFORE"
+    assert core.last_role_dates("Treasures Talk") == {}
+
+
+def test_backup_reminder_tracks_the_last_export(core, people, fake_sheet):
+    """Sheets is now the only second copy, and exporting is a button someone
+    has to remember to press."""
+    from datetime import date, timedelta
+
+    overdue, days = core.backup_overdue()
+    assert overdue and days is None            # never exported
+
+    core.push(force=True)
+    overdue, days = core.backup_overdue()
+    assert not overdue and days == 0
+
+    core.set_setting("last_export", (date.today() - timedelta(days=13)).isoformat())
+    assert core.backup_overdue() == (False, 13)
+    core.set_setting("last_export", (date.today() - timedelta(days=14)).isoformat())
+    assert core.backup_overdue() == (True, 14)
+
+    core.set_setting("last_export", "not a date")
+    assert core.backup_overdue()[0]            # unreadable means remind, not crash
+
+
+def test_migrations_run_again_when_the_schema_changes(core, monkeypatch):
+    """Streamlit reruns the script on a code push without restarting the
+    process, so a schema cache keyed only on the database name survives the
+    deploy and the new migration never runs. This is the failure that shipped:
+    the app queried a column it had never added."""
+    import db
+
+    db.ensure_db()
+    first = db.schema_fingerprint()
+
+    # a column added by a later version, as it would look before that deploy
+    with db.get_conn() as conn:
+        conn.execute("ALTER TABLE meetings DROP COLUMN IF EXISTS aux_group")
+    with db.get_conn() as conn:
+        cols = db.table_columns(conn, "meetings")
+    assert "aux_group" not in cols
+
+    # same code: the cache legitimately skips the work
+    db.ensure_db()
+    with db.get_conn() as conn:
+        assert "aux_group" not in db.table_columns(conn, "meetings")
+
+    # code changed: the fingerprint moves and the migration runs again
+    monkeypatch.setattr(db, "schema_fingerprint", lambda: first + "-changed")
+    db.ensure_db()
+    with db.get_conn() as conn:
+        assert "aux_group" in db.table_columns(conn, "meetings")
+
+    assert core.get_meeting_meta("2026-09-16", core.MIDWEEK)["aux_group"] == ""

@@ -243,15 +243,32 @@ def resync_identities():
 
 
 @st.cache_resource(show_spinner=False)
-def _schema_ready(schema_name):
-    """init_db() is ~30 statements. Over a network that is seconds, and the
-    schema cannot change between reruns, so do it once per process."""
+def _schema_ready(schema_name, fingerprint):
+    """init_db() is ~30 statements. Over a network that is seconds, so it runs
+    once per process — but keyed on what init_db() actually says.
+
+    Streamlit reruns the script when the code changes without restarting the
+    process, so a cache keyed on the schema name alone survives a deploy and
+    the new migrations never run: the app then queries a column that was never
+    added. Hashing init_db's own source means adding a table or a column
+    invalidates this automatically, with nothing to remember to bump.
+    """
     init_db()
     return True
 
 
+def schema_fingerprint():
+    import hashlib
+    import inspect
+    try:
+        source = inspect.getsource(init_db)
+    except OSError:                                  # pragma: no cover
+        return "unknown"
+    return hashlib.sha1(source.encode("utf-8")).hexdigest()[:12]
+
+
 def ensure_db():
-    _schema_ready(schema())
+    _schema_ready(schema(), schema_fingerprint())
 
 
 def init_db():
