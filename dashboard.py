@@ -127,6 +127,18 @@ def render(students_df, t, selected_lang, aux_default):
             go("Schedule", schedule_mode="Create new",
                new_meeting_type=MIDWEEK, new_meeting_date=when)
 
+    # ---- is there a second copy of the data anywhere? ------------------------------
+    overdue, days = backup_overdue()
+    if overdue and not schedules_df.empty:
+        never = days is None
+        st.warning(
+            ("Nothing has been exported to Google Sheets yet."
+             if never else f"Last exported to Google Sheets {days} days ago.")
+            + " The database is the only copy of your schedules until you do.",
+            icon=":material/cloud_off:")
+        if st.button("Export now", icon=":material/backup:", key="home_backup"):
+            go("Admin")
+
     # ---- at a glance --------------------------------------------------------------
     soon = [p for p in upcoming
             if p[0] <= (today + timedelta(days=28)).isoformat()]

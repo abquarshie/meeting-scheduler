@@ -59,21 +59,6 @@ def render(students_df, t, selected_lang, aux_default):
         )
 
     st.divider()
-    st.subheader("Reminders to copy")
-    st.caption("One message per person. Tap to expand, copy, and paste into WhatsApp.")
-    reminded = reminder_rows(rows)
-    if reminded.empty:
-        st.info("Assign parts to generate reminders.")
-    else:
-        messages = [reminder_message(r, meeting_type, meeting_date, meta)
-                    for r in reminded.itertuples()]
-        with st.expander(f"All {len(messages)} reminders in one block"):
-            st.code("\n\n---\n\n".join(m for _, m in messages), language=None)
-        for r, (part_txt, msg) in zip(reminded.itertuples(), messages):
-            with st.expander(f"{r.person} — {part_txt}"):
-                st.code(msg, language=None)
-
-    st.divider()
     st.subheader("Printable schedule")
     chosen = st.multiselect("Meetings to include", meetings, default=[selected],
                             format_func=meeting_label)

@@ -19,7 +19,7 @@ UI_TEXT = {
     "h_schedule": "Create or edit a schedule",
     "sub_schedule": "Pick a date, then fill each part. Only eligible people are listed.",
     "h_view": "Slips and printing",
-    "sub_view": "S-89 slips, reminders and a printable schedule for one meeting.",
+    "sub_view": "S-89 slips and a printable schedule for one meeting.",
     "h_workbook": "Workbook PDF",
     "sub_workbook": "Upload the meeting workbook so each week gets its real parts.",
     "h_export": "Export",

@@ -125,7 +125,6 @@ def test_month_view_create_button_and_downloads(people, core, english_workbook):
     table = at.dataframe[0].value
     assert "not created yet" in " ".join(table["Heading"])
     assert len(at.get("download_button")) == 2
-    assert any("Hi Ama Owusu" in c.value for c in at.code)
     button(at, "Create 23 Sep").click()
     run(at)
     assert at.session_state["menu"] == "Schedule"

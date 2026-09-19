@@ -453,6 +453,41 @@ def assign_dates(weeks, first_start):
     return weeks
 
 
+# The stand-in characters the fonts use for ɛ ɔ ŋ. If any survive into a part
+# title the repair did not apply, which means the PDF was built differently.
+STANDINS = "\u00bd\u00bf\u00c1"
+
+
+def unreadable_parts(weeks):
+    """Part titles that still carry unrepaired characters.
+
+    Without this the failure is invisible: titles come out mangled, part
+    numbers go missing, and the page blames the workbook's numbering instead of
+    saying the text could not be read.
+    """
+    bad = []
+    for label, week in weeks.items():
+        for part in week.get("parts", []):
+            title = part.get("title") or ""
+            if set(title) & set(STANDINS) or any(ord(c) < 32 for c in title):
+                bad.append((label, title))
+    return bad
+
+
+def guessed_roles(weeks):
+    """Ministry parts whose title matched no known part type.
+
+    They fall back to Initial Presentation, which quietly narrows who the
+    schedule page will offer, so it is worth saying out loud.
+    """
+    out = []
+    for label, week in weeks.items():
+        for part in week.get("parts", []):
+            if part.get("section") == "Ministry" and not role_matched(part.get("title")):
+                out.append((label, part.get("part_no"), part.get("title")))
+    return out
+
+
 def drop_past_weeks(weeks, today=None):
     """Weeks whose last day is still ahead, plus the one we are in.
 

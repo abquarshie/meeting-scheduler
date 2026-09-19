@@ -339,7 +339,7 @@ def test_slip_printing_falls_back_without_a_blank(core):
     assert "Kofi Mensah" in own
 
     # our own slip's Ga labels are real text and extract cleanly
-    assert "Gbɛi:" in own and "Yelikɛbualɔ:" in own
+    assert "Gbɛ\u0301i:" in own and "Yelikɛbualɔ:" in own
 
     core.save_template("s89_Ga", "S-89.pdf", S89_BLANK.read_bytes())
     official = _text(core.slips_pdf(rows, core.TRANSLATIONS["Ga"], "Ga"))
@@ -354,17 +354,14 @@ def test_slip_printing_falls_back_without_a_blank(core):
 
 
 def test_midweek_column_widths(core):
-    """A week without the auxiliary classroom must give the part title the
-    space back — it was getting a fifth of the page and wrapping every line."""
+    """One column set for every week. The part title needs the room the
+    classroom's old second name column used to take."""
     page = 523.0
-    four = core.midweek_widths(page, True)
-    three = core.midweek_widths(page, False)
-    assert len(four) == 4 and len(three) == 3
-    for widths in (four, three):
-        assert abs(sum(widths) - page) < 1.0        # the full text width, no more
-    assert three[0] > page * 0.5                    # the title has room
-    assert three[0] > four[0]                       # more than when aux is shown
-    assert three[-1] > four[-1]                     # names get room too
+    widths = core.midweek_widths(page)
+    assert len(widths) == 3
+    assert abs(sum(widths) - page) < 1.0            # the full text width, no more
+    assert widths[0] > page * 0.5                   # the title has room
+    assert widths[-1] > widths[1]                   # names wider than their labels
 
 
 def test_songs_print_in_the_sheet_language(core, people):
@@ -400,6 +397,7 @@ def test_ga_slip_uses_the_printed_wording(core):
     """The fallback slip carries the form's own labels, and no form code."""
     ga = core.TRANSLATIONS["Ga"]
     assert ga["assistant"] == "Yelikɛbualɔ:"
+    assert ga["name"] == "Gbɛ\u0301i:" and ga["date"] == "Deeti:"
     assert ga["part_no"] == "Nifeemɔ Ni Ji:"
     assert ga["to_be_given"] == "Obaafee yɛ:"
     assert ga["slip_title"].startswith("WƆSHIƐMƆ KƐ WƆSHIHILƐ AKƐ KRISTOFOI")
@@ -409,6 +407,7 @@ def test_ga_slip_uses_the_printed_wording(core):
              "part_name": "x", "meeting_date": "2026-09-23", "hall": core.MAIN_HALL}]
     text = _text(core.generate_slips_pdf(rows, ga))
     assert "Yelikɛbualɔ:" in text and "Nifeemɔ Ni Ji:" in text
+    assert "Deeti:" in text and "Gbɛ\u0301i:" in text
     assert "S-89" not in text                     # the form code is gone
     assert "Mɔ ni yeo boa" not in text            # the old wording is gone
 
@@ -498,3 +497,33 @@ def test_classroom_weeks_keep_their_own_sheet(core, people):
     mixed = [("2026-09-09", core.MIDWEEK), ("2026-09-16", core.MIDWEEK),
              ("2026-09-23", core.MIDWEEK), ("2026-09-30", core.MIDWEEK)]
     assert _pages(core.generate_schedule_pdf(mixed, rows, compact=True)) == 3
+
+
+def test_classroom_has_its_own_section(core, people):
+    """The classroom's parts are listed under a heading naming the room and
+    group, not paired anonymously beside the main hall's names."""
+    _midweek_week(core, "2026-09-16", True, people)
+    rows = core.get_schedules()
+    text = _text(core.generate_schedule_pdf([("2026-09-16", core.MIDWEEK)], rows))
+    assert "Auxiliary classroom 1" in text and "Group 1" in text
+    # the classroom's heading comes after the main hall's last section
+    assert text.index("Living as Christians") < text.index("Auxiliary classroom 1")
+
+    ga = _text(core.generate_schedule_pdf([("2026-09-16", core.MIDWEEK)], rows,
+                                          core.TRANSLATIONS["Ga"]))
+    assert "Asa 2 – Kuu 1" in ga
+    assert "Ŋaawolɔ" in ga                       # the counselor, listed once
+    assert ga.count("Ŋaawolɔ") == 1
+
+
+def test_watchtower_conductor_is_labelled_in_ga(core, people):
+    slots = core.default_weekend_slots()
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    core.save_schedule("2026-09-20", core.WEEKEND, slots,
+                       {i: (people["Kofi Mensah"], None) for i in range(len(slots))},
+                       {}, names)
+    ga = _text(core.generate_schedule_pdf([("2026-09-20", core.WEEKEND)],
+                                          core.get_schedules(),
+                                          core.TRANSLATIONS["Ga"]))
+    assert "Buu Mɔɔ Nɔkwɛlɔ" in ga               # conductor, now labelled
+    assert "Buu Mɔɔ Nikasemɔ" in ga              # the study itself

@@ -81,13 +81,6 @@ HALL_NAMES = {
     "aux_1": "Auxiliary classroom 1",
     "aux_2": "Auxiliary classroom 2",
 }
-# the same rooms in a sentence ("You have a part in …")
-HALL_WORDS = {
-    "main_hall": "the main hall",
-    "aux_1": "auxiliary classroom 1",
-    "aux_2": "auxiliary classroom 2",
-}
-
 SECTIONS = ["Opening", "Treasures", "Ministry", "Living", "Closing", "Weekend"]
 SECTION_TITLES = {
     "Opening": "Opening",
@@ -117,6 +110,7 @@ ROLE_LABELS_GA = {
     "Chairman": "Sɛinɔtalɔ",
     "Weekend Chairman": "Sɛinɔtalɔ",
     "Reader": "Kanelɔ",
+    "Watchtower Conductor": "Buu Mɔɔ Nɔkwɛlɔ",
     "Watchtower Reader": "Kanelɔ",
     "Aux Classroom Counselor": "Ŋaawolɔ",
 }
@@ -180,9 +174,9 @@ TRANSLATIONS = {
     },
     "Ga": {
         "slip_title": "WƆSHIƐMƆ KƐ WƆSHIHILƐ AKƐ KRISTOFOI\nKPEE ASAIMƐNT",
-        "name": "Gbɛi:",
+        "name": "Gbɛ́i:",
         "assistant": "Yelikɛbualɔ:",
-        "date": "Gbi:",
+        "date": "Deeti:",
         "part_no": "Nifeemɔ Ni Ji:",
         "to_be_given": "Obaafee yɛ:",
         "main_hall": "Asa 1",
@@ -190,12 +184,12 @@ TRANSLATIONS = {
         "aux_2": "Asa 3",
         "note": (
             "Skulnyo lɛ akadi: Atsɔɔ wolo loo nɔ kroko ni okɛbaatsu onifeemɔ lɛ"
-            " he nii, kɛ nikasemɔ ni esa akɛ otsu he nii lɛ yɛ Wɔshɛimɔ Kɛ"
+            " he nii, kɛ nikasemɔ ni esa akɛ otsu he nii lɛ yɛ Wɔshiɛmɔ Kɛ"
             " Wɔshihilɛ Kpee Nifeemɔ Wolo lɛ mli. Ofainɛ kanemɔ onifeemɔ lɔ he"
-            " gbɛtsɔɔmɔi ni yɔɔ Wɔshɛimɔ Kɛ Wɔshihilɛ Kpee Nifeemɔ Wolo lɛ mli."
+            " gbɛtsɔɔmɔi ni yɔɔ Wɔshiɛmɔ Kɛ Wɔshihilɛ Kpee Nifeemɔ Wolo lɛ mli."
         ),
         "form_code": "",
-        "midweek_meeting": "Wɔshiŋmɔ Kɛ Wɔshihilɛ Kpee",
+        "midweek_meeting": "Wɔshiɛmɔ Kɛ Wɔshihilɛ Kpee",
         "weekend_meeting": "Otsi Naagbee Kpee",
     },
 }

@@ -119,17 +119,3 @@ def render(students_df, t, selected_lang, aux_default):
             file_name=f"{label.lower()}_schedule_{month}.pdf",
             mime="application/pdf", width="stretch", key=f"month_dl_{label}",
         )
-
-    st.subheader("Reminders for the month")
-    blocks = []
-    for md, mt in month_meetings:
-        r = in_month[(in_month["meeting_date"] == md) & (in_month["meeting_type"] == mt)]
-        meta = get_meeting_meta(md, mt)
-        for row in reminder_rows(r).itertuples():
-            blocks.append(reminder_message(row, mt, md, meta)[1])
-    if blocks:
-        with st.expander(f"{len(blocks)} messages, ready to copy into WhatsApp",
-                         icon=":material/chat:"):
-            st.code("\n\n---\n\n".join(blocks), language=None)
-    else:
-        st.info("No assignments to remind yet.")

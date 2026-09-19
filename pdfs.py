@@ -224,15 +224,13 @@ def _people(person, assistant):
     return f"{person} & {assistant}" if person and assistant else person
 
 
-def midweek_widths(width, aux_week):
-    """Column widths for the midweek sheet: part, [aux name], label, name.
+def midweek_widths(width):
+    """Column widths for the midweek sheet: part, role label, name.
 
-    Without the auxiliary column the part title takes that space back. Reusing
-    the four-column widths gave the title a fifth of the page and wrapped every
-    line of it.
+    One set for every week now that the classroom has its own section rather
+    than a second name column — which is what used to squeeze the part title
+    into a fifth of the page.
     """
-    if aux_week:
-        return [width * 0.46, width * 0.19, width * 0.12, width * 0.23]
     return [width * 0.54, width * 0.13, width * 0.33]
 
 
@@ -270,11 +268,14 @@ def _banner(meeting_name, congregation, width, st_):
 
 def _midweek_block(rows, meta, lang, st_, width, section_titles, hall_names,
                    role_labels, words):
-    """The running order: sections in their workbook colours, songs in place,
-    a second name column on auxiliary-classroom weeks."""
-    aux_week = bool((rows["hall"] != MAIN_HALL).any())
-    n_cols = 4 if aux_week else 3
-    widths = midweek_widths(width, aux_week)
+    """The running order: sections in their workbook colours, songs in place.
+
+    The auxiliary classroom has its own short section at the end rather than a
+    second name column beside every student part. The parallel columns put two
+    names side by side with nothing on the row saying which room each belonged
+    to, and were narrow enough that paired names wrapped. It costs a little
+    height, which is affordable now that a classroom week has its own sheet.
+    """
     tight = st_.get("_compact")
     row_pad = COMPACT_ROW_PAD if tight else 2.5
     data, style = [], [
@@ -285,35 +286,23 @@ def _midweek_block(rows, meta, lang, st_, width, section_titles, hall_names,
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
     ]
 
-    def pad(cells):
-        return list(cells) + [""] * (n_cols - len(cells))
-
-    def row(part="", aux="", label="", name="", colour=None, wide_label=False):
+    def row(part="", label="", name="", colour=None):
         left = Paragraph(
             (f'<font color="{colour}">\u25cf</font> ' if colour and part else "")
             + xml_escape(part), st_["part"]) if part else ""
-        label_cell = Paragraph(xml_escape(label), st_["label"]) if label else ""
-        cells = [left]
-        if aux_week and wide_label:
-            # a span shows its top-left cell, so the label has to sit there
-            cells += [label_cell, ""]
-            style.append(("SPAN", (1, len(data)), (2, len(data))))
-        else:
-            if aux_week:
-                cells.append(Paragraph(xml_escape(aux), st_["name"]) if aux else "")
-            cells.append(label_cell)
-        cells.append(Paragraph(xml_escape(name), st_["name"]) if name else "")
-        data.append(pad(cells))
+        data.append([
+            left,
+            Paragraph(xml_escape(label), st_["label"]) if label else "",
+            Paragraph(xml_escape(name), st_["name"]) if name else ""])
 
-    def section(name):
-        colour = SECTION_COLORS.get(name, "#8A94A0")
-        data.append(pad([Paragraph(
+    def section(title, colour):
+        data.append([Paragraph(
             f'<font color="{colour}">\u25a0</font>&nbsp;&nbsp;'
-            f'<font color="{colour}">{xml_escape(section_titles.get(name, name))}</font>',
-            st_["section"])]))
+            f'<font color="{colour}">{xml_escape(title)}</font>',
+            st_["section"]), "", ""])
         i = len(data) - 1
-        style.extend([("SPAN", (0, i), (-1, i)), ("TOPPADDING", (0, i), (-1, i), 5 if tight else 10)])
-        return colour
+        style.extend([("SPAN", (0, i), (-1, i)),
+                      ("TOPPADDING", (0, i), (-1, i), 5 if tight else 10)])
 
     by_section = {}
     for r in rows.itertuples():
@@ -322,55 +311,62 @@ def _midweek_block(rows, meta, lang, st_, width, section_titles, hall_names,
     closing = by_section.get("Closing", [])
     open_prayer = next((r for r in opening if r.role == "Prayer"), None)
     close_prayer = next((r for r in closing if r.role == "Prayer"), None)
+    counselor = next((r for r in opening
+                      if r.role == "Aux Classroom Counselor"), None)
     song_colour = SECTION_COLORS.get("Living", "#8A94A0")
 
-    if meta.get("opening_song") or open_prayer:
-        row(_song_text(meta.get("opening_song"), words), label=role_labels.get("Prayer", ""),
-            name=_clean(open_prayer.person) if open_prayer is not None else "",
-            colour=song_colour, wide_label=True)
+    if meta.get("opening_song") or open_prayer is not None:
+        row(_song_text(meta.get("opening_song"), words),
+            role_labels.get("Prayer", ""),
+            _clean(open_prayer.person) if open_prayer is not None else "",
+            colour=song_colour)
     for r in opening:
-        if r.role == "Prayer":
-            continue
-        title = ""
-        if r.role == "Aux Classroom Counselor":
-            # name the room and, when it is known, the group using it
-            title = hall_names.get(AUX_HALL, "")
-            group = _clean(meta.get("aux_group"))
-            if group:
-                title = f"{title} – {words['group']} {group}"
-        row(title, label=role_labels.get(r.role, ""), name=_clean(r.person),
-            wide_label=True)
+        # the counselor belongs with the classroom's own section below
+        if r.role not in ("Prayer", "Aux Classroom Counselor"):
+            row("", role_labels.get(r.role, ""), _clean(r.person))
 
-    sub_done = False
+    classroom = []
     for name in ("Treasures", "Ministry", "Living"):
         members = by_section.get(name)
         if not members:
             continue
-        colour = section(name)
+        colour = SECTION_COLORS.get(name, "#8A94A0")
+        section(section_titles.get(name, name), colour)
         if name == "Living" and meta.get("middle_song"):
-            row(_song_text(meta["middle_song"], words), colour=song_colour, wide_label=True)
-        main = [r for r in members if r.hall == MAIN_HALL]
-        extra = {(r.role, r.part_no): r for r in members if r.hall != MAIN_HALL}
-        for r in main:
-            other = extra.get((r.role, r.part_no))
-            if other is not None and not sub_done:
-                data.append(pad(["",
-                                 Paragraph(xml_escape(hall_names.get(AUX_HALL, "")),
-                                           st_["sub"]), "",
-                                 Paragraph(xml_escape(hall_names.get(MAIN_HALL, "")),
-                                           st_["sub"])]))
-                sub_done = True
+            row(_song_text(meta["middle_song"], words), colour=song_colour)
+        for r in members:
+            if r.hall != MAIN_HALL:
+                classroom.append(r)
+                continue
             row("" if r.role == "Reader" else _part_text(r.part_name, r.minutes),
-                aux=_people(other.person, other.assistant) if other is not None else "",
-                label=role_labels.get(r.role, ""),
-                name=_people(r.person, r.assistant), colour=colour)
+                role_labels.get(r.role, ""), _people(r.person, r.assistant),
+                colour=colour)
 
-    if meta.get("closing_song") or close_prayer:
-        row(_song_text(meta.get("closing_song"), words), label=role_labels.get("Prayer", ""),
-            name=_clean(close_prayer.person) if close_prayer is not None else "",
-            colour=song_colour, wide_label=True)
+    if meta.get("closing_song") or close_prayer is not None:
+        row(_song_text(meta.get("closing_song"), words),
+            role_labels.get("Prayer", ""),
+            _clean(close_prayer.person) if close_prayer is not None else "",
+            colour=song_colour)
 
-    table = Table(data, colWidths=widths)
+    if counselor is not None and not classroom:
+        row("", role_labels.get("Aux Classroom Counselor", ""),
+            _clean(counselor.person))
+
+    if classroom:
+        title = hall_names.get(AUX_HALL, "")
+        group = _clean(meta.get("aux_group"))
+        if group:
+            title = f"{title} \u2013 {words['group']} {group}"
+        colour = SECTION_COLORS.get("Ministry", "#8A94A0")
+        section(title, colour)
+        if counselor is not None:
+            row("", role_labels.get("Aux Classroom Counselor", ""),
+                _clean(counselor.person))
+        for r in sorted(classroom, key=lambda x: int(x.sort_order or 0)):
+            row(_part_text(r.part_name, r.minutes), "",
+                _people(r.person, r.assistant), colour=colour)
+
+    table = Table(data, colWidths=midweek_widths(width))
     table.setStyle(TableStyle(style))
     return table
 
@@ -433,8 +429,10 @@ def _weekend_block(rows, meta, lang, st_, width, section_titles, role_labels, wo
     listed = sorted(rows.itertuples(),
                     key=lambda r: (rank(r), int(r.sort_order or 0)))
     for r in listed:
-        # the label is only for a part that sits under another one
-        label = role_labels.get(r.role, "") if r.role == "Watchtower Reader" else ""
+        # the study names its conductor and reader beside the names, the way
+        # the midweek sheet does for the Bible study
+        label = (role_labels.get(r.role, "")
+                 if r.role in ("Watchtower Conductor", "Watchtower Reader") else "")
         row(printed_title(r), label, _people(r.person, r.assistant),
             guest=bool(_clean(getattr(r, "visitor", ""))))
         if r.role == "Public Talk":
@@ -733,39 +731,6 @@ def build_s140_data(meetings, schedules_df, congregation, group_label):
         data["clear_asa2"] = False
         data["asa2_shift"] = 0
     return data, skipped
-
-
-def row_slot(r):
-    """make_slot() from a schedules row (dict or namedtuple)."""
-    get = r.get if isinstance(r, dict) else lambda k, d=None: getattr(r, k, d)
-    part_no, minutes = get("part_no"), get("minutes")
-    return make_slot(get("part_name"), get("role") or "", get("section"),
-                     int(part_no) if pd.notna(part_no) else None,
-                     int(minutes) if pd.notna(minutes) else None, get("hall"))
-
-
-def reminder_rows(rows):
-    """Assignments that get a reminder (everyone except the chairmen)."""
-    return rows[rows["person"].notna()
-                & ~rows["role"].isin(["Chairman", "Weekend Chairman"])]
-
-
-def reminder_message(r, meeting_type, meeting_date, meta):
-    slot = row_slot(r)
-    part_txt = slot_label({**slot, "hall": MAIN_HALL})  # room named separately
-    lines = [f"Hi {r.person},",
-             f"You have a part at the {meeting_type.lower()} on {fmt_date(meeting_date)}."]
-    if meta.get("heading"):
-        lines.append(meta["heading"])
-    lines.append(f"Part: {part_txt}")
-    if r.role == "Public Talk" and talk_text(meta):
-        lines.append(f"Talk: {talk_text(meta)}")
-    if r.hall and r.hall != MAIN_HALL:
-        lines.append(f"Room: {HALL_WORDS.get(r.hall, r.hall)}")
-    if r.assistant and r.needs_assistant == 1:
-        lines.append(f"Assistant: {r.assistant}")
-    lines.append("Please let me know if you can't. Thank you!")
-    return part_txt, "\n".join(lines)
 
 
 def slip_rows_for(rows):

@@ -58,6 +58,24 @@ def render(students_df, t, selected_lang, aux_default):
                         + ", ".join(dropped), icon=":material/history:")
         if empty:
             st.warning("No parts found under: " + ", ".join(empty))
+        broken = unreadable_parts(weeks)
+        if broken:
+            st.error(
+                f"The text in this PDF could not be read properly — {len(broken)} part "
+                "title(s) came out garbled, so part numbers may be missing too. This "
+                "is a problem with the file's fonts, not its contents. Example: "
+                f"{broken[0][1][:60]!r}",
+                icon=":material/font_download_off:")
+        guessed = guessed_roles(weeks)
+        if guessed:
+            st.warning(
+                f"{len(guessed)} field-ministry part(s) didn't match a known part type, "
+                "so they default to Initial Presentation. Only people with that "
+                "privilege will be offered for them — set the Role below if that's "
+                "wrong: "
+                + ", ".join(f"{label} no. {no}" for label, no, _ in guessed[:4])
+                + ("…" if len(guessed) > 4 else ""),
+                icon=":material/help:")
         if weeks and not any(w.get("month") in ENGLISH_MONTHS for w in weeks.values()):
             st.info("The week headings aren't in English, so sections are guessed from "
                     "part numbers and durations. Check them below.")
