@@ -68,10 +68,12 @@ def generate_slips_pdf(slip_rows, lang):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=18, leftMargin=18,
                             topMargin=18, bottomMargin=18)
-    header_style = ParagraphStyle("SlipHeader", fontSize=8, leading=10,
+    header_style = ParagraphStyle("SlipHeader", fontSize=9.5, leading=12,
                                   alignment=1, fontName=bold)
-    field_style = ParagraphStyle("SlipField", fontSize=9, leading=12, fontName=regular)
-    note_style = ParagraphStyle("SlipNote", fontSize=6.5, leading=8.5, fontName=regular)
+    field_style = ParagraphStyle("SlipField", fontSize=10.5, leading=15,
+                                 fontName=regular)
+    note_style = ParagraphStyle("SlipNote", fontSize=7.5, leading=10,
+                                fontName=regular)
 
     def slip(row):
         filled = row is not None
@@ -109,9 +111,9 @@ def generate_slips_pdf(slip_rows, lang):
             ),
             Spacer(1, 4),
             Paragraph(xml_escape(lang["note"]), note_style),
-            Spacer(1, 2),
-            Paragraph(f"<font color='gray'>{xml_escape(lang['form_code'])}</font>", note_style),
-        ]
+        ] + ([Spacer(1, 2),
+              Paragraph(f"<font color='gray'>{xml_escape(lang['form_code'])}</font>",
+                        note_style)] if lang.get("form_code") else [])
 
     rows = list(slip_rows)
     while len(rows) % 4:

@@ -604,7 +604,8 @@ def load_schedule(meeting_date, meeting_type, schedules_df=None):
         minutes = int(r["minutes"]) if pd.notna(r["minutes"]) else None
         section = r["section"] or default_section(role, meeting_type)
         slot = make_slot(r["part_name"], role, section, part_no, minutes, r["hall"])
-        slot["allow_visitor"] = visitor_allowed(role, r["part_name"])
+        slot["allow_visitor"] = visitor_allowed(role, r["part_name"],
+                                                r["section"])
         slots.append(slot)
         sid = int(r["student_id"]) if pd.notna(r["student_id"]) else None
         aid = int(r["assistant_id"]) if pd.notna(r["assistant_id"]) else None

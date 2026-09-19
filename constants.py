@@ -179,23 +179,22 @@ TRANSLATIONS = {
         "weekend_meeting": "Weekend Meeting",
     },
     "Ga": {
-        "slip_title": "KRISTOWALA AMƐ WALA KƐ NITSUMƆ\nKPEENI NITSUMƆ",
+        "slip_title": "WƆSHIƐMƆ KƐ WƆSHIHILƐ AKƐ KRISTOFOI\nKPEE ASAIMƐNT",
         "name": "Gbɛi:",
-        "assistant": "Mɔ ni yeo boa:",
+        "assistant": "Yelikɛbualɔ:",
         "date": "Gbi:",
-        "part_no": "Nitsumɔ akara:",
-        "to_be_given": "Abaatsɔo mli:",
+        "part_no": "Nifeemɔ Ni Ji:",
+        "to_be_given": "Obaafee yɛ:",
         "main_hall": "Asa 1",
         "aux_1": "Asa 2",
         "aux_2": "Asa 3",
         "note": (
-            "Nilelɔ nɔ ni akɛɛ: Nitsumɔ lɛ he nibii kɛ nikasemɔ nɔ ni kɔ kɛhɔ bo"
-            " lɛ baanyɛ aná yɛ Kristowala Amɛ Wala kɛ Nitsumɔ Kpeeni Wolo lɛ mli."
-            " Ofainɛ kwɛmɔ nitsumɔ lɛ he gbɛtsɔɔmɔi ni yɔɔ Kristowala Amɛ Wala kɛ"
-            " Nitsumɔ Kpeeni Gbɛtsɔɔmɔi (S-38) lɛ mli."
+            "Skulnyo lɛ akadi: Atsɔɔ wolo loo nɔ kroko ni okɛbaatsu onifeemɔ lɛ"
+            " he nii, kɛ nikasemɔ ni esa akɛ otsu he nii lɛ yɛ Wɔshɛimɔ Kɛ"
+            " Wɔshihilɛ Kpee Nifeemɔ Wolo lɛ mli. Ofainɛ kanemɔ onifeemɔ lɔ he"
+            " gbɛtsɔɔmɔi ni yɔɔ Wɔshɛimɔ Kɛ Wɔshihilɛ Kpee Nifeemɔ Wolo lɛ mli."
         ),
-        "form_code": "S-89-GA 11/23",
-        # printed as the heading of the schedule sheet
+        "form_code": "",
         "midweek_meeting": "Wɔshiŋmɔ Kɛ Wɔshihilɛ Kpee",
         "weekend_meeting": "Otsi Naagbee Kpee",
     },

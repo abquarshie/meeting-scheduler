@@ -338,13 +338,16 @@ def test_slip_printing_falls_back_without_a_blank(core):
     own = _text(core.slips_pdf(rows, core.TRANSLATIONS["Ga"], "Ga"))
     assert "Kofi Mensah" in own
 
-    assert "KRISTOWALA" in own                   # our own slip's heading
+    # our own slip's Ga labels are real text and extract cleanly
+    assert "Gbɛi:" in own and "Yelikɛbualɔ:" in own
 
     core.save_template("s89_Ga", "S-89.pdf", S89_BLANK.read_bytes())
     official = _text(core.slips_pdf(rows, core.TRANSLATIONS["Ga"], "Ga"))
-    assert "KPEE ASAIM" in official              # now the real form
-    assert "KRISTOWALA" not in official
-    assert "Kofi Mensah" in official
+    assert "Kofi Mensah" in official             # our values are on the form
+    # the form's own labels come from fonts with no Unicode mapping, so they
+    # cannot be read back — which is how we know this is the real form
+    assert "Yelikɛbualɔ:" not in official
+    assert "KPEE ASAIM" in official
 
     with pytest.raises(core.S89Error):
         core.fill_s89(b"%PDF-1.4\n%%EOF\n", rows)
@@ -379,3 +382,35 @@ def test_songs_print_in_the_sheet_language(core, people):
                                           core.TRANSLATIONS["Ga"]))
     assert "Lala 74" in ga and "Lala 134" in ga
     assert "Song" not in ga
+
+
+def test_guest_prayer_is_weekend_only(core):
+    """A visiting speaker may close the weekend meeting; the midweek closing
+    prayer is always a local brother."""
+    weekend = {(s["role"], s["title"]): s for s in core.default_weekend_slots()}
+    assert weekend[("Prayer", "Closing Prayer")]["allow_visitor"]
+
+    midweek = {(s["role"], s["title"]): s for s in
+               core.build_midweek_slots(core.default_midweek_parts())}
+    assert not midweek[("Prayer", "Closing Prayer")]["allow_visitor"]
+    assert not midweek[("Prayer", "Opening Prayer")]["allow_visitor"]
+
+
+def test_ga_slip_uses_the_printed_wording(core):
+    """The fallback slip carries the form's own labels, and no form code."""
+    ga = core.TRANSLATIONS["Ga"]
+    assert ga["assistant"] == "Yelikɛbualɔ:"
+    assert ga["part_no"] == "Nifeemɔ Ni Ji:"
+    assert ga["to_be_given"] == "Obaafee yɛ:"
+    assert ga["slip_title"].startswith("WƆSHIƐMƆ KƐ WƆSHIHILƐ AKƐ KRISTOFOI")
+    assert ga["form_code"] == ""
+
+    rows = [{"person": "Kofi Mensah", "assistant": None, "part_no": 3,
+             "part_name": "x", "meeting_date": "2026-09-23", "hall": core.MAIN_HALL}]
+    text = _text(core.generate_slips_pdf(rows, ga))
+    assert "Yelikɛbualɔ:" in text and "Nifeemɔ Ni Ji:" in text
+    assert "S-89" not in text                     # the form code is gone
+    assert "Mɔ ni yeo boa" not in text            # the old wording is gone
+
+    english = _text(core.generate_slips_pdf(rows, core.TRANSLATIONS["English"]))
+    assert "S-89-E" in english                    # English still carries its code
