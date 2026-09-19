@@ -29,21 +29,30 @@ def ordered_options(ids, last_dates, keep=None):
 
 
 def person_label_factory(students, last_dates, away=frozenset(), role_dates=None,
-                         family_of=None, suspended=frozenset()):
+                        family_of=None, suspended=frozenset(), details=None):
+    """Labels for the people dropdowns.
+
+    Each reads "🟢 Kofi Mensah — 3 weeks ago, Bible Reading": a colour for how
+    long they have waited, then what they last did. The colour leads because
+    the list is ordered by it, so the eye only has to go as far as the first
+    green.
+    """
     names = dict(zip(students["id"], students["name"]))
     inactive = set(students[students["active"] != 1]["id"])
     tags = dict(zip(students["id"], students["group_list"]))
     fam = dict(zip(students["id"], students["family"]))
+    details = details or {}
 
     def label(pid):
         if pid is None:
-            return "-- Unassigned --"
+            return "— Unassigned —"
         role_last = (role_dates or {}).get(pid)
+        marker, wording = recency(role_last or last_dates.get(pid))
         if role_last:
-            suffix = f"this part: {fmt_date(role_last, short=True)}"
+            what = f"{wording}, this same part"
         else:
-            last = last_dates.get(pid)
-            suffix = f"last: {fmt_date(last, short=True)}" if last else "no parts yet"
+            entry = details.get(pid)
+            what = f"{wording}, {entry[1]}" if entry and entry[1] else wording
         flags = ""
         if pid in inactive:
             flags += " · inactive"
@@ -55,7 +64,7 @@ def person_label_factory(students, last_dates, away=frozenset(), role_dates=None
             flags += f" · {GROUP_TAGS[g]}"
         if family_of is not None and same_family(fam, pid, family_of):
             flags += " · family"
-        return f"{names.get(pid, '?')} ({suffix}{flags})"
+        return f"{marker} {names.get(pid, '?')} — {what}{flags}"
 
     return label
 

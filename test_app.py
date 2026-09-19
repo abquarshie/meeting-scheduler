@@ -35,14 +35,20 @@ def test_create_midweek_with_aux_and_family_assistant(people):
     at = app("Schedule", schedule_mode="Create new")
     ns = f"{TODAY}|Midweek Meeting|default"
     kojo = slot_key(ns, "main_hall", "Initial Presentation", 4, "Initial Presentation")
+    # a field-ministry part is filtered to one category, so choose it first —
+    # the dropdown never offers someone the filter has excluded
+    at.session_state[kojo.replace("|student", "|cat")] = "Brother"
+    run(at)
     at.session_state[kojo] = people["Kojo Mensah"]
     run(at)
     assistant = next(s for s in at.selectbox if s.key == kojo.replace("student", "assistant"))
     assert "(family)" not in assistant.options[1]
     assert "· family" in assistant.options[1]            # family listed first
     at.session_state[kojo.replace("student", "assistant")] = people["Esi Mensah"]
-    at.session_state[slot_key(ns, "aux_1", "Initial Presentation", 4,
-                              "Initial Presentation")] = people["Ama Owusu"]
+    aux_key = slot_key(ns, "aux_1", "Initial Presentation", 4, "Initial Presentation")
+    at.session_state[aux_key.replace("|student", "|cat")] = "Sister"
+    run(at)
+    at.session_state[aux_key] = people["Ama Owusu"]
     run(at)
     button(at, "Save schedule").click()
     run(at)
@@ -300,3 +306,62 @@ def test_schedules_download_as_two_separate_sheets(people, core):
     assert any(l.startswith("Midweek schedule") for l in labels), labels
     assert any(l.startswith("Weekend schedule") for l in labels), labels
     assert not any("Schedule PDF" in l for l in labels)      # no combined file
+
+
+def test_ministry_lists_are_one_category_at_a_time(people, core):
+    """A field-ministry part goes to a sister or to a brother. The list used to
+    hold both; now a category is chosen first and only those names appear."""
+    at = app("Schedule", schedule_mode="Create new")
+    ns = f"{TODAY}|Midweek Meeting|default"
+    key = slot_key(ns, "main_hall", "Initial Presentation", 4, "Initial Presentation")
+
+    at.session_state[key.replace("|student", "|cat")] = "Sister"
+    run(at)
+    box = next(s for s in at.selectbox if s.key == key)
+    offered = [o for o in box.options if o != "— Unassigned —"]
+    assert offered and all("Mensah" not in o or "Esi" in o for o in offered)
+    assert not any("Kojo" in o for o in offered)        # a brother
+    assert any("Ama Owusu" in o for o in offered)       # a sister
+
+    at.session_state[key.replace("|student", "|cat")] = "Brother"
+    run(at)
+    box = next(s for s in at.selectbox if s.key == key)
+    offered = [o for o in box.options if o != "— Unassigned —"]
+    assert any("Kojo" in o for o in offered)
+    assert not any("Ama Owusu" in o for o in offered)
+
+    # a brothers-only part has no category control and no sisters in it
+    reading = slot_key(ns, "main_hall", "Bible Reading", 3, "Bible Reading")
+    box = next(s for s in at.selectbox if s.key == reading)
+    assert not any("Ama Owusu" in o for o in box.options)
+
+
+def test_dropdowns_show_how_long_ago_and_what_it_was(people, core):
+    """Each name carries a colour for how long they have waited and what they
+    last did."""
+    import core as c
+
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    slots = c.build_midweek_slots(c.default_midweek_parts())
+    reading = next(i for i, s in enumerate(slots) if s["role"] == "Bible Reading")
+    recent = (date.today() - timedelta(days=3)).isoformat()
+    core.save_schedule(recent, c.MIDWEEK, slots,
+                       {reading: (people["Nii Tetteh"], None)}, {}, names)
+
+    at = app("Schedule", schedule_mode="Create new")
+    ns = f"{TODAY}|Midweek Meeting|default"
+    key = slot_key(ns, "main_hall", "Bible Reading", 3, "Bible Reading")
+    box = next(s for s in at.selectbox if s.key == key)
+    nii = next(o for o in box.options if "Nii Tetteh" in o)
+    assert nii.startswith("🔴")                       # three days ago
+    # for the very same part the wording says so rather than repeating it
+    assert "this same part" in nii
+
+    kojo = next(o for o in box.options if "Kojo" in o)
+    assert kojo.startswith("⚫") and "no parts yet" in kojo
+
+    # on a different part, the label names what they last did
+    chairman = slot_key(ns, "main_hall", "Chairman", None, "Chairman")
+    box = next(s for s in at.selectbox if s.key == chairman)
+    nii = next(o for o in box.options if "Nii Tetteh" in o)
+    assert nii.startswith("🔴") and "Bible Reading" in nii

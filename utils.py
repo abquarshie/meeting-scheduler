@@ -147,6 +147,23 @@ def make_slot(title, role, section, part_no=None, minutes=None, hall=MAIN_HALL):
     }
 
 
+def recency(last_date, today=None):
+    """(marker, wording) for how long ago a date was."""
+    if not last_date:
+        return NEVER_BAND
+    try:
+        then = datetime.strptime(str(last_date), "%Y-%m-%d").date()
+    except ValueError:
+        return NEVER_BAND
+    days = ((today or date.today()) - then).days
+    if days < 0:
+        return "🔴", "already scheduled"
+    for limit, marker, wording in RECENCY_BANDS:
+        if days <= limit:
+            return marker, wording
+    return RECENCY_BANDS[-1][1], RECENCY_BANDS[-1][2]
+
+
 def slot_label(slot, hall_names=None):
     """hall_names lets printed output name the room in the slip language;
     the interface passes nothing and gets English."""

@@ -788,6 +788,58 @@ def delete_schedule(meeting_date, meeting_type):
     log_change("Schedule deleted", f"{meeting_type} {meeting_date}")
 
 
+def last_assignments(exclude_date):
+    """student_id -> (date, part name, role) of their most recent assignment.
+
+    The date alone doesn't tell the person scheduling what someone last did,
+    which is what decides whether they are due this part or a different one.
+    """
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT DISTINCT ON (pid) pid, meeting_date, part_name, role FROM (
+                   SELECT student_id AS pid, meeting_date, part_name, role
+                     FROM schedules
+                    WHERE student_id IS NOT NULL AND meeting_date != ?
+                   UNION ALL
+                   SELECT assistant_id, meeting_date, part_name, role
+                     FROM schedules
+                    WHERE assistant_id IS NOT NULL AND meeting_date != ?
+               ) recent
+               ORDER BY pid, meeting_date DESC""",
+            (str(exclude_date), str(exclude_date)),
+        ).fetchall()
+    return {pid: (date_, part, role) for pid, date_, part, role in rows}
+
+
+def last_assignment_details(exclude_date):
+    """student_id -> (date, what it was) for their most recent assignment.
+
+    "Bible Reading, 3 weeks ago" says more than a date on its own when you are
+    deciding who to give a part to.
+    """
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT pid, meeting_date, part_name, role, assisted FROM (
+                   SELECT student_id AS pid, meeting_date, part_name, role, 0 AS assisted
+                     FROM schedules
+                    WHERE student_id IS NOT NULL AND meeting_date != ?
+                   UNION ALL
+                   SELECT assistant_id, meeting_date, part_name, role, 1
+                     FROM schedules
+                    WHERE assistant_id IS NOT NULL AND meeting_date != ?
+               ) AS everything
+               ORDER BY meeting_date DESC""",
+            (str(exclude_date), str(exclude_date)),
+        ).fetchall()
+    out = {}
+    for pid, when, part_name, role, assisted in rows:
+        if pid in out:                      # already have this person's latest
+            continue
+        what = (role or part_name or "").strip()
+        out[pid] = (when, f"assisted, {what}" if assisted else what)
+    return out
+
+
 def last_assignment_dates(exclude_date):
     """student_id -> most recent meeting date they had a part or assisted."""
     with get_conn() as conn:

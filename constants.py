@@ -147,6 +147,19 @@ ROLE_LABELS = {
     "Aux Classroom Counselor": "Auxiliary Classroom Counselor",
 }
 
+# How long since someone last had a part, as a coloured band. Streamlit's
+# dropdowns take plain text, so the colour has to be a character.
+# (days since, marker, wording)
+RECENCY_BANDS = [
+    (7, "🔴", "this week"),
+    (14, "🟠", "last week"),
+    (21, "🟡", "2 weeks ago"),
+    (35, "🟢", "3 weeks ago"),
+    (70, "🔵", "a month ago"),
+    (10 ** 6, "⚪", "months ago"),
+]
+NEVER_BAND = ("⚫", "no parts yet")
+
 GA_CHARS = "ɛɔŋƐƆŊ"
 
 # NOTE: the Ga wording below only has its casing fixed. Replace it with the

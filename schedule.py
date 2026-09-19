@@ -131,6 +131,7 @@ def render(students_df, t, selected_lang, aux_default):
     c_show, c_suggest = st.columns([3, 1])
     show_all = c_show.checkbox("Show everyone in every list (ignore privileges and category)")
     last_dates = last_assignment_dates(meeting_date)
+    last_details = last_assignment_details(meeting_date)
     away = get_unavailable(meeting_date)
     suspended = get_suspended(students_df, meeting_date)
     blocked = away | suspended  # never offered for new picks
@@ -214,14 +215,33 @@ def render(students_df, t, selected_lang, aux_default):
                 return
 
         role_dates = last_role_dates(slot["role"])
-        options = ordered_options(
-            eligible_ids(slot["role"], students_df, show_all, away, suspended),
-            role_dates, keep=pre_sid)
+        eligible = eligible_ids(slot["role"], students_df, show_all, away, suspended)
+
+        # A field-ministry part goes to a sister or to a brother, and the app
+        # cannot know which until it is decided — so the list used to hold both.
+        # Choose first, then pick from one category instead of a mixed list.
+        rules = ROLE_RULES.get(slot["role"])
+        mixed = bool(rules) and not rules[1] and slot["student_part"]
+        cols = st.columns(2) if slot["needs_assistant"] else [st.container()]
+        # whoever is chosen right now, which may differ from what was saved
+        current = st.session_state.get(f"{wkey}|student")
+        if mixed and not show_all:
+            want = categories.get(current) or categories.get(pre_sid) or CATEGORIES[1]
+            chosen_category = cols[0].radio(
+                "Category", CATEGORIES, horizontal=True,
+                index=CATEGORIES.index(want) if want in CATEGORIES else 0,
+                key=f"{wkey}|cat", label_visibility="collapsed")
+            eligible = [p for p in eligible
+                        if categories.get(p) == chosen_category]
+
+        # the person already chosen stays in the list whatever the filter says,
+        # or the dropdown would hold a value it no longer offers
+        options = ordered_options(eligible, role_dates,
+                                  keep=current if current is not None else pre_sid)
         if pre_sid not in options:
             pre_sid = None
         label = person_label_factory(students_df, last_dates, away, role_dates,
-                                     suspended=suspended)
-        cols = st.columns(2) if slot["needs_assistant"] else [st.container()]
+                                     suspended=suspended, details=last_details)
         sid = cols[0].selectbox(
             text, options, index=options.index(pre_sid),
             format_func=label, key=f"{wkey}|student",
@@ -235,8 +255,9 @@ def render(students_df, t, selected_lang, aux_default):
                 a_options[1:], key=lambda p: not same_family(families, p, sid))
             if pre_aid not in a_options:
                 pre_aid = None
-            a_label = person_label_factory(students_df, last_dates, away, family_of=sid,
-                                           suspended=suspended)
+            a_label = person_label_factory(students_df, last_dates, away,
+                                           family_of=sid, suspended=suspended,
+                                           details=last_details)
             aid = cols[1].selectbox(
                 "Assistant", a_options, index=a_options.index(pre_aid),
                 format_func=a_label, key=f"{wkey}|assistant",
