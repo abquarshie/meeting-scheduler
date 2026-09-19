@@ -240,12 +240,25 @@ def render(students_df, t, selected_lang, aux_default):
         # Choose first, then pick from one category instead of a mixed list.
         rules = ROLE_RULES.get(slot["role"])
         mixed = bool(rules) and not rules[1] and slot["student_part"]
-        cols = st.columns(2) if slot["needs_assistant"] else [st.container()]
+        needs_assistant = bool(slot["needs_assistant"])
         # whoever is chosen right now, which may differ from what was saved
         current = st.session_state.get(f"{wkey}|student")
+
+        # Labels on one row, dropdowns on the next, so the part and its
+        # assistant always line up. Putting the category control in the left
+        # column pushed that column down and left the two out of step.
+        # two columns only when there is an assistant: a single part already
+        # shares its row with another one, and nesting columns inside that
+        # would leave half of each half empty
+        if needs_assistant:
+            head_left, head_right = st.columns(2)
+            head_right.markdown("**Assistant**")
+        else:
+            head_left, head_right = st.container(), None
+        head_left.markdown(f"**{html_escape(text)}**")
         if mixed and not show_all:
             want = categories.get(current) or categories.get(pre_sid) or CATEGORIES[1]
-            chosen_category = cols[0].radio(
+            chosen_category = head_left.radio(
                 "Category", CATEGORIES, horizontal=True,
                 index=CATEGORIES.index(want) if want in CATEGORIES else 0,
                 key=f"{wkey}|cat", label_visibility="collapsed")
@@ -260,12 +273,14 @@ def render(students_df, t, selected_lang, aux_default):
             pre_sid = None
         label = person_label_factory(students_df, last_dates, away, role_dates,
                                      suspended=suspended, details=last_details)
-        sid = cols[0].selectbox(
-            text, options, index=options.index(pre_sid),
-            format_func=label, key=f"{wkey}|student",
+        pick_left, pick_right = (st.columns(2) if needs_assistant
+                                 else (st.container(), None))
+        sid = pick_left.selectbox(
+            text, options, index=options.index(pre_sid), format_func=label,
+            key=f"{wkey}|student", label_visibility="collapsed",
         )
         aid = None
-        if slot["needs_assistant"]:
+        if needs_assistant:
             pool = assistant_pool(students_df, sid, blocked, show_all)
             a_options = ordered_options(pool, last_dates, keep=pre_aid)
             # family members first (sort is stable, so rotation order is kept)
@@ -276,9 +291,10 @@ def render(students_df, t, selected_lang, aux_default):
             a_label = person_label_factory(students_df, last_dates, away,
                                            family_of=sid, suspended=suspended,
                                            details=last_details)
-            aid = cols[1].selectbox(
+            aid = pick_right.selectbox(
                 "Assistant", a_options, index=a_options.index(pre_aid),
                 format_func=a_label, key=f"{wkey}|assistant",
+                label_visibility="collapsed",
             )
         picks[i] = (sid, aid)
         if slot["role"] == "Public Talk":

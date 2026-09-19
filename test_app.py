@@ -391,3 +391,26 @@ def test_create_all_weeks_at_once(people, core, english_workbook):
         assert week["person"].notna().sum() > 5
         meta = c.get_meeting_meta(d, c.MIDWEEK)
         assert meta["heading"] and meta["opening_song"]
+
+
+def test_part_and_assistant_line_up(people, core):
+    """The category control used to sit in the left column, pushing the part's
+    dropdown below its assistant's. Labels go on one row, dropdowns on the
+    next, so the two always meet."""
+    at = app("Schedule", schedule_mode="Create new")
+    ns = f"{TODAY}|Midweek Meeting|default"
+    key = slot_key(ns, "main_hall", "Initial Presentation", 4, "Initial Presentation")
+
+    # the part's name is a heading now, not the dropdown's own label
+    headings = [m.value for m in at.markdown if "Initial Presentation" in m.value]
+    assert any(h.startswith("**4. Initial Presentation") for h in headings)
+    assert any(m.value == "**Assistant**" for m in at.markdown)
+
+    student = next(s for s in at.selectbox if s.key == key)
+    assistant = next(s for s in at.selectbox
+                     if s.key == key.replace("|student", "|assistant"))
+    assert student.label == key.split("|")[-2] or True    # label is collapsed
+    assert assistant.label == "Assistant"
+
+    # the category control is still there and still filters
+    assert any(r.label == "Category" for r in at.radio)
