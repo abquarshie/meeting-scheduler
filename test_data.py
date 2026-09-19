@@ -358,3 +358,34 @@ def test_migrations_run_again_when_the_schema_changes(core, monkeypatch):
         assert "aux_group" in db.table_columns(conn, "meetings")
 
     assert core.get_meeting_meta("2026-09-16", core.MIDWEEK)["aux_group"] == ""
+
+
+def test_the_same_part_is_not_given_two_meetings_running(core, people):
+    """A chairman this week gets something else next week — unless nobody else
+    qualifies, when filling the part beats leaving it empty."""
+    from datetime import date, timedelta
+
+    slots = core.build_midweek_slots(core.default_midweek_parts())
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    chairman = next(i for i, s in enumerate(slots) if s["role"] == "Chairman")
+    last_week = (date.today() - timedelta(days=7)).isoformat()
+    today = date.today().isoformat()
+
+    core.save_schedule(last_week, core.MIDWEEK, slots,
+                       {chairman: (people["Kofi Mensah"], None)}, {}, names)
+    students = core.get_students()
+
+    role_dates = core.last_role_dates("Chairman")
+    assert core.held_recently(role_dates, people["Kofi Mensah"], today)
+    assert not core.held_recently(role_dates, people["Nii Tetteh"], today)
+
+    picks = core.suggest_assignments(slots, students, set(), today)
+    assert picks[chairman][0] != people["Kofi Mensah"]
+    assert picks[chairman][0] == people["Nii Tetteh"]      # the other chairman
+
+    # with nobody else qualified, the part is filled rather than left empty
+    core.set_suspension(people["Nii Tetteh"], True)
+    students = core.get_students()
+    picks = core.suggest_assignments(
+        slots, students, core.get_suspended(students, today), today)
+    assert picks[chairman][0] == people["Kofi Mensah"]

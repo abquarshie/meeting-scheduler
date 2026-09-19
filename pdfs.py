@@ -325,7 +325,26 @@ def _midweek_block(rows, meta, lang, st_, width, section_titles, hall_names,
         if r.role not in ("Prayer", "Aux Classroom Counselor"):
             row("", role_labels.get(r.role, ""), _clean(r.person))
 
-    classroom = []
+    # the classroom's parts are gathered up front so its section can sit with
+    # the field ministry, where those parts belong, rather than at the very end
+    classroom = sorted((r for r in rows.itertuples() if r.hall != MAIN_HALL),
+                       key=lambda x: int(x.sort_order or 0))
+
+    def classroom_section():
+        title = hall_names.get(AUX_HALL, "")
+        group = _clean(meta.get("aux_group"))
+        if group:
+            title = f"{title} \u2013 {words['group']} {group}"
+        colour = SECTION_COLORS.get("Ministry", "#8A94A0")
+        section(title, colour)
+        if counselor is not None:
+            row("", role_labels.get("Aux Classroom Counselor", ""),
+                _clean(counselor.person))
+        for r in classroom:
+            row(_part_text(r.part_name, r.minutes), "",
+                _people(r.person, r.assistant), colour=colour)
+
+    shown = False
     for name in ("Treasures", "Ministry", "Living"):
         members = by_section.get(name)
         if not members:
@@ -336,11 +355,13 @@ def _midweek_block(rows, meta, lang, st_, width, section_titles, hall_names,
             row(_song_text(meta["middle_song"], words), colour=song_colour)
         for r in members:
             if r.hall != MAIN_HALL:
-                classroom.append(r)
                 continue
             row("" if r.role == "Reader" else _part_text(r.part_name, r.minutes),
                 role_labels.get(r.role, ""), _people(r.person, r.assistant),
                 colour=colour)
+        if name == "Ministry" and classroom and not shown:
+            classroom_section()
+            shown = True
 
     if meta.get("closing_song") or close_prayer is not None:
         row(_song_text(meta.get("closing_song"), words),
@@ -351,20 +372,8 @@ def _midweek_block(rows, meta, lang, st_, width, section_titles, hall_names,
     if counselor is not None and not classroom:
         row("", role_labels.get("Aux Classroom Counselor", ""),
             _clean(counselor.person))
-
-    if classroom:
-        title = hall_names.get(AUX_HALL, "")
-        group = _clean(meta.get("aux_group"))
-        if group:
-            title = f"{title} \u2013 {words['group']} {group}"
-        colour = SECTION_COLORS.get("Ministry", "#8A94A0")
-        section(title, colour)
-        if counselor is not None:
-            row("", role_labels.get("Aux Classroom Counselor", ""),
-                _clean(counselor.person))
-        for r in sorted(classroom, key=lambda x: int(x.sort_order or 0)):
-            row(_part_text(r.part_name, r.minutes), "",
-                _people(r.person, r.assistant), colour=colour)
+    elif classroom and not shown:          # no ministry section on this week
+        classroom_section()
 
     table = Table(data, colWidths=midweek_widths(width))
     table.setStyle(TableStyle(style))

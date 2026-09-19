@@ -315,6 +315,17 @@ def render(students_df, t, selected_lang, aux_default):
         for pid, parts in usage.items():
             if len(parts) > 1:
                 warnings.append(f"{names[pid]} has {len(parts)} parts: {', '.join(parts)}.")
+        for i, val in picks.items():
+            if i >= 10000:
+                continue
+            sid, _ = val
+            if sid is None:
+                continue
+            role = slots[i]["role"]
+            if held_recently(last_role_dates(role), sid, meeting_date):
+                warnings.append(
+                    f"{names[sid]} had '{role}' at the last meeting too — "
+                    "someone else would usually take it this week.")
         for pid in set(usage) & suspended:
             warnings.append(f"{names[pid]} is suspended but still assigned: "
                             f"{', '.join(usage[pid])}.")

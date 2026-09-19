@@ -147,6 +147,11 @@ ROLE_LABELS = {
     "Aux Classroom Counselor": "Auxiliary Classroom Counselor",
 }
 
+# Nobody takes the same part two meetings running: a chairman this week is
+# given something else next week. Held to only when somebody else qualifies —
+# a small congregation would otherwise leave the part empty.
+SAME_ROLE_GAP_DAYS = 10
+
 # How long since someone last had a part, as a coloured band. Streamlit's
 # dropdowns take plain text, so the colour has to be a character.
 # (days since, marker, wording)

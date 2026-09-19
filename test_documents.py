@@ -506,8 +506,10 @@ def test_classroom_has_its_own_section(core, people):
     rows = core.get_schedules()
     text = _text(core.generate_schedule_pdf([("2026-09-16", core.MIDWEEK)], rows))
     assert "Auxiliary classroom 1" in text and "Group 1" in text
-    # the classroom's heading comes after the main hall's last section
-    assert text.index("Living as Christians") < text.index("Auxiliary classroom 1")
+    # the classroom's parts belong with the field ministry, so its heading sits
+    # between that section and Living as Christians
+    assert (text.index("Apply Yourself") < text.index("Auxiliary classroom 1")
+            < text.index("Living as Christians"))
 
     ga = _text(core.generate_schedule_pdf([("2026-09-16", core.MIDWEEK)], rows,
                                           core.TRANSLATIONS["Ga"]))

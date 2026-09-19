@@ -81,8 +81,26 @@ def assistant_pool(students, student_id, away, show_all=False):
             if cats.get(p) == cats.get(student_id) or same_family(fam, p, student_id)]
 
 
+def held_recently(role_dates, pid, meeting_date, gap=SAME_ROLE_GAP_DAYS):
+    """True if this person had this same part within the last `gap` days."""
+    last = role_dates.get(pid)
+    if not last:
+        return False
+    try:
+        then = datetime.strptime(str(last), "%Y-%m-%d").date()
+        when = datetime.strptime(str(meeting_date), "%Y-%m-%d").date()
+    except ValueError:
+        return False
+    return 0 <= (when - then).days <= gap
+
+
 def suggest_assignments(slots, students, away, meeting_date):
-    """Fill each slot with the eligible person idlest for that role. No repeats."""
+    """Fill each slot with the eligible person idlest for that role.
+
+    Nobody takes the same part two meetings running — this week's chairman gets
+    something else next week — unless nobody else qualifies, in which case the
+    part is better filled by a repeat than left empty.
+    """
     used = set()
     last_any = last_assignment_dates(meeting_date)
     picks = {}
@@ -90,6 +108,9 @@ def suggest_assignments(slots, students, away, meeting_date):
         role_dates = last_role_dates(slot["role"])
         ids = [p for p in eligible_ids(slot["role"], students, False, away)
                if p not in used]
+        rested = [p for p in ids
+                  if not held_recently(role_dates, p, meeting_date)]
+        ids = rested or ids           # fall back rather than leave it empty
         if not ids:
             picks[i] = (None, None)
             continue
