@@ -93,6 +93,33 @@ def render(students_df, t, selected_lang, aux_default):
                 st.error(f"That file can't be restored: {exc}")
 
     with tab_settings:
+        st.subheader("Printing")
+        c1, c2 = st.columns(2)
+        congregation = c1.text_input(
+            "Congregation name", get_setting("congregation"),
+            help="Printed at the top of every schedule sheet.")
+        lang = c2.selectbox("Slip and schedule language", list(TRANSLATIONS),
+                            index=list(TRANSLATIONS).index(
+                                get_setting("slip_language", list(TRANSLATIONS)[0])
+                                if get_setting("slip_language") in TRANSLATIONS else
+                                list(TRANSLATIONS)[0]))
+        aux_default = st.toggle(
+            "Auxiliary classroom in use", value=get_setting("use_aux", "1") == "1",
+            help="Default for new midweek schedules. Any week can still differ.")
+        ga_on = st.toggle(
+            "Convert 3 ) N to ɛ ɔ ŋ when saving names",
+            value=get_setting("ga_convert", "0") == "1",
+            help="Turn off if a name genuinely contains 3, ) or a capital N.")
+        if st.button("Save printing settings"):
+            set_setting("congregation", congregation)
+            set_setting("slip_language", lang)
+            set_setting("use_aux", "1" if aux_default else "0")
+            set_setting("ga_convert", "1" if ga_on else "0")
+            st.session_state["slip_lang"] = lang
+            st.success("Saved.")
+            st.rerun()
+
+        st.subheader("Meeting days")
         st.caption("Used to place workbook weeks on the right day in the month view.")
         c1, c2 = st.columns(2)
         mid = c1.selectbox("Midweek meeting day", WEEKDAYS,

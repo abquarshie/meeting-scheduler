@@ -25,7 +25,8 @@ if _theme_src.is_file() and (not _theme_dst.exists()
 
 REQUIRED_FILES = [
     "s140.py", "requirements.txt",
-    "constants.py", "utils.py", "db.py", "parts.py", "workbook.py", "pdfs.py",
+    "constants.py", "utils.py", "db.py", "parts.py", "workbook.py",
+    "sheets_pdf.py", "slips.py",
     "picking.py", "backup.py", "sheets.py", "auth.py", "i18n.py", "core.py",
 ] + [f"{p}.py" for p in (
     "admin", "dashboard", "export", "month", "participants",
@@ -77,23 +78,14 @@ if "menu" not in st.session_state:
 menu = st.session_state["menu"]
 sidebar(menu)
 
+# Settings are kept together on the Admin page; the sidebar holds the one
+# control that is changed while working, and a way out of a stuck form.
+st.session_state.setdefault("slip_lang",
+                            get_setting("slip_language", list(TRANSLATIONS)[0]))
+aux_default = get_setting("use_aux", "1") == "1"
 with st.sidebar.expander(tr("settings"), icon=":material/settings:"):
-    # slip language only affects two pages, so it sits with the other settings
     st.selectbox(tr("slip_language"), list(TRANSLATIONS), key="slip_lang")
-    aux_setting = get_setting("use_aux", "1") == "1"
-    aux_default = st.toggle(
-        "Auxiliary classroom in use", value=aux_setting,
-        help="Default for new midweek schedules. Any single week can still be switched off.",
-    )
-    if aux_default != aux_setting:
-        set_setting("use_aux", "1" if aux_default else "0")
-    ga_setting = get_setting("ga_convert", "0") == "1"
-    ga_on = st.toggle(
-        "Convert 3 ) N to ɛ ɔ ŋ when saving names", value=ga_setting,
-        help="Turn off if a name genuinely contains 3, ) or a capital N mid-word.",
-    )
-    if ga_on != ga_setting:
-        set_setting("ga_convert", "1" if ga_on else "0")
+    st.caption("Congregation name, meeting days and the rest are on the Admin page.")
     if st.button("Clear filters and unsaved picks", icon=":material/restart_alt:",
                  type="tertiary"):
         keep = {k: st.session_state[k]

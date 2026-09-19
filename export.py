@@ -40,9 +40,11 @@ def render(students_df, t, selected_lang, aux_default):
     month_meetings = sorted(m for m in midweek if m[0].startswith(month))
     st.caption("Weeks: " + ", ".join(fmt_date(m[0]) for m in month_meetings))
 
-    c1, c2 = st.columns(2)
-    congregation = c1.text_input("Congregation name", get_setting("congregation"))
-    group_label = c2.text_input(
+    congregation = get_setting("congregation")
+    if not congregation:
+        st.warning("Set the congregation name under Admin → Meeting days "
+                   "before filling the S-140.", icon=":material/settings:")
+    group_label = st.text_input(
         "Group label", get_setting("group_label", "GROUP"),
         help="Only used for weeks without the auxiliary classroom.")
     template = st.file_uploader("Blank S-140 template (.docx)", type=["docx"])
@@ -59,7 +61,6 @@ def render(students_df, t, selected_lang, aux_default):
         file_name="data.json", mime="application/json", width="stretch",
     )
     if template is not None and data["weeks"]:
-        set_setting("congregation", congregation)
         set_setting("group_label", group_label)
         try:
             docx_bytes = fill_s140(template.getvalue(), data, widen=widen)

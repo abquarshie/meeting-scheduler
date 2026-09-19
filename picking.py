@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Who can take a part, rotation order and automatic suggestions."""
-from pdfs import *  # noqa: F401,F403
+from slips import *  # noqa: F401,F403
 
 
 # =============================================================================
@@ -131,3 +131,29 @@ def suggest_assignments(slots, students, away, meeting_date):
                 used.add(aid)
         picks[i] = (sid, aid)
     return picks
+
+
+def create_week(meeting_date, label, week, students, aux_on, group=""):
+    """Build one midweek schedule from a workbook week and fill it in.
+
+    The monthly job was: create, fill, save, repeat. This does one week end to
+    end so a whole month can be laid down in one go and then reviewed, which is
+    the part that actually needs a person.
+    """
+    slots = apply_aux(build_midweek_slots(week["parts"]), aux_on)
+    away = get_unavailable(meeting_date) | get_suspended(students, meeting_date)
+    picks = suggest_assignments(slots, students, away, meeting_date)
+    songs = week.get("songs") or []
+    meta = {
+        "heading": label,
+        "book": week.get("book", ""),
+        "aux": aux_on,
+        "aux_group": group,
+        "opening_song": songs[0] if len(songs) > 0 else "",
+        "middle_song": songs[1] if len(songs) > 1 else "",
+        "closing_song": songs[2] if len(songs) > 2 else "",
+    }
+    names = dict(zip(students["id"], students["name"]))
+    save_schedule(meeting_date, MIDWEEK, slots, picks, meta, names)
+    filled = sum(1 for sid, _ in picks.values() if sid)
+    return filled, len(slots)

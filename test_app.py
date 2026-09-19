@@ -130,7 +130,7 @@ def test_month_view_create_button_and_downloads(people, core, english_workbook):
     at = app("Month", month_view_month="2026-09")
     table = at.dataframe[0].value
     assert "not created yet" in " ".join(table["Heading"])
-    assert len(at.get("download_button")) == 2
+    assert any(b.label == "Print this month" for b in at.button)
     button(at, "Create 23 Sep").click()
     run(at)
     assert at.session_state["menu"] == "Schedule"
@@ -301,7 +301,7 @@ def test_schedules_download_as_two_separate_sheets(people, core):
     assert midweek == [("2026-09-16", c.MIDWEEK)]
     assert weekend == [("2026-09-20", c.WEEKEND)]
 
-    at = app("Month", month_view_month="2026-09")
+    at = app("View Schedules", print_scope="A whole month", print_month="2026-09")
     labels = [b.label for b in at.get("download_button")]
     assert any(l.startswith("Midweek schedule") for l in labels), labels
     assert any(l.startswith("Weekend schedule") for l in labels), labels
@@ -365,3 +365,29 @@ def test_dropdowns_show_how_long_ago_and_what_it_was(people, core):
     box = next(s for s in at.selectbox if s.key == chairman)
     nii = next(o for o in box.options if "Nii Tetteh" in o)
     assert nii.startswith("🔴") and "Bible Reading" in nii
+
+
+def test_create_all_weeks_at_once(people, core, english_workbook):
+    """The monthly job was create, fill, save, repeat. One button lays the
+    whole month down so the work left is checking it."""
+    import core as c
+
+    weeks, _, _ = c.parse_brochure(english_workbook)
+    c.save_workbook(c.assign_dates(weeks, date(2026, 9, 14)), "en.pdf")
+    c.set_setting("midweek_day", "Wednesday")
+    assert core.get_schedules().empty
+
+    at = app("Month", month_view_month="2026-09")
+    assert any(b.label.startswith("Create all") for b in at.button)
+    button(at, "Create all 2 weeks").click()
+    run(at)
+
+    rows = core.get_schedules()
+    made = sorted({d for d, t_ in c.saved_meetings(rows)})
+    assert made == ["2026-09-16", "2026-09-23"]
+    # each week came out filled, not empty
+    for d in made:
+        week = rows[rows["meeting_date"] == d]
+        assert week["person"].notna().sum() > 5
+        meta = c.get_meeting_meta(d, c.MIDWEEK)
+        assert meta["heading"] and meta["opening_song"]

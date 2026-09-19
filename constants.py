@@ -169,44 +169,21 @@ GA_CHARS = "ɛɔŋƐƆŊ"
 
 # NOTE: the Ga wording below only has its casing fixed. Replace it with the
 # exact text printed on the official Ga S-89 so the slips match the paper form.
+# Wording that appears on the printed schedule sheets. The slips are printed
+# on the official blank S-89, so its own wording lives on that form and is not
+# copied here.
 TRANSLATIONS = {
     "English": {
-        "slip_title": "OUR CHRISTIAN LIFE AND MINISTRY\nMEETING ASSIGNMENT",
-        "name": "Name:",
-        "assistant": "Assistant:",
-        "date": "Date:",
-        "part_no": "Part no.:",
-        "to_be_given": "To be given in:",
         "main_hall": "Main hall",
         "aux_1": "Auxiliary classroom 1",
         "aux_2": "Auxiliary classroom 2",
-        "note": (
-            "Note to student: The source material and study point for your"
-            " assignment can be found in the Life and Ministry Meeting Workbook."
-            " Please review the instructions for the part as outlined in"
-            " Instructions for Our Christian Life and Ministry Meeting (S-38)."
-        ),
-        "form_code": "S-89-E 11/23",
         "midweek_meeting": "Midweek Meeting",
         "weekend_meeting": "Weekend Meeting",
     },
     "Ga": {
-        "slip_title": "WƆSHIƐMƆ KƐ WƆSHIHILƐ AKƐ KRISTOFOI\nKPEE ASAIMƐNT",
-        "name": "Gbɛ́i:",
-        "assistant": "Yelikɛbualɔ:",
-        "date": "Deeti:",
-        "part_no": "Nifeemɔ Ni Ji:",
-        "to_be_given": "Obaafee yɛ:",
         "main_hall": "Asa 1",
         "aux_1": "Asa 2",
         "aux_2": "Asa 3",
-        "note": (
-            "Skulnyo lɛ akadi: Atsɔɔ wolo loo nɔ kroko ni okɛbaatsu onifeemɔ lɛ"
-            " he nii, kɛ nikasemɔ ni esa akɛ otsu he nii lɛ yɛ Wɔshiɛmɔ Kɛ"
-            " Wɔshihilɛ Kpee Nifeemɔ Wolo lɛ mli. Ofainɛ kanemɔ onifeemɔ lɔ he"
-            " gbɛtsɔɔmɔi ni yɔɔ Wɔshiɛmɔ Kɛ Wɔshihilɛ Kpee Nifeemɔ Wolo lɛ mli."
-        ),
-        "form_code": "",
         "midweek_meeting": "Wɔshiɛmɔ Kɛ Wɔshihilɛ Kpee",
         "weekend_meeting": "Otsi Naagbee Kpee",
     },

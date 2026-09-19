@@ -13,19 +13,6 @@ def _text(pdf_bytes):
     return "\n".join(p.extract_text() for p in pypdf.PdfReader(io.BytesIO(pdf_bytes)).pages)
 
 
-def test_slips_escape_names_and_tick_rooms(core):
-    rows = [
-        {"person": "Ama & <Kofi>", "assistant": "Ɛfua Ɔsei", "part_no": 4,
-         "part_name": "x", "meeting_date": "2026-09-16", "hall": core.MAIN_HALL},
-        {"person": "Nii Ŋmɛnɛ", "assistant": None, "part_no": 5,
-         "part_name": "x", "meeting_date": "2026-09-16", "hall": core.AUX_HALL},
-    ]
-    text = _text(core.generate_slips_pdf(rows, core.TRANSLATIONS["Ga"]))
-    assert "Ama & <Kofi>" in text
-    assert "16 September 2026" in text
-    assert text.count("[X]") == 2   # blank spare slips stay unticked
-
-
 def _full_week(core, people, aux=True):
     weeks = {"W": {"parts": core.default_midweek_parts()}}
     slots = core.apply_aux(core.build_midweek_slots(weeks["W"]["parts"]), aux)
@@ -118,12 +105,9 @@ def test_a_second_auxiliary_classroom_flows_through(core):
     rows = core.get_schedules()
     assert set(rows["hall"]) == {"main_hall", "aux_1", "aux_2"}
 
-    # the slip ticks the third box, not the first
+    # the slip data carries the third room through
     slip_rows = core.slip_rows_for(rows)
     assert {r["hall"] for r in slip_rows} >= {"aux_1", "aux_2"}
-    text = _text(core.generate_slips_pdf(slip_rows, core.TRANSLATIONS["English"]))
-    assert "Auxiliary classroom 2" in text
-    assert text.count("[X]") == len(slip_rows)     # every slip has a room ticked
 
     # the part label names the room it is in
     label = core.slot_label({**reading, "hall": "aux_2"})
@@ -330,28 +314,19 @@ def test_official_s89_is_filled_not_redrawn(core):
 
 
 @pytest.mark.skipif(not S89_BLANK.is_file(), reason="blank S-89 not in the repo")
-def test_slip_printing_falls_back_without_a_blank(core):
-    """No blank stored, or a PDF that isn't the S-89: print our own slip rather
-    than failing the download."""
+@pytest.mark.skipif(not S89_BLANK.is_file(), reason="blank S-89 not in the repo")
+def test_slips_need_the_official_blank(core):
+    """The app no longer draws its own imitation of the form: without the blank
+    it says so, rather than printing something that only looks official."""
     rows = [{"person": "Kofi Mensah", "assistant": None, "part_no": 3,
              "part_name": "x", "meeting_date": "2026-09-23", "hall": core.MAIN_HALL}]
-    own = _text(core.slips_pdf(rows, core.TRANSLATIONS["Ga"], "Ga"))
-    assert "Kofi Mensah" in own
-
-    # our own slip's Ga labels are real text and extract cleanly
-    assert "Gbɛ\u0301i:" in own and "Yelikɛbualɔ:" in own
+    with pytest.raises(core.S89Error) as raised:
+        core.slips_pdf(rows, core.TRANSLATIONS["Ga"], "Ga")
+    assert "Admin" in str(raised.value)          # says where to put it
 
     core.save_template("s89_Ga", "S-89.pdf", S89_BLANK.read_bytes())
     official = _text(core.slips_pdf(rows, core.TRANSLATIONS["Ga"], "Ga"))
-    assert "Kofi Mensah" in official             # our values are on the form
-    # the form's own labels come from fonts with no Unicode mapping, so they
-    # cannot be read back — which is how we know this is the real form
-    assert "Yelikɛbualɔ:" not in official
-    assert "KPEE ASAIM" in official
-
-    with pytest.raises(core.S89Error):
-        core.fill_s89(b"%PDF-1.4\n%%EOF\n", rows)
-
+    assert "Kofi Mensah" in official and "KPEE ASAIM" in official
 
 def test_midweek_column_widths(core):
     """One column set for every week. The part title needs the room the
@@ -393,29 +368,6 @@ def test_guest_prayer_is_weekend_only(core):
     assert not midweek[("Prayer", "Opening Prayer")]["allow_visitor"]
 
 
-def test_ga_slip_uses_the_printed_wording(core):
-    """The fallback slip carries the form's own labels, and no form code."""
-    ga = core.TRANSLATIONS["Ga"]
-    assert ga["assistant"] == "Yelikɛbualɔ:"
-    assert ga["name"] == "Gbɛ\u0301i:" and ga["date"] == "Deeti:"
-    assert ga["part_no"] == "Nifeemɔ Ni Ji:"
-    assert ga["to_be_given"] == "Obaafee yɛ:"
-    assert ga["slip_title"].startswith("WƆSHIƐMƆ KƐ WƆSHIHILƐ AKƐ KRISTOFOI")
-    assert ga["form_code"] == ""
-
-    rows = [{"person": "Kofi Mensah", "assistant": None, "part_no": 3,
-             "part_name": "x", "meeting_date": "2026-09-23", "hall": core.MAIN_HALL}]
-    text = _text(core.generate_slips_pdf(rows, ga))
-    assert "Yelikɛbualɔ:" in text and "Nifeemɔ Ni Ji:" in text
-    assert "Deeti:" in text and "Gbɛ\u0301i:" in text
-    assert "S-89" not in text                     # the form code is gone
-    assert "Mɔ ni yeo boa" not in text            # the old wording is gone
-
-    english = _text(core.generate_slips_pdf(rows, core.TRANSLATIONS["English"]))
-    assert "S-89-E" in english                    # English still carries its code
-
-
-@pytest.mark.skipif(not S89_BLANK.is_file(), reason="blank S-89 not in the repo")
 def test_s89_edge_cases(core):
     """Zero rows, one row, and a wrong file — the three ways the uploader and
     the print button can be used that are not the happy path."""

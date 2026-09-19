@@ -73,6 +73,34 @@ def render(students_df, t, selected_lang, aux_default):
 
     if to_create:
         st.markdown("**Workbook weeks without a schedule**")
+        if len(to_create) > 1:
+            with st.container(border=True):
+                st.write(f"{len(to_create)} weeks this month have no schedule. "
+                         "They can be created and filled in one go, then checked "
+                         "week by week — the suggestions follow the same rotation "
+                         "as the Suggest button.")
+                use_aux = st.checkbox("Auxiliary classroom in these weeks",
+                                      value=aux_default, key="bulk_aux")
+                group = ""
+                if use_aux:
+                    group = nfc(st.text_input("Group using the classroom",
+                                              key="bulk_group", placeholder="e.g. 1"))
+                if st.button(f"Create all {len(to_create)} weeks",
+                             icon=":material/auto_awesome_motion:", type="primary"):
+                    made = []
+                    for md, label in to_create:
+                        week = workbook.get(label)
+                        if not week:
+                            continue
+                        filled, total = create_week(md, label, week, students_df,
+                                                    use_aux, group)
+                        made.append(f"{fmt_date(md, short=True)} ({filled}/{total})")
+                    if made:
+                        st.success("Created " + ", ".join(made)
+                                   + ". Open each week to check it before printing.")
+                        st.rerun()
+                    else:
+                        st.warning("Those weeks are no longer in the workbook.")
         cols = st.columns(min(len(to_create), 4))
         for i, (md, label) in enumerate(to_create):
             if cols[i % len(cols)].button(f"Create {fmt_date(md, short=True)}",
@@ -82,40 +110,8 @@ def render(students_df, t, selected_lang, aux_default):
                    new_meeting_type=MIDWEEK,
                    new_meeting_date=datetime.strptime(md, "%Y-%m-%d").date())
 
-    if in_month.empty:
-        return
+    st.divider()
 
     st.divider()
-    st.subheader("Print the whole month")
-    c1, c2, c3 = st.columns(3)
-    slips = slip_rows_for(in_month)
-    if slips:
-        c1.download_button(
-            f"All {len(slips)} S-89 slips ({selected_lang})", icon=":material/receipt_long:",
-            data=slips_pdf(slips, t, selected_lang),
-            file_name=f"S89_slips_{month}_{selected_lang}.pdf",
-            mime="application/pdf", width="stretch",
-        )
-    else:
-        c1.info("No student parts assigned this month.")
-
-    # the midweek and weekend sheets print separately
-    month_meetings = sorted(saved_meetings(in_month))
-    midweek, weekend = split_by_type(month_meetings)
-    two_up = False
-    if len(midweek) > 1:
-        two_up = st.checkbox(
-            "Two midweek weeks per sheet", value=True, key="month_two_up",
-            help="A week using the auxiliary classroom still prints on its own "
-                 "sheet — it is too tall to pair without shrinking it.")
-    for column, picked, label in ((c2, midweek, "Midweek"), (c3, weekend, "Weekend")):
-        if not picked:
-            column.info(f"No {label.lower()} meeting this month.")
-            continue
-        column.download_button(
-            f"{label} schedule ({len(picked)})", icon=":material/print:",
-            data=generate_schedule_pdf(picked, schedules_df, t,
-                                       compact=two_up and label == "Midweek"),
-            file_name=f"{label.lower()}_schedule_{month}.pdf",
-            mime="application/pdf", width="stretch", key=f"month_dl_{label}",
-        )
+    if st.button("Print this month", icon=":material/print:"):
+        go("View Schedules", print_scope="A whole month", print_month=month)
