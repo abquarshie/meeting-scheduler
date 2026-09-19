@@ -414,3 +414,32 @@ def test_ga_slip_uses_the_printed_wording(core):
 
     english = _text(core.generate_slips_pdf(rows, core.TRANSLATIONS["English"]))
     assert "S-89-E" in english                    # English still carries its code
+
+
+@pytest.mark.skipif(not S89_BLANK.is_file(), reason="blank S-89 not in the repo")
+def test_s89_edge_cases(core):
+    """Zero rows, one row, and a wrong file — the three ways the uploader and
+    the print button can be used that are not the happy path."""
+    import io
+
+    import pypdf
+
+    blank = S89_BLANK.read_bytes()
+
+    # no assignments at all still prints one sheet of blanks, not zero pages
+    empty = core.fill_s89(blank, [])
+    assert len(pypdf.PdfReader(io.BytesIO(empty)).pages) == 1
+
+    one = core.fill_s89(blank, [{"person": "Kofi Mensah", "assistant": None,
+                                 "part_no": 3, "part_name": "x",
+                                 "meeting_date": "2026-09-23",
+                                 "hall": core.MAIN_HALL}])
+    assert len(pypdf.PdfReader(io.BytesIO(one)).pages) == 1
+    assert "Kofi Mensah" in _text(one)
+
+    # checking a template does not render it
+    assert core.check_s89_template(blank) == 4
+    with pytest.raises(core.S89Error):
+        core.check_s89_template(b"not a pdf at all")
+    with pytest.raises(core.S89Error):
+        core.check_s89_template(b"%PDF-1.4\n%%EOF\n")

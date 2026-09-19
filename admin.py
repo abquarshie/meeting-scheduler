@@ -59,12 +59,13 @@ def render(students_df, t, selected_lang, aux_default):
                                      key=f"up_s89_{language}")
             if blank is not None:
                 try:
-                    fill_s89(blank.getvalue(), [])      # check it before storing
+                    per_page = check_s89_template(blank.getvalue())
                 except S89Error as exc:
                     st.error(str(exc))
                 else:
                     save_template(f"s89_{language}", blank.name, blank.getvalue())
-                    st.success(f"Saved the {language} blank form.")
+                    st.success(f"Saved the {language} blank form — "
+                               f"{per_page} slip(s) per page.")
                     st.rerun()
 
         st.subheader("Backup file")

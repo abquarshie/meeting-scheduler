@@ -467,8 +467,9 @@ def fill_s89(template_bytes, slip_rows, lang=None):
 
     out = pymupdf.open()
     rows = list(slip_rows)
-    while len(rows) % per_page:
-        rows.append(None)                       # spare blanks fill the sheet
+    while not rows or len(rows) % per_page:
+        rows.append(None)       # spare blanks fill the sheet; none at all
+                                # still prints one sheet rather than no pages
 
     for start in range(0, len(rows), per_page):
         out.insert_pdf(template, from_page=0, to_page=0)
@@ -499,6 +500,31 @@ def fill_s89(template_bytes, slip_rows, lang=None):
         for widget in list(page.widgets() or []):
             page.delete_widget(widget)
     return out.tobytes()
+
+
+def check_s89_template(template_bytes):
+    """Raise S89Error unless this looks like the fillable blank S-89.
+
+    Used before storing an upload, so a wrong file is refused at the point it
+    is chosen rather than when someone tries to print.
+    """
+    try:
+        import pymupdf
+    except ImportError as exc:                              # pragma: no cover
+        raise S89Error("PyMuPDF is needed to read the official form.") from exc
+    try:
+        doc = pymupdf.open(stream=template_bytes, filetype="pdf")
+        widgets = sorted(doc[0].widgets(),
+                         key=lambda w: int(w.field_name.split("_")[1]))
+    except Exception as exc:
+        raise S89Error(
+            "This file couldn't be read as the fillable S-89 blank form: "
+            f"{str(exc)[:120]}") from exc
+    if len(widgets) < 7:
+        raise S89Error(
+            f"Expected the S-89's form fields; found {len(widgets)}. "
+            "Upload the fillable blank form, not a scan or a printout.")
+    return len(widgets) // 7
 
 
 def slips_pdf(slip_rows, lang, language_name):
