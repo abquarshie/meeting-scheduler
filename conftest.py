@@ -29,6 +29,7 @@ def fresh_db(monkeypatch):
     db._schema_ready.clear()
     db._all_settings.clear()
     db._role_dates.clear()
+    db._student_part_dates.clear()
     import workbook
     workbook._workbook.clear()
     with psycopg.connect(DSN, autocommit=True) as raw:

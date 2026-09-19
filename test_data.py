@@ -389,3 +389,63 @@ def test_the_same_part_is_not_given_two_meetings_running(core, people):
     picks = core.suggest_assignments(
         slots, students, core.get_suspended(students, today), today)
     assert picks[chairman][0] == people["Kofi Mensah"]
+
+
+def test_suggest_keeps_what_is_already_chosen(core, people):
+    """Suggest used to compute a pick for every slot and override whatever was
+    there — five parts done by hand were silently replaced."""
+    slots = core.build_midweek_slots(core.default_midweek_parts())
+    today = date.today().isoformat()
+    students = core.get_students()
+    chairman = next(i for i, s in enumerate(slots) if s["role"] == "Chairman")
+    reading = next(i for i, s in enumerate(slots) if s["role"] == "Bible Reading")
+
+    picks = core.suggest_assignments(
+        slots, students, set(), today,
+        skip={chairman: (people["Nii Tetteh"], None)})
+    assert picks[chairman] is None            # left alone, not overwritten
+    assert picks[reading][0] is not None      # the empty one was filled
+
+    # and the reserved person is not handed a second part
+    chosen = [p for i, v in picks.items() if v for p in v if p]
+    assert people["Nii Tetteh"] not in chosen
+
+
+def test_hardest_slots_are_filled_first(core):
+    """Taken in page order, an early slot with many candidates can take the one
+    person qualified for a later one and leave that part empty."""
+    # Kofi can chair or conduct; Yaw can only chair
+    core.add_student("Kofi Mensah", "Brother", ["Chairman", "Bible Study Conductor"])
+    core.add_student("Yaw Adjei", "Brother", ["Chairman"])
+    students = core.get_students()
+    ids = dict(zip(students["name"], students["id"]))
+    slots = core.build_midweek_slots(core.default_midweek_parts())
+    chairman = next(i for i, s in enumerate(slots) if s["role"] == "Chairman")
+    cbs = next(i for i, s in enumerate(slots) if s["role"] == "Bible Study Conductor")
+
+    picks = core.suggest_assignments(slots, students, set(), date.today().isoformat())
+    assert picks[cbs][0] == ids["Kofi Mensah"]      # the only conductor
+    assert picks[chairman][0] == ids["Yaw Adjei"]   # so the chair goes to Yaw
+
+
+def test_ministry_parts_count_as_one_for_taking_turns(core, people):
+    """Initial Presentation, Making Disciples and Explaining Your Beliefs are
+    separate roles, so a same-part rule let one person take all three on
+    consecutive weeks."""
+    from datetime import timedelta
+
+    slots = core.build_midweek_slots(core.default_midweek_parts())
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    ip = next(i for i, s in enumerate(slots) if s["role"] == "Initial Presentation")
+    last_week = (date.today() - timedelta(days=7)).isoformat()
+    core.save_schedule(last_week, core.MIDWEEK, slots,
+                       {ip: (people["Ama Owusu"], None)}, {}, names)
+
+    recent = core.last_student_part_dates()
+    assert people["Ama Owusu"] in recent
+
+    md = next(i for i, s in enumerate(slots) if s["role"] == "Making Disciples")
+    picks = core.suggest_assignments(slots, core.get_students(), set(),
+                                     date.today().isoformat())
+    # a different ministry part the very next week goes to somebody else
+    assert picks[md][0] != people["Ama Owusu"]

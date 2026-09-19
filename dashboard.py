@@ -91,8 +91,11 @@ def render(students_df, t, selected_lang, aux_default):
                     f'<div class="ms-open-label">{word if open_n else "Every part is filled"}</div>',
                     unsafe_allow_html=True)
                 if st.button("Fill open slots" if open_n else "Edit schedule",
-                             icon=":material/edit:", type="primary" if open_n else "secondary",
-                             width="stretch", key="home_fill"):
+                             icon=":material/edit:",
+                             type="primary" if open_n else "secondary",
+                             width="stretch", key="home_fill",
+                             help="Suggest fills only the empty ones; anyone "
+                                  "already chosen stays." if open_n else None):
                     go("Schedule", schedule_mode="Edit saved", edit_meeting=(md, mt))
                 if st.button("Print slips", icon=":material/print:", width="stretch",
                              key="home_print"):

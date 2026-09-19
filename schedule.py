@@ -145,14 +145,32 @@ def render(students_df, t, selected_lang, aux_default):
         st.caption("Suspended (not offered): "
                    + ", ".join(sorted(names[p] for p in suspended if p in names)))
 
-    sugg_key = f"suggest|{meeting_date}|{meeting_type}|{source}"
-    if c_suggest.button(tr("suggest"), icon=":material/auto_awesome:", width="stretch",
-                        help="Fill empty slots with whoever has waited longest for each part."):
-        st.session_state[sugg_key] = suggest_assignments(
-            slots, students_df, blocked, meeting_date)
-    suggested = st.session_state.get(sugg_key, {})
-
     ns = f"{meeting_date}|{meeting_type}|{source}"
+    sugg_key = f"suggest|{meeting_date}|{meeting_type}|{source}"
+
+    def already_filled():
+        """{slot: (person, assistant)} for slots that already have someone,
+        whether saved earlier or chosen a moment ago."""
+        taken = {}
+        for i, slot in enumerate(slots):
+            wkey = (f"{ns}|{slot['hall']}|{slot['role']}|{slot['part_no']}"
+                    f"|{slot['title']}")
+            saved = saved_picks.get(slot_match_key(slot), (None, None))
+            sid = st.session_state.get(f"{wkey}|student", saved[0])
+            aid = st.session_state.get(f"{wkey}|assistant", saved[1])
+            if sid is not None:
+                taken[i] = (sid, aid)
+        return taken
+
+    if c_suggest.button(tr("suggest"), icon=":material/auto_awesome:", width="stretch",
+                        help="Fills only the empty slots. Anyone already chosen "
+                             "stays, and is not suggested anywhere else."):
+        st.session_state[sugg_key] = suggest_assignments(
+            slots, students_df, blocked, meeting_date, skip=already_filled())
+    # a slot left out of the suggestion carries None, so it keeps what it had
+    suggested = {i: v for i, v in st.session_state.get(sugg_key, {}).items()
+                 if v is not None}
+
     with st.expander("Meeting details (used on the S-140)", expanded=False):
         m1, m2 = st.columns(2)
         meta_in = {
@@ -294,6 +312,21 @@ def render(students_df, t, selected_lang, aux_default):
                     pending = None
 
     st.markdown("---")
+    # how much is left, where the Save button is, rather than only on Home
+    needed = sum(1 + int(bool(s_["needs_assistant"])) for s_ in slots)
+    done = 0
+    for i, s_ in enumerate(slots):
+        sid, aid = picks.get(i, (None, None)) if i in picks else (None, None)
+        if isinstance(sid, str):                # a visitor typed by hand
+            sid, aid = None, None
+        done += int(sid is not None)
+        done += int(bool(s_["needs_assistant"]) and aid is not None)
+    done += sum(1 for i, v in picks.items() if i >= 10000 and nfc(str(v)))
+    left = max(needed - done, 0)
+    st.progress(done / needed if needed else 1.0,
+                text=(f"{done} of {needed} filled — {left} still open" if left
+                      else f"All {needed} filled"))
+
     b1, b2 = st.columns([1, 1])
     if b1.button(tr("save_schedule"), icon=":material/save:", type="primary", width="stretch"):
         errors, warnings = [], []

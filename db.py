@@ -879,6 +879,34 @@ def _role_dates(schema_name):
 def _forget_schedules():
     """Call after anything that changes the schedules table."""
     _role_dates.clear()
+    _student_part_dates.clear()
+
+
+@st.cache_data(show_spinner=False)
+def _student_part_dates(schema_name):
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT pid, MAX(meeting_date) FROM (
+                   SELECT student_id AS pid, meeting_date, role FROM schedules
+                    WHERE student_id IS NOT NULL
+                   UNION ALL
+                   SELECT assistant_id, meeting_date, role FROM schedules
+                    WHERE assistant_id IS NOT NULL
+               ) AS everything
+               WHERE role = ANY(%s)
+               GROUP BY pid""",
+            (list(STUDENT_ROLES),)).fetchall()
+    return {pid: when for pid, when in rows}
+
+
+def last_student_part_dates(exclude_date=None):
+    """student_id -> when they last had any field-ministry part or assisted.
+
+    The ministry parts are separate roles, so "not the same part twice" lets
+    someone take a different one each week. Turn-taking needs them counted
+    together.
+    """
+    return _student_part_dates(schema())
 
 
 def last_role_dates(role):

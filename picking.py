@@ -94,22 +94,58 @@ def held_recently(role_dates, pid, meeting_date, gap=SAME_ROLE_GAP_DAYS):
     return 0 <= (when - then).days <= gap
 
 
-def suggest_assignments(slots, students, away, meeting_date):
+def recent_student_part(students_parts, pid, meeting_date, gap=SAME_ROLE_GAP_DAYS):
+    """True if this person had any field-ministry part recently.
+
+    The ministry parts are separate roles, so a rule about the identical part
+    lets someone take Initial Presentation, then Making Disciples, then
+    Explaining Your Beliefs on three consecutive weeks. For taking turns, what
+    matters is that they had a student part at all.
+    """
+    return held_recently(students_parts, pid, meeting_date, gap)
+
+
+def suggest_assignments(slots, students, away, meeting_date, skip=None):
     """Fill each slot with the eligible person idlest for that role.
 
+    Slots are filled most-constrained first: taken in page order, an early slot
+    with many candidates can take the only person qualified for a later one and
+    leave that part empty. skip holds slots that already have someone, whose
+    people are reserved so a suggestion cannot double-book them.
+
     Nobody takes the same part two meetings running — this week's chairman gets
-    something else next week — unless nobody else qualifies, in which case the
-    part is better filled by a repeat than left empty.
+    something else next week, and the field-ministry parts count as one for that
+    purpose — unless nobody else qualifies, when filling beats leaving it empty.
     """
     used = set()
     last_any = last_assignment_dates(meeting_date)
+    student_parts = last_student_part_dates(meeting_date)
     picks = {}
-    for i, slot in enumerate(slots):
+
+    # whoever is already chosen stays chosen, and is reserved so a suggestion
+    # cannot hand them a second part in the same meeting
+    for i, pair in (skip or {}).items():
+        if i >= len(slots):
+            continue
+        picks[i] = None
+        for pid in (pair if isinstance(pair, (tuple, list)) else (pair,)):
+            if pid is not None:
+                used.add(pid)
+    order = sorted(
+        (i for i in range(len(slots)) if i not in (skip or {})),
+        key=lambda i: len(eligible_ids(slots[i]["role"], students, False, away)))
+
+    for i in order:
+        slot = slots[i]
         role_dates = last_role_dates(slot["role"])
         ids = [p for p in eligible_ids(slot["role"], students, False, away)
                if p not in used]
-        rested = [p for p in ids
-                  if not held_recently(role_dates, p, meeting_date)]
+        if slot["student_part"]:
+            rested = [p for p in ids
+                      if not recent_student_part(student_parts, p, meeting_date)]
+        else:
+            rested = [p for p in ids
+                      if not held_recently(role_dates, p, meeting_date)]
         ids = rested or ids           # fall back rather than leave it empty
         if not ids:
             picks[i] = (None, None)
