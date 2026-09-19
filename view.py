@@ -78,10 +78,21 @@ def render(students_df, t, selected_lang, aux_default):
     chosen = st.multiselect("Meetings to include", meetings, default=[selected],
                             format_func=meeting_label)
     if chosen:
-        chosen = sorted(chosen)
-        st.download_button(
-            "Download schedule PDF", icon=":material/print:",
-            data=generate_schedule_pdf(chosen, schedules_df, t),
-            file_name=f"schedule_{chosen[0][0]}_to_{chosen[-1][0]}.pdf",
-            mime="application/pdf",
-        )
+        midweek, weekend = split_by_type(chosen)
+        st.caption("The midweek and weekend sheets download separately.")
+        c1, c2 = st.columns(2)
+        for column, picked, label in ((c1, midweek, "Midweek"),
+                                      (c2, weekend, "Weekend")):
+            if not picked:
+                column.button(f"{label} schedule", disabled=True, width="stretch",
+                              help=f"No {label.lower()} meeting selected above.",
+                              key=f"no_{label}")
+                continue
+            span = (picked[0][0] if len(picked) == 1
+                    else f"{picked[0][0]}_to_{picked[-1][0]}")
+            column.download_button(
+                f"{label} schedule ({len(picked)})", icon=":material/print:",
+                data=generate_schedule_pdf(picked, schedules_df, t),
+                file_name=f"{label.lower()}_schedule_{span}.pdf",
+                mime="application/pdf", width="stretch", key=f"dl_{label}",
+            )

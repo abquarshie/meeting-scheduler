@@ -276,3 +276,28 @@ def test_a_past_meeting_day_is_not_offered(core, english_workbook, monkeypatch):
     monkeypatch.setattr(dashboard, "date", Tuesday)
     _, when = dashboard.next_unscheduled_week(schedules)
     assert when == dt.date(2026, 9, 16)      # still offered while it is ahead
+
+
+def test_schedules_download_as_two_separate_sheets(people, core):
+    """Midweek and weekend print separately — they are different documents for
+    different people."""
+    import core as c
+
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    mid = c.build_midweek_slots(c.default_midweek_parts())
+    core.save_schedule("2026-09-16", c.MIDWEEK, mid,
+                       {0: (people["Kofi Mensah"], None)}, {}, names)
+    wknd = c.default_weekend_slots()
+    core.save_schedule("2026-09-20", c.WEEKEND, wknd,
+                       {0: (people["Yaw Adjei"], None)}, {}, names)
+
+    midweek, weekend = c.split_by_type(
+        [("2026-09-20", c.WEEKEND), ("2026-09-16", c.MIDWEEK)])
+    assert midweek == [("2026-09-16", c.MIDWEEK)]
+    assert weekend == [("2026-09-20", c.WEEKEND)]
+
+    at = app("Month", month_view_month="2026-09")
+    labels = [b.label for b in at.get("download_button")]
+    assert any(l.startswith("Midweek schedule") for l in labels), labels
+    assert any(l.startswith("Weekend schedule") for l in labels), labels
+    assert not any("Schedule PDF" in l for l in labels)      # no combined file

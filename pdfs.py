@@ -527,6 +527,18 @@ def check_s89_template(template_bytes):
     return len(widgets) // 7
 
 
+def split_by_type(meetings):
+    """(midweek, weekend) from a mixed list, each sorted by date.
+
+    The two sheets are printed separately: they are different documents for
+    different people, and nobody wants to pull one apart to hand out.
+    """
+    ordered = sorted(meetings)
+    midweek = [m for m in ordered if m[1] == MIDWEEK]
+    weekend = [m for m in ordered if m[1] != MIDWEEK]
+    return midweek, weekend
+
+
 def slips_pdf(slip_rows, lang, language_name):
     """The official blank if one is stored for this language, else our own."""
     blank, _ = load_template(f"s89_{language_name}")

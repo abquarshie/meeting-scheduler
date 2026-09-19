@@ -87,7 +87,7 @@ def render(students_df, t, selected_lang, aux_default):
 
     st.divider()
     st.subheader("Print the whole month")
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     slips = slip_rows_for(in_month)
     if slips:
         c1.download_button(
@@ -98,12 +98,20 @@ def render(students_df, t, selected_lang, aux_default):
         )
     else:
         c1.info("No student parts assigned this month.")
+
+    # the midweek and weekend sheets print separately
     month_meetings = sorted(saved_meetings(in_month))
-    c2.download_button(
-        f"Schedule PDF ({len(month_meetings)} meetings)", icon=":material/print:",
-        data=generate_schedule_pdf(month_meetings, schedules_df, t),
-        file_name=f"schedule_{month}.pdf", mime="application/pdf", width="stretch",
-    )
+    midweek, weekend = split_by_type(month_meetings)
+    for column, picked, label in ((c2, midweek, "Midweek"), (c3, weekend, "Weekend")):
+        if not picked:
+            column.info(f"No {label.lower()} meeting this month.")
+            continue
+        column.download_button(
+            f"{label} schedule ({len(picked)})", icon=":material/print:",
+            data=generate_schedule_pdf(picked, schedules_df, t),
+            file_name=f"{label.lower()}_schedule_{month}.pdf",
+            mime="application/pdf", width="stretch", key=f"month_dl_{label}",
+        )
 
     st.subheader("Reminders for the month")
     blocks = []
