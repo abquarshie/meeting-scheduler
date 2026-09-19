@@ -102,13 +102,20 @@ def render(students_df, t, selected_lang, aux_default):
     # the midweek and weekend sheets print separately
     month_meetings = sorted(saved_meetings(in_month))
     midweek, weekend = split_by_type(month_meetings)
+    two_up = False
+    if len(midweek) > 1:
+        two_up = st.checkbox(
+            "Two midweek weeks per sheet", value=True, key="month_two_up",
+            help="A week using the auxiliary classroom still prints on its own "
+                 "sheet — it is too tall to pair without shrinking it.")
     for column, picked, label in ((c2, midweek, "Midweek"), (c3, weekend, "Weekend")):
         if not picked:
             column.info(f"No {label.lower()} meeting this month.")
             continue
         column.download_button(
             f"{label} schedule ({len(picked)})", icon=":material/print:",
-            data=generate_schedule_pdf(picked, schedules_df, t),
+            data=generate_schedule_pdf(picked, schedules_df, t,
+                                       compact=two_up and label == "Midweek"),
             file_name=f"{label.lower()}_schedule_{month}.pdf",
             mime="application/pdf", width="stretch", key=f"month_dl_{label}",
         )

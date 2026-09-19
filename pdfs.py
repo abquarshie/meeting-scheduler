@@ -166,24 +166,49 @@ def _lang_name(lang):
     return "English"
 
 
-def _sheet_styles(regular, bold):
-    """One place for the look of both sheets."""
+# Compact mode never shrinks the type. Two ordinary weeks fit on one A4 at full
+# size once the banner stops repeating and the row padding tightens. A week
+# with an auxiliary classroom will not: its paired names wrap in the two narrow
+# name columns, which makes it about a third taller. Those weeks print one to a
+# page rather than being reduced to fit.
+COMPACT_ROW_PAD = 1.5
+COMPACT_PER_PAGE = 2          # ordinary weeks per sheet; classroom weeks get one
+
+
+def _sheet_styles(regular, bold, compact=False, scale=None):
+    """One place for the look of both sheets.
+
+    compact squeezes a midweek week to about two thirds of its height so two
+    fit on one A4. Everything shrinks together — type, leading and padding —
+    because taking it out of any one of them alone shows.
+    """
+    k = 1.0                       # compact tightens spacing, never the type
     return {
-        "title": ParagraphStyle("T", fontName=bold, fontSize=16, leading=19),
-        "cong": ParagraphStyle("C", fontName=bold, fontSize=11, leading=19,
-                               alignment=TA_RIGHT, textColor=MUTED),
-        "when": ParagraphStyle("W", fontName=bold, fontSize=11.5, leading=15,
-                               textColor=ACCENT, spaceBefore=10, spaceAfter=3),
-        "section": ParagraphStyle("S", fontName=bold, fontSize=12, leading=16),
-        "part": ParagraphStyle("P", fontName=regular, fontSize=9, leading=12,
+        "title": ParagraphStyle("T", fontName=bold, fontSize=16 * k,
+                                leading=19 * k),
+        "cong": ParagraphStyle("C", fontName=bold, fontSize=11 * k,
+                               leading=19 * k, alignment=TA_RIGHT, textColor=MUTED),
+        "when": ParagraphStyle("W", fontName=bold, fontSize=11.5 * k,
+                               leading=15 * k, textColor=ACCENT,
+                               spaceBefore=5 if compact else 10,
+                               spaceAfter=2 if compact else 3),
+        "section": ParagraphStyle("S", fontName=bold, fontSize=12 * k,
+                                  leading=16 * k),
+        "part": ParagraphStyle("P", fontName=regular, fontSize=9 * k,
+                               leading=(12 * k * 0.98 if compact else 12),
                                leftIndent=11, firstLineIndent=-11),
-        "name": ParagraphStyle("N", fontName=regular, fontSize=9, leading=12),
-        "label": ParagraphStyle("L", fontName=bold, fontSize=8, leading=12,
+        "name": ParagraphStyle("N", fontName=regular, fontSize=9 * k,
+                               leading=(12 * k * 0.98 if compact else 12)),
+        "label": ParagraphStyle("L", fontName=bold, fontSize=8 * k,
+                                leading=(12 * k * 0.98 if compact else 12),
                                 alignment=TA_RIGHT, textColor=MUTED),
-        "sub": ParagraphStyle("U", fontName=bold, fontSize=7, leading=9,
+        "sub": ParagraphStyle("U", fontName=bold, fontSize=7 * k, leading=9 * k,
                               textColor=MUTED),
-        "theme": ParagraphStyle("H", fontName=regular, fontSize=9, leading=12,
+        "theme": ParagraphStyle("H", fontName=regular, fontSize=9 * k,
+                                leading=(12 * k * 0.98 if compact else 12),
                                 textColor=MUTED, leftIndent=11),
+        "_compact": compact,
+        "_scale": k,
     }
 
 
@@ -250,10 +275,12 @@ def _midweek_block(rows, meta, lang, st_, width, section_titles, hall_names,
     aux_week = bool((rows["hall"] != MAIN_HALL).any())
     n_cols = 4 if aux_week else 3
     widths = midweek_widths(width, aux_week)
+    tight = st_.get("_compact")
+    row_pad = COMPACT_ROW_PAD if tight else 2.5
     data, style = [], [
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 2.5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+        ("TOPPADDING", (0, 0), (-1, -1), row_pad),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), row_pad),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
     ]
@@ -285,7 +312,7 @@ def _midweek_block(rows, meta, lang, st_, width, section_titles, hall_names,
             f'<font color="{colour}">{xml_escape(section_titles.get(name, name))}</font>',
             st_["section"])]))
         i = len(data) - 1
-        style.extend([("SPAN", (0, i), (-1, i)), ("TOPPADDING", (0, i), (-1, i), 10)])
+        style.extend([("SPAN", (0, i), (-1, i)), ("TOPPADDING", (0, i), (-1, i), 5 if tight else 10)])
         return colour
 
     by_section = {}
@@ -550,9 +577,10 @@ def slips_pdf(slip_rows, lang, language_name):
     return generate_slips_pdf(slip_rows, lang)
 
 
-def generate_schedule_pdf(meetings, schedules_df, lang=None):
+def generate_schedule_pdf(meetings, schedules_df, lang=None, compact=False):
     """A printable sheet per meeting: the midweek running order, or the
-    weekend programme. lang is a TRANSLATIONS entry; None means English."""
+    weekend programme. lang is a TRANSLATIONS entry; None means English.
+    compact tightens the midweek sheet so two weeks fit on one A4."""
     lang = lang or TRANSLATIONS["English"]
     name = _lang_name(lang)
     section_titles = SECTION_TITLES_BY_LANG.get(name, SECTION_TITLES)
@@ -564,35 +592,74 @@ def generate_schedule_pdf(meetings, schedules_df, lang=None):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=36, leftMargin=36,
                             topMargin=36, bottomMargin=36)
-    st_ = _sheet_styles(regular, bold)
+    st_ = _sheet_styles(regular, bold, compact)
     width = A4[0] - 72
     congregation = get_setting("congregation", "")
     story = []
 
-    for meeting_date, meeting_type in meetings:
+    def uses_classroom(meeting_date, meeting_type):
         rows = schedules_df[(schedules_df["meeting_date"] == meeting_date)
                             & (schedules_df["meeting_type"] == meeting_type)]
-        if rows.empty:
-            continue
-        meta = get_meeting_meta(meeting_date, meeting_type)
-        midweek = meeting_type == MIDWEEK
-        meeting_name = lang.get("midweek_meeting" if midweek else "weekend_meeting",
-                                meeting_type)
-        block = [_banner(meeting_name, congregation, width, st_)]
-        heading = _clean(meta.get("book")) or _clean(meta.get("heading"))
-        when = fmt_date(meeting_date)
-        block.append(Paragraph(
-            xml_escape(when) + (f"&nbsp;&nbsp;|&nbsp;&nbsp;{xml_escape(heading)}"
-                                if heading else ""), st_["when"]))
-        if midweek:
-            block.append(_midweek_block(rows, meta, lang, st_, width,
-                                        section_titles, hall_names, role_labels,
-                                        words))
-        else:
-            block.append(_weekend_block(rows, meta, lang, st_, width,
-                                        section_titles, role_labels, words))
-        block.append(Spacer(1, 18))
-        story.append(KeepTogether(block))
+        return bool((rows["hall"] != MAIN_HALL).any())
+
+    def sheets(items):
+        """Meetings grouped into printed sheets.
+
+        Without compact, one per sheet as before. With it, ordinary midweek
+        weeks pair up and a classroom week takes a sheet of its own — at full
+        size either way, because shrinking one to fit costs more than the page.
+        """
+        if not compact:
+            return [[m] for m in items]
+        out, current = [], []
+        for m in items:
+            if m[1] == MIDWEEK and uses_classroom(*m):
+                if current:
+                    out.append(current)
+                    current = []
+                out.append([m])
+                continue
+            current.append(m)
+            if len(current) == COMPACT_PER_PAGE:
+                out.append(current)
+                current = []
+        if current:
+            out.append(current)
+        return out
+
+    for page_number, page_meetings in enumerate(sheets(list(meetings))):
+        if page_number:
+            story.append(PageBreak())
+        banner_shown = None      # each sheet is headed by the meeting name
+        for meeting_date, meeting_type in page_meetings:
+            rows = schedules_df[(schedules_df["meeting_date"] == meeting_date)
+                                & (schedules_df["meeting_type"] == meeting_type)]
+            if rows.empty:
+                continue
+            meta = get_meeting_meta(meeting_date, meeting_type)
+            midweek = meeting_type == MIDWEEK
+            meeting_name = lang.get("midweek_meeting" if midweek else "weekend_meeting",
+                                    meeting_type)
+            # the meeting name and congregation head the sheet once, not once per
+            # week; a document with both kinds gets one banner for each kind
+            block = []
+            if meeting_name != banner_shown:
+                block.append(_banner(meeting_name, congregation, width, st_))
+                banner_shown = meeting_name
+            heading = _clean(meta.get("book")) or _clean(meta.get("heading"))
+            when = fmt_date(meeting_date)
+            block.append(Paragraph(
+                xml_escape(when) + (f"&nbsp;&nbsp;|&nbsp;&nbsp;{xml_escape(heading)}"
+                                    if heading else ""), st_["when"]))
+            if midweek:
+                block.append(_midweek_block(rows, meta, lang, st_, width,
+                                            section_titles, hall_names, role_labels,
+                                            words))
+            else:
+                block.append(_weekend_block(rows, meta, lang, st_, width,
+                                            section_titles, role_labels, words))
+            block.append(Spacer(1, 10 if compact else 18))
+            story.append(KeepTogether(block))
 
     doc.build(story)
     return buffer.getvalue()

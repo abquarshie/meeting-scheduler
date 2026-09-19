@@ -80,6 +80,12 @@ def render(students_df, t, selected_lang, aux_default):
     if chosen:
         midweek, weekend = split_by_type(chosen)
         st.caption("The midweek and weekend sheets download separately.")
+        two_up = False
+        if len(midweek) > 1:
+            two_up = st.checkbox(
+                "Two midweek weeks per sheet", value=True, key="midweek_two_up",
+                help="A week using the auxiliary classroom still prints on its "
+                     "own sheet — it is too tall to pair without shrinking it.")
         c1, c2 = st.columns(2)
         for column, picked, label in ((c1, midweek, "Midweek"),
                                       (c2, weekend, "Weekend")):
@@ -92,7 +98,8 @@ def render(students_df, t, selected_lang, aux_default):
                     else f"{picked[0][0]}_to_{picked[-1][0]}")
             column.download_button(
                 f"{label} schedule ({len(picked)})", icon=":material/print:",
-                data=generate_schedule_pdf(picked, schedules_df, t),
+                data=generate_schedule_pdf(picked, schedules_df, t,
+                                           compact=two_up and label == "Midweek"),
                 file_name=f"{label.lower()}_schedule_{span}.pdf",
                 mime="application/pdf", width="stretch", key=f"dl_{label}",
             )

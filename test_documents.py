@@ -146,7 +146,7 @@ def test_printed_schedule_is_fully_ga(core, people):
 
     # section headings, meeting name and room label all in Ga
     assert "Nyɔŋmɔ Wiemɔ" in text and "Hii Shi Akɛ Kristofonyo" in text
-    assert "Wɔshiŋmɔ" in text
+    assert "Wɔshiɛmɔ" in text
     assert "Asa 2" in text                         # the auxiliary classroom
 
     for english in ("Treasures From God", "Living as Christians",
@@ -443,3 +443,58 @@ def test_s89_edge_cases(core):
         core.check_s89_template(b"not a pdf at all")
     with pytest.raises(core.S89Error):
         core.check_s89_template(b"%PDF-1.4\n%%EOF\n")
+
+
+def _midweek_week(core, date_iso, aux, people):
+    slots = core.apply_aux(core.build_midweek_slots(core.default_midweek_parts()), aux)
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    picks = {i: (people["Kofi Mensah"],
+                 people["Ama Owusu"] if s["needs_assistant"] else None)
+             for i, s in enumerate(slots)}
+    core.save_schedule(date_iso, core.MIDWEEK, slots, picks,
+                       {"aux": aux, "aux_group": "1" if aux else "",
+                        "opening_song": "Song 74", "middle_song": "Song 142",
+                        "closing_song": "Song 134"}, names)
+
+
+def _pages(pdf_bytes):
+    import io
+
+    import pypdf
+
+    return len(pypdf.PdfReader(io.BytesIO(pdf_bytes)).pages)
+
+
+def test_two_ordinary_weeks_share_a_sheet_at_full_size(core, people):
+    """Compact pairs ordinary weeks without shrinking anything; a classroom
+    week is too tall to pair, so it keeps its own sheet rather than being
+    reduced to fit."""
+    _midweek_week(core, "2026-09-09", False, people)
+    _midweek_week(core, "2026-09-16", False, people)
+    rows = core.get_schedules()
+    both = [("2026-09-09", core.MIDWEEK), ("2026-09-16", core.MIDWEEK)]
+    assert _pages(core.generate_schedule_pdf(both, rows, compact=True)) == 1
+    assert _pages(core.generate_schedule_pdf(both, rows)) == 2      # off by default
+
+    # the type is the same size either way
+    one = core.generate_schedule_pdf([both[0]], rows)
+    assert "Treasures From God" in _text(one)
+    paired = _text(core.generate_schedule_pdf(both, rows, compact=True))
+    assert paired.count("Treasures From God") == 2
+
+
+def test_classroom_weeks_keep_their_own_sheet(core, people):
+    _midweek_week(core, "2026-09-09", True, people)
+    _midweek_week(core, "2026-09-16", True, people)
+    rows = core.get_schedules()
+    both = [("2026-09-09", core.MIDWEEK), ("2026-09-16", core.MIDWEEK)]
+    assert _pages(core.generate_schedule_pdf(both, rows, compact=True)) == 2
+
+    # mixed: an ordinary week cannot pair across a classroom week, because the
+    # weeks have to stay in date order
+    _midweek_week(core, "2026-09-23", False, people)
+    _midweek_week(core, "2026-09-30", False, people)
+    rows = core.get_schedules()
+    mixed = [("2026-09-09", core.MIDWEEK), ("2026-09-16", core.MIDWEEK),
+             ("2026-09-23", core.MIDWEEK), ("2026-09-30", core.MIDWEEK)]
+    assert _pages(core.generate_schedule_pdf(mixed, rows, compact=True)) == 3
