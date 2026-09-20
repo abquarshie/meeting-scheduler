@@ -433,7 +433,21 @@ def generate_schedule_pdf(meetings, schedules_df, lang=None, compact=False):
         size either way, because shrinking one to fit costs more than the page.
         """
         if not compact:
-            return [[m] for m in items]
+            # Weekend weeks are short, so they flow and four share one A4.
+            # Midweek weeks get a sheet each unless two-up is asked for: that
+            # is what the checkbox is choosing between.
+            out, current = [], []
+            for m in items:
+                if m[1] == MIDWEEK:
+                    if current:
+                        out.append(current)
+                        current = []
+                    out.append([m])
+                else:
+                    current.append(m)
+            if current:
+                out.append(current)
+            return out
         out, current = [], []
         for m in items:
             if m[1] == MIDWEEK and uses_classroom(*m):

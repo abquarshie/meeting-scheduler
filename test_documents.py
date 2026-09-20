@@ -654,3 +654,27 @@ def test_unfilled_parts_print_a_dash(core, people):
                                             core.get_schedules()))
     assert "Kofi Mensah" in text
     assert "\u2014" in text                      # the unfilled parts
+
+
+def test_weeks_flow_onto_a_sheet_rather_than_one_each(core, people):
+    """Four weekend weeks share one A4. Grouping every meeting separately for
+    the two-up work put a page break between each of them instead."""
+    import io
+
+    import pypdf
+
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    dates = ["2026-10-03", "2026-10-10", "2026-10-17", "2026-10-24"]
+    for d in dates:
+        slots = core.default_weekend_slots()
+        core.save_schedule(d, core.WEEKEND, slots,
+                           {i: (people["Kofi Mensah"], None)
+                            for i in range(len(slots))},
+                           {"talk_number": "73", "talk_title": "A title"}, names)
+    rows = core.get_schedules()
+    meetings = [(d, core.WEEKEND) for d in dates]
+
+    pdf = core.generate_schedule_pdf(meetings, rows)
+    assert len(pypdf.PdfReader(io.BytesIO(pdf)).pages) == 1
+    # and the meeting name heads the sheet once, not once per week
+    assert _text(pdf).count("Weekend Meeting") == 1
