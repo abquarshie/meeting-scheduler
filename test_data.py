@@ -472,14 +472,18 @@ def test_recency_is_measured_from_the_meeting_not_today(core):
     """Working on week 2 of October, "last week" means week 1 of October
     however long afterwards you open it."""
     meeting = "2026-10-14"
+    # three states in traffic-light order; the words carry the exact distance
+    assert core.recency("2026-10-12", meeting) == ("🔴", "this week")
     assert core.recency("2026-10-07", meeting) == ("🔴", "last week")
     assert core.recency("2026-09-30", meeting) == ("🟡", "2 weeks ago")
-    assert core.recency("2026-09-23", meeting) == ("🔵", "3 weeks ago")
+    assert core.recency("2026-09-23", meeting) == ("🟡", "3 weeks ago")
     assert core.recency("2026-09-16", meeting) == ("🟢", "4 weeks ago")
-    assert core.recency("2026-08-12", meeting)[0] == "⚪"
+    assert core.recency("2026-08-12", meeting)[0] == "🟢"
     assert core.recency(None, meeting) == core.NEVER_BAND
-    # the same dates read differently against a later meeting
-    assert core.recency("2026-10-07", "2026-11-11")[0] == "⚪"
+    # never had a part ranks with the longest wait, not against it
+    assert core.NEVER_BAND[0] == "🟢"
+    # the same date reads differently against a later meeting
+    assert core.recency("2026-10-07", "2026-11-11")[0] == "🟢"
 
 
 def test_setup_checklist_clears_as_things_are_done(core, people):

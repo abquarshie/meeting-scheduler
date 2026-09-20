@@ -157,15 +157,20 @@ SAME_ROLE_GAP_DAYS = 10
 # (days since, marker, wording)
 # How recently someone had a part, counted in weeks back from the meeting being
 # scheduled — not from today, so reopening an old week reads as it did then.
+#
+# Three states in traffic-light order, because the colour is answering one
+# question: was this person on recently? How long ago exactly is already spelt
+# out in words beside the name, and five colours meant remembering whether blue
+# ranked above or below yellow.
 # (weeks before this one, marker, wording)
 RECENCY_BANDS = [
     (1, "🔴", "last week"),
     (2, "🟡", "2 weeks ago"),
-    (3, "🔵", "3 weeks ago"),
+    (3, "🟡", "3 weeks ago"),
     (4, "🟢", "4 weeks ago"),
 ]
-LONG_AGO = ("⚪", "over a month ago")
-NEVER_BAND = ("⚪", "no parts yet")
+LONG_AGO = ("🟢", "over a month ago")
+NEVER_BAND = ("🟢", "no parts yet")
 THIS_WEEK = ("🔴", "this week")
 
 GA_CHARS = "ɛɔŋƐƆŊ"

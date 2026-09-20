@@ -139,9 +139,19 @@ def _clean(value):
     return str(value).strip()
 
 
+UNFILLED = "\u2014"          # an em dash: nobody assigned yet
+
+
 def _people(person, assistant):
+    """The name, or a dash when the part has nobody.
+
+    A blank cell reads as a fault in the sheet rather than as a part still to
+    be filled, and these go up on a noticeboard.
+    """
     person, assistant = _clean(person), _clean(assistant)
-    return f"{person} & {assistant}" if person and assistant else person
+    if person and assistant:
+        return f"{person} & {assistant}"
+    return person or UNFILLED
 
 
 def midweek_widths(width):
@@ -238,12 +248,13 @@ def _midweek_block(rows, meta, lang, st_, width, section_titles, hall_names,
     if meta.get("opening_song") or open_prayer is not None:
         row(_song_text(meta.get("opening_song"), words),
             role_labels.get("Prayer", ""),
-            _clean(open_prayer.person) if open_prayer is not None else "",
+            (_clean(open_prayer.person) or UNFILLED)
+            if open_prayer is not None else "",
             colour=song_colour)
     for r in opening:
         # the counselor belongs with the classroom's own section below
         if r.role not in ("Prayer", "Aux Classroom Counselor"):
-            row("", role_labels.get(r.role, ""), _clean(r.person))
+            row("", role_labels.get(r.role, ""), _clean(r.person) or UNFILLED)
 
     # the classroom's parts are gathered up front so its section can sit with
     # the field ministry, where those parts belong, rather than at the very end
@@ -259,7 +270,7 @@ def _midweek_block(rows, meta, lang, st_, width, section_titles, hall_names,
         section(title, colour)
         if counselor is not None:
             row("", role_labels.get("Aux Classroom Counselor", ""),
-                _clean(counselor.person))
+                _clean(counselor.person) or UNFILLED)
         for r in classroom:
             row(_part_text(r.part_name, r.minutes), "",
                 _people(r.person, r.assistant), colour=colour)
@@ -286,12 +297,13 @@ def _midweek_block(rows, meta, lang, st_, width, section_titles, hall_names,
     if meta.get("closing_song") or close_prayer is not None:
         row(_song_text(meta.get("closing_song"), words),
             role_labels.get("Prayer", ""),
-            _clean(close_prayer.person) if close_prayer is not None else "",
+            (_clean(close_prayer.person) or UNFILLED)
+            if close_prayer is not None else "",
             colour=song_colour)
 
     if counselor is not None and not classroom:
         row("", role_labels.get("Aux Classroom Counselor", ""),
-            _clean(counselor.person))
+            _clean(counselor.person) or UNFILLED)
     elif classroom and not shown:          # no ministry section on this week
         classroom_section()
 

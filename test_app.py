@@ -358,7 +358,7 @@ def test_dropdowns_show_how_long_ago_and_what_it_was(people, core):
     assert "this same part" in nii
 
     kojo = next(o for o in box.options if "Kojo" in o)
-    assert kojo.startswith("⚪") and "no parts yet" in kojo
+    assert kojo.startswith("🟢") and "no parts yet" in kojo
 
     # on a different part, the label names what they last did
     chairman = slot_key(ns, "main_hall", "Chairman", None, "Chairman")

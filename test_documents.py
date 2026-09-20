@@ -640,3 +640,17 @@ def test_s140_top_line_and_group(core, people):
     for cell in top_cells[:2]:
         run = next(r for r in cell.iter(qn("w:r")))
         assert run.find(qn("w:rPr")) is not None
+
+
+def test_unfilled_parts_print_a_dash(core, people):
+    """An empty cell on a noticeboard reads as a fault in the sheet; a dash
+    reads as a part still to be filled."""
+    slots = core.build_midweek_slots(core.default_midweek_parts())
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    chairman = next(i for i, s in enumerate(slots) if s["role"] == "Chairman")
+    core.save_schedule("2026-09-16", core.MIDWEEK, slots,
+                       {chairman: (people["Kofi Mensah"], None)}, {}, names)
+    text = _text(core.generate_schedule_pdf([("2026-09-16", core.MIDWEEK)],
+                                            core.get_schedules()))
+    assert "Kofi Mensah" in text
+    assert "\u2014" in text                      # the unfilled parts
