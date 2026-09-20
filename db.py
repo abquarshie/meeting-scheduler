@@ -315,7 +315,7 @@ def init_db():
                 key TEXT PRIMARY KEY,
                 value TEXT
             )""")
-        # Upgrade databases created by the first version of the app.
+        # Columns added by later versions of the app.
         _add_missing_columns(conn, "students", {
             "active": "INTEGER DEFAULT 1",
             "family": "TEXT",
@@ -369,29 +369,7 @@ def init_db():
             )""")
         conn.execute("UPDATE schedules SET hall = 'main_hall' WHERE hall IS NULL")
         conn.execute("UPDATE students SET active = 1 WHERE active IS NULL")
-        conn.execute("""
-            UPDATE schedules
-               SET student_id = (SELECT s.id FROM students s
-                                  WHERE s.name = schedules.assigned_person LIMIT 1)
-             WHERE student_id IS NULL AND assigned_person IS NOT NULL""")
-        legacy = conn.execute(
-            "SELECT id, part_name, meeting_type FROM schedules WHERE role IS NULL"
-        ).fetchall()
-        for row_id, part_name, meeting_type in legacy:
-            role = infer_role(part_name)
-            section = default_section(role, meeting_type)
-            if role == "Prayer" and meeting_type != WEEKEND:
-                section = "Closing" if "clos" in (part_name or "").lower() else "Opening"
-            conn.execute(
-                """UPDATE schedules SET role = ?, section = COALESCE(section, ?),
-                       student_part = ?, needs_assistant = ?, sort_order = id
-                   WHERE id = ?""",
-                (role, section, int(role in STUDENT_ROLES),
-                 int(role in ASSISTANT_ROLES), row_id),
-            )
-        # the weekend meeting has its own chairman role
-        conn.execute("""UPDATE schedules SET role = 'Weekend Chairman'
-                         WHERE meeting_type = ? AND role = 'Chairman'""", (WEEKEND,))
+
 
 
 @st.cache_data(show_spinner=False)
@@ -645,6 +623,38 @@ def load_template(name):
 
 def template_names():
     return sorted(_templates(schema()))
+
+
+BACKUP_REMINDER_DAYS = 14
+
+
+def days_since_backup():
+    """Whole days since a backup file was downloaded, or None if never."""
+    stamp = get_setting("last_export", "")
+    if not stamp:
+        return None
+    try:
+        return (date.today() - datetime.strptime(stamp, "%Y-%m-%d").date()).days
+    except ValueError:
+        return None
+
+
+def backup_overdue():
+    """(overdue, days) — the database is the only copy until one is taken."""
+    days = days_since_backup()
+    if days is None:
+        return True, None
+    return days >= BACKUP_REMINDER_DAYS, days
+
+
+def status_text():
+    """What the sidebar says about storage."""
+    try:
+        with get_conn() as conn:
+            conn.execute("SELECT 1")
+    except Exception as exc:
+        return "error", f"Database unreachable: {str(exc)[:120]}"
+    return "success", "Database connected."
 
 
 def fill_counts(rows):

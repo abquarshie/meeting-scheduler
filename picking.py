@@ -6,11 +6,16 @@ from slips import *  # noqa: F401,F403
 # =============================================================================
 # ASSIGNMENT PICKER HELPERS
 # =============================================================================
-def eligible_ids(role, students, show_all, away=frozenset(), suspended=frozenset()):
+def eligible_ids(role, students, away=frozenset(), suspended=frozenset()):
+    """Who may take this part: active, available, and qualified for the role.
+
+    There used to be a "show everyone" switch that set all three aside at once.
+    If somebody genuinely qualifies, that belongs in their privileges, not in a
+    checkbox that defeats the rules on the day.
+    """
     active = students[(students["active"] == 1) & ~students["id"].isin(suspended)]
-    if not show_all:
-        active = active[~active["id"].isin(away)]
-    if show_all or role not in ROLE_RULES:
+    active = active[~active["id"].isin(away)]
+    if role not in ROLE_RULES:
         return active["id"].tolist()
     privileges, brothers_only = ROLE_RULES[role]
     mask = active["privilege_list"].apply(lambda p: bool(privileges & set(p)))
@@ -70,11 +75,11 @@ def person_label_factory(students, last_dates, away=frozenset(), role_dates=None
     return label
 
 
-def assistant_pool(students, student_id, away, show_all=False):
+def assistant_pool(students, student_id, away):
     """Same category or same family (a parent can assist their child)."""
     active = students[(students["active"] == 1) & ~students["id"].isin(away)]
     pool = [p for p in active["id"].tolist() if p != student_id]
-    if student_id is None or show_all:
+    if student_id is None:
         return pool
     cats = dict(zip(students["id"], students["gender"]))
     fam = dict(zip(students["id"], students["family"]))
@@ -134,12 +139,12 @@ def suggest_assignments(slots, students, away, meeting_date, skip=None):
                 used.add(pid)
     order = sorted(
         (i for i in range(len(slots)) if i not in (skip or {})),
-        key=lambda i: len(eligible_ids(slots[i]["role"], students, False, away)))
+        key=lambda i: len(eligible_ids(slots[i]["role"], students, away)))
 
     for i in order:
         slot = slots[i]
         role_dates = last_role_dates(slot["role"])
-        ids = [p for p in eligible_ids(slot["role"], students, False, away)
+        ids = [p for p in eligible_ids(slot["role"], students, away)
                if p not in used]
         if slot["student_part"]:
             rested = [p for p in ids

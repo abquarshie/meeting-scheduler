@@ -44,9 +44,9 @@ def render(students_df, t, selected_lang, aux_default):
     if not congregation:
         st.warning("Set the congregation name under Admin → Meeting days "
                    "before filling the S-140.", icon=":material/settings:")
-    group_label = st.text_input(
-        "Group label", get_setting("group_label", "GROUP"),
-        help="Only used for weeks without the auxiliary classroom.")
+    # the published blank clears that row on a week without the classroom, so
+    # there is nothing for a group label to fill
+    group_label = ""
     template, template_name = load_template(f"s140_{selected_lang}")
     if template:
         st.caption(f"Using the stored {selected_lang} template: "
@@ -70,7 +70,6 @@ def render(students_df, t, selected_lang, aux_default):
         file_name="data.json", mime="application/json", width="stretch",
     )
     if template and data["weeks"]:
-        set_setting("group_label", group_label)
         try:
             docx_bytes = fill_s140(template, data, widen=widen)
         except (S140Error, KeyError, IndexError) as exc:

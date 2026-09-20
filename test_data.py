@@ -3,19 +3,6 @@
 import json
 from datetime import date, timedelta
 
-from conftest import legacy_db
-
-
-def test_upgrade_from_first_version(fresh_db):
-    legacy_db(fresh_db)
-    import core
-    core.init_db()
-    df = core.get_schedules()
-    assert len(df) == 3
-    assert df["student_id"].notna().all()           # names matched to people
-    assert set(df["role"]) == {"Chairman", "Initial Presentation", "Weekend Chairman"}
-    kofi = core.get_students().set_index("name").loc["Kofi Mensah"]
-    assert "Treasures Talk" in kofi["privilege_list"]  # old "Talk" privilege upgraded
 
 
 def test_ga_letters_converted_when_enabled(core):
@@ -308,15 +295,15 @@ def test_restoring_a_backup_clears_the_caches(core, people):
     assert core.last_role_dates("Treasures Talk") == {}
 
 
-def test_backup_reminder_tracks_the_last_export(core, people, fake_sheet):
-    """Sheets is now the only second copy, and exporting is a button someone
-    has to remember to press."""
+def test_backup_reminder_tracks_the_last_backup(core, people):
+    """The backup file is the only second copy now, and taking one is a button
+    somebody has to remember to press."""
     from datetime import date, timedelta
 
     overdue, days = core.backup_overdue()
-    assert overdue and days is None            # never exported
+    assert overdue and days is None                # never taken
 
-    core.push(force=True)
+    core.backup_bytes()                            # downloading one records it
     overdue, days = core.backup_overdue()
     assert not overdue and days == 0
 
@@ -326,8 +313,7 @@ def test_backup_reminder_tracks_the_last_export(core, people, fake_sheet):
     assert core.backup_overdue() == (True, 14)
 
     core.set_setting("last_export", "not a date")
-    assert core.backup_overdue()[0]            # unreadable means remind, not crash
-
+    assert core.backup_overdue()[0]                # unreadable means remind
 
 def test_migrations_run_again_when_the_schema_changes(core, monkeypatch):
     """Streamlit reruns the script on a code push without restarting the

@@ -13,7 +13,7 @@ Secrets (Streamlit Cloud → Settings → Secrets, or .streamlit/secrets.toml):
 """
 import hmac
 
-from sheets import *  # noqa: F401,F403
+from backup import *  # noqa: F401,F403
 
 
 def _auth_config():

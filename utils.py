@@ -23,13 +23,12 @@ def fmt_date(iso, short=False):
 
 
 def parse_privileges(value):
-    """Turn the stored comma string into a clean list, upgrading legacy names."""
+    """Turn the stored comma string into a clean list."""
     result = []
     for item in (value or "").split(","):
         item = item.strip()
-        for p in LEGACY_PRIVILEGES.get(item, [item]):
-            if p in PRIVILEGES and p not in result:
-                result.append(p)
+        if item in PRIVILEGES and item not in result:
+            result.append(item)
     return result
 
 

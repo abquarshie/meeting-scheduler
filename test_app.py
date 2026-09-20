@@ -160,49 +160,6 @@ def test_login_required_when_password_set(people):
     assert "Xan" in set(core.get_log()["user"])
 
 
-def test_sheets_export_is_manual_and_data_survives_a_restart(people, core, fake_sheet,
-                                                             fresh_db):
-    at = app("Manage Participants")
-    next(t for t in at.text_input if t.label == "Full name").set_value("Abena Asare")
-    run(at)
-    button(at, "Add participant").click()
-    run(at)
-    # nothing is sent to Google until someone asks for it
-    assert "students" not in fake_sheet.sheets
-
-    at.session_state["menu"] = "Admin"
-    run(at)
-    button(at, "Copy everything to Google Sheets now").click()
-    run(at)
-    names = [r[1] for r in fake_sheet.sheets["students"].values[1:]]
-    assert "Abena Asare" in names
-
-    # an unchanged table isn't sent again (the button forces a full copy, so
-    # check the digest short-circuit on a plain export)
-    calls = fake_sheet.sheets["schedules"].calls
-    core.push()
-    assert fake_sheet.sheets["schedules"].calls == calls
-
-    # the app restarting no longer loses anything, so there is nothing to restore
-    at2 = AppTest.from_file(APP, default_timeout=90)
-    run(at2)
-    kept = set(core.get_students()["name"])
-    assert "Abena Asare" in kept and "Kofi Mensah" in kept
-    assert "Restored from Google Sheets" not in set(core.get_log()["action"])
-
-
-def test_loading_back_from_sheets_keeps_ids_usable(people, core, fake_sheet):
-    """Rows come back with their own ids, so the id sequence must move past them."""
-    core.push(force=True)
-    core.delete_student(people["Yaw Adjei"])
-    core.import_all(core.pull())
-    assert "Yaw Adjei" in set(core.get_students()["name"])
-    core.add_student("Naa Dedei", "Sister", ["Initial Presentation"])   # must not clash
-    df = core.get_students()
-    assert "Naa Dedei" in set(df["name"])
-    assert df["id"].is_unique
-
-
 def test_admin_backup_restore(people, core):
     backup = core.backup_bytes()
     core.delete_student(people["Yaw Adjei"])
@@ -414,3 +371,21 @@ def test_part_and_assistant_line_up(people, core):
 
     # the category control is still there and still filters
     assert any(r.label == "Category" for r in at.radio)
+
+
+def test_data_survives_a_restart(people, core):
+    """Postgres is the storage, so restarting keeps everything — this used to
+    depend on loading the tables back from a spreadsheet."""
+    core.add_student("Abena Asare", "Sister", ["Initial Presentation"])
+    before = set(core.get_students()["name"])
+
+    at = AppTest.from_file(APP, default_timeout=90)
+    run(at)
+    assert set(core.get_students()["name"]) == before
+    assert "Abena Asare" in before
+
+
+def test_backup_file_is_offered(people, core):
+    at = app("Admin")
+    assert any(b.label.startswith("Download full backup")
+               for b in at.get("download_button"))

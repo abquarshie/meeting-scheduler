@@ -27,7 +27,7 @@ REQUIRED_FILES = [
     "s140.py", "requirements.txt",
     "constants.py", "utils.py", "db.py", "parts.py", "workbook.py",
     "sheets_pdf.py", "slips.py",
-    "picking.py", "backup.py", "sheets.py", "auth.py", "i18n.py", "core.py",
+    "picking.py", "backup.py", "auth.py", "i18n.py", "core.py",
 ] + [f"{p}.py" for p in (
     "admin", "dashboard", "export", "month", "participants",
     "reports", "schedule", "view", "workbook_page")]

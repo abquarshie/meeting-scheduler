@@ -37,11 +37,6 @@ PRIVILEGES = [
     "Watchtower Conductor",
     "Watchtower Reader",
 ]
-# Privilege names used by the first version of the app.
-LEGACY_PRIVILEGES = {
-    "Talk": ["Treasures Talk", "Spiritual Gems", "Student Talk", "Living Part"],
-}
-
 # role -> (privileges that qualify, brothers only)
 ROLE_RULES = {
     "Chairman": ({"Chairman"}, True),

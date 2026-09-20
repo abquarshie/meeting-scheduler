@@ -10,37 +10,6 @@ def render(students_df, t, selected_lang, aux_default):
         ["Data & backup", "Settings", "Public talks", "Change log"])
 
     with tab_data:
-        st.subheader("Google Sheets")
-        kind, text = status_text()
-        getattr(st, kind)(text)
-        if enabled():
-            c1, c2 = st.columns(2)
-            if c1.button("Copy everything to Google Sheets now", width="stretch"):
-                try:
-                    sent = push(force=True)
-                    st.success(f"Copied {len(sent)} table(s).")
-                except Exception as exc:
-                    st.error(f"Sync failed: {exc}")
-            if c2.button("Load everything from Google Sheets…", width="stretch"):
-                st.session_state["confirm_pull"] = True
-            if st.session_state.get("confirm_pull"):
-                st.error("This replaces all data in the app with what's in the sheet.")
-                y, n = st.columns(2)
-                if y.button("Yes, load from the sheet", type="primary"):
-                    try:
-                        counts = import_all(pull())
-                        remember_current_state()
-                        st.session_state.pop("confirm_pull", None)
-                        st.success(f"Loaded {counts.get('students', 0)} participants and "
-                                   f"{counts.get('schedules', 0)} schedule rows.")
-                    except Exception as exc:
-                        st.error(f"Couldn't load: {exc}")
-                if n.button("Cancel", key="cancel_pull"):
-                    st.session_state.pop("confirm_pull", None)
-                    st.rerun()
-        else:
-            st.caption("See the README for the one-time Google setup.")
-
         st.subheader("Official S-89 blank")
         st.caption("Upload the fillable blank S-89 for each slip language and the "
                    "app prints on the real form, with its exact wording. Without "

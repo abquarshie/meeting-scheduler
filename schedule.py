@@ -128,8 +128,7 @@ def render(students_df, t, selected_lang, aux_default):
         st.warning("Add participants under 'Manage Participants' first.")
         st.stop()
 
-    c_show, c_suggest = st.columns([3, 1])
-    show_all = c_show.checkbox("Show everyone in every list (ignore privileges and category)")
+    _, c_suggest = st.columns([3, 1])
     last_dates = last_assignment_dates(meeting_date)
     last_details = last_assignment_details(meeting_date)
     away = get_unavailable(meeting_date)
@@ -262,7 +261,7 @@ def render(students_df, t, selected_lang, aux_default):
                 return
 
         role_dates = last_role_dates(slot["role"])
-        eligible = eligible_ids(slot["role"], students_df, show_all, away, suspended)
+        eligible = eligible_ids(slot["role"], students_df, away, suspended)
 
         # A field-ministry part goes to a sister or to a brother, and the app
         # cannot know which until it is decided — so the list used to hold both.
@@ -285,7 +284,7 @@ def render(students_df, t, selected_lang, aux_default):
         else:
             head_left, head_right = st.container(), None
         head_left.markdown(f"**{html_escape(text)}**")
-        if mixed and not show_all:
+        if mixed:
             want = categories.get(current) or categories.get(pre_sid) or CATEGORIES[1]
             chosen_category = head_left.radio(
                 "Category", CATEGORIES, horizontal=True,
@@ -316,7 +315,7 @@ def render(students_df, t, selected_lang, aux_default):
         )
         aid = None
         if needs_assistant:
-            pool = assistant_pool(students_df, sid, blocked, show_all)
+            pool = assistant_pool(students_df, sid, blocked)
             a_options = ordered_options(pool, last_dates, keep=pre_aid)
             # family members first (sort is stable, so rotation order is kept)
             a_options = [None] + sorted(

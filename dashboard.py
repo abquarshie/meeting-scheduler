@@ -171,11 +171,11 @@ def render(students_df, t, selected_lang, aux_default):
     if overdue and not schedules_df.empty:
         never = days is None
         st.warning(
-            ("Nothing has been exported to Google Sheets yet."
-             if never else f"Last exported to Google Sheets {days} days ago.")
-            + " The database is the only copy of your schedules until you do.",
+            ("No backup file has been downloaded yet."
+             if never else f"Last backup was {days} days ago.")
+            + " The database is the only copy of your schedules until you take one.",
             icon=":material/cloud_off:")
-        if st.button("Export now", icon=":material/backup:", key="home_backup"):
+        if st.button("Back up now", icon=":material/backup:", key="home_backup"):
             go("Admin")
 
     # ---- at a glance --------------------------------------------------------------

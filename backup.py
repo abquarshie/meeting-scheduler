@@ -11,8 +11,6 @@ TABLES = [
     "unavailable", "workbook_weeks", "audit_log", "snapshots", "templates",
     "talks",
 ]
-# a stored PDF is far past Google's 50,000-character cell limit
-SHEET_TABLES = [t for t in TABLES if t != "templates"]
 BACKUP_VERSION = 1
 
 
@@ -29,6 +27,12 @@ def export_all():
 
 
 def backup_bytes():
+    """The backup file, and a note of when one was last taken.
+
+    This is the only second copy of the data now, so the dashboard reminds you
+    when it has been a while.
+    """
+    set_setting("last_export", date.today().isoformat())
     return json.dumps(export_all(), ensure_ascii=False, indent=1).encode("utf-8")
 
 
