@@ -57,7 +57,9 @@ def render(students_df, t, selected_lang, aux_default):
                    icon=":material/upload_file:")
     widen = st.checkbox("Widen title and name columns", value=True)
 
-    data, skipped = build_s140_data(month_meetings, schedules_df, congregation, group_label)
+    data, skipped = build_s140_data(month_meetings, schedules_df, congregation,
+                                    group_label)
+    data["meeting_name"] = t.get("midweek_meeting", "Midweek Meeting")
     if skipped:
         st.warning("Skipped (need 3 Treasures parts and a Bible Study): "
                    + ", ".join(fmt_date(d) for d in skipped))

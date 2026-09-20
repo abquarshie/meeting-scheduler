@@ -71,6 +71,29 @@ def _set_text(tc, text):
     first.append(t)
 
 
+def _run_props(tc):
+    """The run formatting of a cell, to reuse on one that has none.
+
+    The rows at the top of the blank are empty — no runs, so nothing to inherit
+    from — and text written there would come out in Word's default font instead
+    of the form's.
+    """
+    for run in tc.iter(qn("w:r")):
+        props = run.find(qn("w:rPr"))
+        if props is not None:
+            return copy.deepcopy(props)
+    return None
+
+
+def _set_styled(tc, text, props):
+    _set_text(tc, text)
+    if props is None:
+        return
+    for run in tc.iter(qn("w:r")):
+        if run.find(qn("w:rPr")) is None:
+            run.insert(0, copy.deepcopy(props))
+
+
 def _cells(tr):
     return tr.findall(qn("w:tc"))
 
@@ -184,13 +207,34 @@ def fill_s140(template_bytes, data, widen=True):
         _S(trs[b], 0, w.get("heading", ""))
         _S(trs[b], 2, w.get("chairman", ""))
 
+        # the two blank rows above the date carry the meeting and congregation
+        label_props = _run_props(_cells(trs[b])[1]) if len(_cells(trs[b])) > 1 else None
+        meeting_name = data.get("meeting_name") or (
+            "Wɔshiɛmɔ Kɛ Wɔshihilɛ Kpee" if ga else "Midweek Meeting")
+        if b >= 2:
+            top = _cells(trs[b - 2])
+            if len(top) >= 2:
+                _set_styled(top[0], meeting_name, label_props)
+                _set_styled(top[1], cong or "", label_props)
+            elif top:
+                _set_styled(top[0], meeting_name, label_props)
+
         # The counselor line. On the published blank this row is
         # [blank | "Asa 2 Ŋaawolɔ:" | name], so the name goes in the third cell
         # — writing it to the second replaced the form's own label.
-        counselor_cells = len(_cells(blk["group"]))
+        group_cells = _cells(blk["group"])
+        counselor_cells = len(group_cells)
         if w.get("aux"):
             if counselor_cells >= 3:
                 _S(blk["group"], 2, w.get("aux_counselor", ""))
+                # the group sits on the counselor's line, in the cell the form
+                # leaves free there, and in the label's own font
+                group = str(w.get("aux_group") or "").strip()
+                if group:
+                    # the room is already named by the label beside it
+                    word = "Kuu" if ga else "Group"
+                    _set_styled(group_cells[0], f"{word} {group}",
+                                _run_props(group_cells[1]))
             else:
                 _S(blk["group"], 1, w.get("aux_counselor", ""))
         elif counselor_cells >= 3:

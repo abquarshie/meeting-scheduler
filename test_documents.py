@@ -584,3 +584,53 @@ def test_s140_fills_the_classroom_column(core, people):
         assert r[3].startswith("Aux Student") and r[4].startswith("Main Student")
     # and the column captions are kept for a classroom week
     assert any("Asa 2" in r[1] and "Asa 1" in r[2] for r in rows if len(r) > 2)
+
+
+@pytest.mark.skipif(not S140_GA.is_file(), reason="S-140 blanks not in the repo")
+def test_s140_top_line_and_group(core, people):
+    """The blank leaves two empty rows above the date. They carry the meeting
+    and the congregation, and the classroom's group goes on the counselor's
+    line — all in the form's own font, not Word's default."""
+    import docx
+    from docx.oxml.ns import qn
+
+    for n in ("Aux Student", "Counselor Man"):
+        core.add_student(n, "Brother", core.PRIVILEGES)
+    ids = dict(zip(core.get_students()["name"], core.get_students()["id"]))
+    names = {v: k for k, v in ids.items()}
+    slots = core.apply_aux(core.build_midweek_slots(core.default_midweek_parts()),
+                           True)
+    picks = {}
+    for i, s in enumerate(slots):
+        if s["role"] == "Aux Classroom Counselor":
+            picks[i] = (ids["Counselor Man"], None)
+        elif s["student_part"]:
+            picks[i] = (ids["Aux Student"], None)
+        else:
+            picks[i] = (people["Kofi Mensah"], None)
+    core.save_schedule("2026-09-16", core.MIDWEEK, slots, picks,
+                       {"heading": "SEPTEMBER 14-20", "aux": True,
+                        "aux_group": "1", "opening_song": "Song 74"}, names)
+    data, _ = core.build_s140_data([("2026-09-16", core.MIDWEEK)],
+                                   core.get_schedules(), "Teshie Asafo", "GROUP")
+    assert data["weeks"][0]["aux_group"] == "1"
+    data["meeting_name"] = core.TRANSLATIONS["Ga"]["midweek_meeting"]
+
+    def txt(el):
+        return "".join(n.text or "" for n in el.iter(qn("w:t")))
+
+    trs = docx.Document(io.BytesIO(
+        core.fill_s140(S140_GA.read_bytes(), data))).tables[0]._tbl.findall(qn("w:tr"))
+    rows = [[txt(c) for c in tr.findall(qn("w:tc"))] for tr in trs]
+
+    assert rows[0][0] == "Wɔshiɛmɔ Kɛ Wɔshihilɛ Kpee"
+    assert rows[0][1] == "Teshie Asafo"
+    # the group shares the counselor's line and does not repeat the room name
+    counselor = next(r for r in rows if len(r) > 2 and r[1] == "Asa 2 Ŋaawolɔ:")
+    assert counselor[0] == "Kuu 1" and counselor[2] == "Counselor Man"
+
+    # and the added text carries run formatting rather than Word's default
+    top_cells = trs[0].findall(qn("w:tc"))
+    for cell in top_cells[:2]:
+        run = next(r for r in cell.iter(qn("w:r")))
+        assert run.find(qn("w:rPr")) is not None

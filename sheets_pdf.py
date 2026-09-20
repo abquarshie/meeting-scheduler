@@ -540,6 +540,7 @@ def build_s140_data(meetings, schedules_df, congregation, group_label):
             skipped.append(meeting_date)
             continue
         week["aux"] = bool(aux_week)
+        week["aux_group"] = _clean(meta.get("aux_group"))
         weeks.append(week)
     any_aux = any(w["aux"] for w in weeks)
     data = {"congregation": congregation, "group_label": group_label, "weeks": weeks,
