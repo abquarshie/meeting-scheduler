@@ -678,3 +678,30 @@ def test_weeks_flow_onto_a_sheet_rather_than_one_each(core, people):
     assert len(pypdf.PdfReader(io.BytesIO(pdf)).pages) == 1
     # and the meeting name heads the sheet once, not once per week
     assert _text(pdf).count("Weekend Meeting") == 1
+
+
+def test_only_the_talk_is_marked_as_a_guest_speakers(core, people):
+    """A visiting speaker often says the closing prayer too. The talk says who
+    the speaker is; the prayer just needs the name."""
+    slots = core.default_weekend_slots()
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    talk = next(i for i, s in enumerate(slots) if s["role"] == "Public Talk")
+    closing = next(i for i, s in enumerate(slots)
+                   if s["role"] == "Prayer" and s["title"] == "Closing Prayer")
+    picks = {i: (people["Kofi Mensah"], None) for i in range(len(slots))}
+    picks[talk] = (None, None)
+    picks[talk + 10000] = "Bro. Addo — Osu"
+    picks[closing] = (None, None)
+    picks[closing + 10000] = "Bro. Addo"
+    core.save_schedule("2026-10-03", core.WEEKEND, slots, picks,
+                       {"talk_number": "73", "talk_title": "A title"}, names)
+
+    text = _text(core.generate_schedule_pdf([("2026-10-03", core.WEEKEND)],
+                                            core.get_schedules()))
+    assert "Bro. Addo — Osu" in text and "Bro. Addo" in text
+    assert text.count("Guest speaker") == 1          # the talk only
+
+    ga = _text(core.generate_schedule_pdf([("2026-10-03", core.WEEKEND)],
+                                          core.get_schedules(),
+                                          core.TRANSLATIONS["Ga"]))
+    assert ga.count("Wielɔ") == 1

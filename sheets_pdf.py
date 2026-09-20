@@ -374,8 +374,11 @@ def _weekend_block(rows, meta, lang, st_, width, section_titles, role_labels, wo
         # the midweek sheet does for the Bible study
         label = (role_labels.get(r.role, "")
                  if r.role in ("Watchtower Conductor", "Watchtower Reader") else "")
+        # only the talk is marked as a guest speaker's: a prayer said by a
+        # visitor is just their name
         row(printed_title(r), label, _people(r.person, r.assistant),
-            guest=bool(_clean(getattr(r, "visitor", ""))))
+            guest=(r.role == "Public Talk"
+                   and bool(_clean(getattr(r, "visitor", "")))))
         if r.role == "Public Talk":
             theme = _clean(meta.get("talk_title"))
             number = _clean(meta.get("talk_number"))
