@@ -625,6 +625,12 @@ def test_s140_top_line_and_group(core, people):
 
     assert rows[0][0] == "Wɔshiɛmɔ Kɛ Wɔshihilɛ Kpee"
     assert rows[0][1] == "Teshie Asafo"
+    # heading the document once, not once per week
+    assert sum(1 for r in rows if "Wɔshiɛmɔ Kɛ Wɔshihilɛ" in " ".join(r)) == 1
+    # at the date's size and weight, not the small grey label's
+    title_run = next(r for r in trs[0].findall(qn("w:tc"))[0].iter(qn("w:r")))
+    props = {c.tag.split("}")[1] for c in title_run.find(qn("w:rPr"))}
+    assert "b" in props and "sz" not in props
     # the group shares the counselor's line and does not repeat the room name
     counselor = next(r for r in rows if len(r) > 2 and r[1] == "Asa 2 Ŋaawolɔ:")
     assert counselor[0] == "Kuu 1" and counselor[2] == "Counselor Man"

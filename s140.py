@@ -207,17 +207,20 @@ def fill_s140(template_bytes, data, widen=True):
         _S(trs[b], 0, w.get("heading", ""))
         _S(trs[b], 2, w.get("chairman", ""))
 
-        # the two blank rows above the date carry the meeting and congregation
-        label_props = _run_props(_cells(trs[b])[1]) if len(_cells(trs[b])) > 1 else None
-        meeting_name = data.get("meeting_name") or (
-            "Wɔshiɛmɔ Kɛ Wɔshihilɛ Kpee" if ga else "Midweek Meeting")
-        if b >= 2:
+        # The meeting and congregation head the whole document, once, on the
+        # blank row above the first week's date. The date cell's formatting is
+        # copied rather than the label's: the label is 8pt and grey, the date
+        # is bold at the table's own size.
+        if wi == 0 and b >= 2:
+            date_props = _run_props(_cells(trs[b])[0]) if _cells(trs[b]) else None
+            meeting_name = data.get("meeting_name") or (
+                "Wɔshiɛmɔ Kɛ Wɔshihilɛ Kpee" if ga else "Midweek Meeting")
             top = _cells(trs[b - 2])
             if len(top) >= 2:
-                _set_styled(top[0], meeting_name, label_props)
-                _set_styled(top[1], cong or "", label_props)
+                _set_styled(top[0], meeting_name, date_props)
+                _set_styled(top[1], cong or "", date_props)
             elif top:
-                _set_styled(top[0], meeting_name, label_props)
+                _set_styled(top[0], meeting_name, date_props)
 
         # The counselor line. On the published blank this row is
         # [blank | "Asa 2 Ŋaawolɔ:" | name], so the name goes in the third cell
