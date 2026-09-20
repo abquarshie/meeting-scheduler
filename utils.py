@@ -147,21 +147,31 @@ def make_slot(title, role, section, part_no=None, minutes=None, hall=MAIN_HALL):
     }
 
 
-def recency(last_date, today=None):
-    """(marker, wording) for how long ago a date was."""
+def recency(last_date, meeting_date=None):
+    """(marker, wording) for how many weeks before this meeting that was.
+
+    Counted from the meeting being scheduled rather than from today: working on
+    week 2 of October, "last week" means week 1 of October whenever you happen
+    to open it.
+    """
     if not last_date:
         return NEVER_BAND
     try:
         then = datetime.strptime(str(last_date), "%Y-%m-%d").date()
+        now = (datetime.strptime(str(meeting_date), "%Y-%m-%d").date()
+               if meeting_date else date.today())
     except ValueError:
         return NEVER_BAND
-    days = ((today or date.today()) - then).days
+    days = (now - then).days
     if days < 0:
         return "🔴", "already scheduled"
+    if days < 7:
+        return THIS_WEEK
+    weeks = days // 7
     for limit, marker, wording in RECENCY_BANDS:
-        if days <= limit:
+        if weeks <= limit:
             return marker, wording
-    return RECENCY_BANDS[-1][1], RECENCY_BANDS[-1][2]
+    return LONG_AGO
 
 
 def slot_label(slot, hall_names=None):

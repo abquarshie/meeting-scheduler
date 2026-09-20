@@ -155,15 +155,18 @@ SAME_ROLE_GAP_DAYS = 10
 # How long since someone last had a part, as a coloured band. Streamlit's
 # dropdowns take plain text, so the colour has to be a character.
 # (days since, marker, wording)
+# How recently someone had a part, counted in weeks back from the meeting being
+# scheduled — not from today, so reopening an old week reads as it did then.
+# (weeks before this one, marker, wording)
 RECENCY_BANDS = [
-    (7, "🔴", "this week"),
-    (14, "🟠", "last week"),
-    (21, "🟡", "2 weeks ago"),
-    (35, "🟢", "3 weeks ago"),
-    (70, "🔵", "a month ago"),
-    (10 ** 6, "⚪", "months ago"),
+    (1, "🔴", "last week"),
+    (2, "🟡", "2 weeks ago"),
+    (3, "🔵", "3 weeks ago"),
+    (4, "🟢", "4 weeks ago"),
 ]
-NEVER_BAND = ("⚫", "no parts yet")
+LONG_AGO = ("⚪", "over a month ago")
+NEVER_BAND = ("⚪", "no parts yet")
+THIS_WEEK = ("🔴", "this week")
 
 GA_CHARS = "ɛɔŋƐƆŊ"
 

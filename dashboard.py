@@ -50,9 +50,44 @@ def next_unscheduled_week(schedules_df):
     return weeks[0] if weeks else None
 
 
+def setup_gaps(students_df):
+    """What a new installation still needs before it can print.
+
+    Each of these otherwise shows up as an error at the moment someone tries
+    to use it, which is the worst time to find out.
+    """
+    gaps = []
+    if students_df.empty:
+        gaps.append(("Add your participants", "Manage Participants"))
+    if not get_setting("congregation"):
+        gaps.append(("Set the congregation name — it heads every schedule sheet",
+                     "Admin"))
+    workbook, _ = load_workbook()
+    if not workbook:
+        gaps.append(("Upload the meeting workbook so weeks get their real parts",
+                     "Upload PDF Brochure"))
+    if not any(load_template(f"s89_{language}")[0] for language in TRANSLATIONS):
+        gaps.append(("Upload the blank S-89 — slips are printed on it", "Admin"))
+    if not load_template("s140")[0]:
+        gaps.append(("Upload the blank S-140 template for the monthly export",
+                     "Admin"))
+    return gaps
+
+
 def render(students_df, t, selected_lang, aux_default):
     today = date.today()
     page_header(greeting(), f"{today:%A} {today.day} {today:%B %Y}")
+
+    gaps = setup_gaps(students_df)
+    if gaps:
+        with st.container(border=True):
+            st.markdown("#### Still to set up")
+            for n, (what, page) in enumerate(gaps):
+                c1, c2 = st.columns([4, 1], vertical_alignment="center")
+                c1.write(what)
+                if c2.button("Go", key=f"setup_{n}", width="stretch"):
+                    go(page)
+            st.caption("This disappears as each one is done.")
 
     if students_df.empty:
         with st.container(border=True):

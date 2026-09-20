@@ -449,3 +449,49 @@ def test_ministry_parts_count_as_one_for_taking_turns(core, people):
                                      date.today().isoformat())
     # a different ministry part the very next week goes to somebody else
     assert picks[md][0] != people["Ama Owusu"]
+
+
+def test_talks_can_be_stored_and_edited(core):
+    """Talk numbers and titles are kept so a weekend schedule picks one."""
+    assert core.get_talks() == []
+    core.save_talk("2", "Namɔ Ji Yehowa?")
+    core.save_talk("10", "Yehowa Ji Wɔhewalɛ")
+    core.save_talk("1", "")
+    # numeric order, not alphabetical: 1, 2, 10
+    assert [n for n, _ in core.get_talks()] == ["1", "2", "10"]
+    assert core.talk_label("2", "Namɔ Ji Yehowa?") == "No. 2 — Namɔ Ji Yehowa?"
+    assert core.talk_label("1", "") == "No. 1"
+
+    core.save_talk("2", "A better title")          # editing replaces
+    assert dict(core.get_talks())["2"] == "A better title"
+    core.delete_talk("2")
+    assert "2" not in dict(core.get_talks())
+
+
+def test_recency_is_measured_from_the_meeting_not_today(core):
+    """Working on week 2 of October, "last week" means week 1 of October
+    however long afterwards you open it."""
+    meeting = "2026-10-14"
+    assert core.recency("2026-10-07", meeting) == ("🔴", "last week")
+    assert core.recency("2026-09-30", meeting) == ("🟡", "2 weeks ago")
+    assert core.recency("2026-09-23", meeting) == ("🔵", "3 weeks ago")
+    assert core.recency("2026-09-16", meeting) == ("🟢", "4 weeks ago")
+    assert core.recency("2026-08-12", meeting)[0] == "⚪"
+    assert core.recency(None, meeting) == core.NEVER_BAND
+    # the same dates read differently against a later meeting
+    assert core.recency("2026-10-07", "2026-11-11")[0] == "⚪"
+
+
+def test_setup_checklist_clears_as_things_are_done(core, people):
+    import dashboard
+
+    students = core.get_students()
+    gaps = [what for what, _ in dashboard.setup_gaps(students)]
+    assert any("congregation name" in g for g in gaps)
+    assert any("S-89" in g for g in gaps)
+    assert any("workbook" in g for g in gaps)
+
+    core.set_setting("congregation", "Teshie Asafo")
+    gaps = [what for what, _ in dashboard.setup_gaps(students)]
+    assert not any("congregation name" in g for g in gaps)
+    assert any("S-89" in g for g in gaps)             # the rest remain

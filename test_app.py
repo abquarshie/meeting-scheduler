@@ -344,7 +344,7 @@ def test_dropdowns_show_how_long_ago_and_what_it_was(people, core):
     names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
     slots = c.build_midweek_slots(c.default_midweek_parts())
     reading = next(i for i, s in enumerate(slots) if s["role"] == "Bible Reading")
-    recent = (date.today() - timedelta(days=3)).isoformat()
+    recent = (date.today() - timedelta(days=9)).isoformat()      # the week before
     core.save_schedule(recent, c.MIDWEEK, slots,
                        {reading: (people["Nii Tetteh"], None)}, {}, names)
 
@@ -353,12 +353,12 @@ def test_dropdowns_show_how_long_ago_and_what_it_was(people, core):
     key = slot_key(ns, "main_hall", "Bible Reading", 3, "Bible Reading")
     box = next(s for s in at.selectbox if s.key == key)
     nii = next(o for o in box.options if "Nii Tetteh" in o)
-    assert nii.startswith("🔴")                       # three days ago
+    assert nii.startswith("🔴")                       # the week before this one
     # for the very same part the wording says so rather than repeating it
     assert "this same part" in nii
 
     kojo = next(o for o in box.options if "Kojo" in o)
-    assert kojo.startswith("⚫") and "no parts yet" in kojo
+    assert kojo.startswith("⚪") and "no parts yet" in kojo
 
     # on a different part, the label names what they last did
     chairman = slot_key(ns, "main_hall", "Chairman", None, "Chairman")

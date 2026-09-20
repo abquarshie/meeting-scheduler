@@ -6,8 +6,8 @@ from month import WEEKDAYS
 
 def render(students_df, t, selected_lang, aux_default):
     page_header(tr("h_admin"), tr("sub_admin"))
-    tab_data, tab_settings, tab_log = st.tabs(
-        ["Data & backup", "Meeting days", "Change log"])
+    tab_data, tab_settings, tab_talks, tab_log = st.tabs(
+        ["Data & backup", "Settings", "Public talks", "Change log"])
 
     with tab_data:
         st.subheader("Google Sheets")
@@ -67,6 +67,30 @@ def render(students_df, t, selected_lang, aux_default):
                     st.success(f"Saved the {language} blank form — "
                                f"{per_page} slip(s) per page.")
                     st.rerun()
+
+        st.subheader("S-140 template (Word)")
+        st.caption("Upload the blank S-140 once and the Export page uses it "
+                   "every month — it is a .docx, not a PDF.")
+        stored, file_name = load_template("s140")
+        c1, c2 = st.columns([4, 1])
+        if stored:
+            c1.success(f"In use: **{file_name}**")
+            if c2.button("Remove", key="rm_s140", width="stretch"):
+                delete_template("s140")
+                st.rerun()
+        else:
+            c1.info("No S-140 template uploaded.")
+        s140_file = st.file_uploader("Blank S-140 template (.docx)", type=["docx"],
+                                     key="up_s140")
+        if s140_file is not None:
+            try:
+                check_s140_template(s140_file.getvalue())
+            except S140Error as exc:
+                st.error(str(exc))
+            else:
+                save_template("s140", s140_file.name, s140_file.getvalue())
+                st.success("Saved the S-140 template.")
+                st.rerun()
 
         st.subheader("Backup file")
         st.download_button(
@@ -131,6 +155,37 @@ def render(students_df, t, selected_lang, aux_default):
             set_setting("weekend_day", wkd)
             log_change("Meeting days changed", f"midweek {mid}, weekend {wkd}")
             st.success("Saved.")
+
+    with tab_talks:
+        st.caption("The outlines your congregation uses. Once they are here, "
+                   "creating a weekend schedule is picking one from the list.")
+        talks = get_talks()
+        table = st.data_editor(
+            pd.DataFrame(talks or [], columns=["number", "title"]),
+            num_rows="dynamic", width="stretch", hide_index=True,
+            key="talks_editor",
+            column_config={
+                "number": st.column_config.TextColumn("No.", required=True,
+                                                      width="small"),
+                "title": st.column_config.TextColumn("Title", width="large"),
+            },
+        )
+        if st.button("Save talks", type="primary"):
+            kept, seen = [], set()
+            for row in table.to_dict("records"):
+                number = nfc(str(row.get("number") or ""))
+                if not number or number in seen:
+                    continue
+                seen.add(number)
+                save_talk(number, row.get("title") or "")
+                kept.append(number)
+            for number, _ in talks:
+                if number not in seen:
+                    delete_talk(number)
+            st.success(f"Saved {len(kept)} talk(s).")
+            st.rerun()
+        st.caption("Add a row with the + at the bottom; clear a row's number "
+                   "to remove that talk.")
 
     with tab_log:
         log = get_log()

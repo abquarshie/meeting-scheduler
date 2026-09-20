@@ -9,6 +9,7 @@ from db import (_forget_schedules, _forget_settings,  # underscored: not in *
 TABLES = [
     "students", "schedules", "meetings", "settings",
     "unavailable", "workbook_weeks", "audit_log", "snapshots", "templates",
+    "talks",
 ]
 # a stored PDF is far past Google's 50,000-character cell limit
 SHEET_TABLES = [t for t in TABLES if t != "templates"]

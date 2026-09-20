@@ -138,12 +138,17 @@ def render(students_df, t, selected_lang, aux_default):
     categories = dict(zip(students_df["id"], students_df["gender"]))
     families = dict(zip(students_df["id"], students_df["family"]))
     names = dict(zip(students_df["id"], students_df["name"]))
-    if away:
-        st.caption("Away this date: "
-                   + ", ".join(sorted(names[p] for p in away if p in names)))
-    if suspended:
-        st.caption("Suspended (not offered): "
-                   + ", ".join(sorted(names[p] for p in suspended if p in names)))
+    # People who cannot take a part are kept out of every list rather than
+    # listed and flagged. Who they are is still one click away.
+    unavailable = sorted({names[p] for p in (away | suspended) if p in names}
+                         | {r["name"] for r in students_df.to_dict("records")
+                            if r["active"] != 1})
+    if unavailable:
+        with st.expander(f"{len(unavailable)} not available this week",
+                         icon=":material/person_off:"):
+            st.write(", ".join(unavailable))
+            st.caption("Away, suspended or inactive. They are left out of the "
+                       "lists below.")
 
     ns = f"{meeting_date}|{meeting_type}|{source}"
     sugg_key = f"suggest|{meeting_date}|{meeting_type}|{source}"
@@ -192,8 +197,32 @@ def render(students_df, t, selected_lang, aux_default):
                "talk_title": meta.get("talk_title", "")}
 
     def talk_inputs():
+        """Pick the talk from the congregation's list, or type one in.
+
+        Typing the number and title by hand every weekend was the old way; the
+        list lives under Admin → Public talks.
+        """
+        talks = get_talks()
         with st.container(border=True):
             st.markdown("**Public talk**")
+            if talks:
+                saved = nfc(talk_in["talk_number"])
+                numbers = [n for n, _ in talks]
+                choices = numbers + ["— type it in —"]
+                index = numbers.index(saved) if saved in numbers else len(numbers)
+                titles = dict(talks)
+                picked = st.selectbox(
+                    "Talk", choices, index=index, key=f"{ns}|talkpick",
+                    format_func=lambda n: ("Not in the list"
+                                           if n == "— type it in —"
+                                           else talk_label(n, titles.get(n, ""))))
+                if picked != "— type it in —":
+                    talk_in["talk_number"] = picked
+                    talk_in["talk_title"] = titles.get(picked, "")
+                    return
+            else:
+                st.caption("No talks stored yet — add them under "
+                           "Admin → Public talks and they appear here.")
             t1, t2 = st.columns([1, 4])
             talk_in["talk_number"] = nfc(t1.text_input(
                 "Talk no.", talk_in["talk_number"], key=f"{ns}|talkno",
@@ -271,8 +300,14 @@ def render(students_df, t, selected_lang, aux_default):
                                   keep=current if current is not None else pre_sid)
         if pre_sid not in options:
             pre_sid = None
+        elif pre_sid is not None and pre_sid not in eligible:
+            # saved earlier, unavailable now: keep it visible so it can be
+            # changed deliberately rather than disappearing on open
+            head_left.caption(f"{names.get(pre_sid, 'This person')} is no longer "
+                              "available — choose someone else.")
         label = person_label_factory(students_df, last_dates, away, role_dates,
-                                     suspended=suspended, details=last_details)
+                                     suspended=suspended, details=last_details,
+                                     meeting_date=meeting_date)
         pick_left, pick_right = (st.columns(2) if needs_assistant
                                  else (st.container(), None))
         sid = pick_left.selectbox(
@@ -290,7 +325,8 @@ def render(students_df, t, selected_lang, aux_default):
                 pre_aid = None
             a_label = person_label_factory(students_df, last_dates, away,
                                            family_of=sid, suspended=suspended,
-                                           details=last_details)
+                                           details=last_details,
+                                           meeting_date=meeting_date)
             aid = pick_right.selectbox(
                 "Assistant", a_options, index=a_options.index(pre_aid),
                 format_func=a_label, key=f"{wkey}|assistant",

@@ -472,6 +472,11 @@ def generate_schedule_pdf(meetings, schedules_df, lang=None, compact=False):
             block.append(Spacer(1, 10 if compact else 18))
             story.append(KeepTogether(block))
 
+    # two versions of a week look identical on a noticeboard otherwise
+    story.append(Paragraph(
+        xml_escape(f"Prepared {fmt_date(date.today().isoformat())}"),
+        ParagraphStyle("Made", fontName=regular, fontSize=7, leading=9,
+                       textColor=MUTED, alignment=TA_RIGHT)))
     doc.build(story)
     return buffer.getvalue()
 

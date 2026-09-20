@@ -300,6 +300,11 @@ def init_db():
                 PRIMARY KEY (meeting_date, meeting_type)
             )""")
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS talks (
+                number TEXT PRIMARY KEY,
+                title TEXT
+            )""")
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS templates (
                 name TEXT PRIMARY KEY,
                 file_name TEXT,
@@ -518,6 +523,50 @@ def get_schedules():
     for col in ("person", "assistant"):
         df[col] = df[col].astype(object).where(df[col].notna(), None)
     return df
+
+
+@st.cache_data(show_spinner=False)
+def _talks(schema_name):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT number, title FROM talks").fetchall()
+    # numeric where it can be, so 2 sorts before 10
+    def key(pair):
+        try:
+            return (0, int(pair[0]), "")
+        except ValueError:
+            return (1, 0, str(pair[0]))
+    return [(n, t) for n, t in sorted(rows, key=key)]
+
+
+def get_talks():
+    """The congregation's list of public talks, as (number, title)."""
+    return _talks(schema())
+
+
+def talk_label(number, title):
+    number, title = nfc(str(number)), nfc(title or "")
+    return f"No. {number} — {title}" if title else f"No. {number}"
+
+
+def save_talk(number, title):
+    number = nfc(str(number))
+    if not number:
+        raise ValueError("A talk needs a number.")
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO talks (number, title) VALUES (?, ?) "
+            "ON CONFLICT(number) DO UPDATE SET title = excluded.title",
+            (number, nfc(title)))
+    _talks.clear()
+    log_change("Public talk saved", talk_label(number, title))
+
+
+def delete_talk(number):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM talks WHERE number = ?", (nfc(str(number)),))
+    _talks.clear()
+    log_change("Public talk removed", f"No. {number}")
 
 
 def save_template(name, file_name, raw):

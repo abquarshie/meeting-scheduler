@@ -29,7 +29,8 @@ def ordered_options(ids, last_dates, keep=None):
 
 
 def person_label_factory(students, last_dates, away=frozenset(), role_dates=None,
-                        family_of=None, suspended=frozenset(), details=None):
+                        family_of=None, suspended=frozenset(), details=None,
+                        meeting_date=None):
     """Labels for the people dropdowns.
 
     Each reads "🟢 Kofi Mensah — 3 weeks ago, Bible Reading": a colour for how
@@ -47,7 +48,7 @@ def person_label_factory(students, last_dates, away=frozenset(), role_dates=None
         if pid is None:
             return "— Unassigned —"
         role_last = (role_dates or {}).get(pid)
-        marker, wording = recency(role_last or last_dates.get(pid))
+        marker, wording = recency(role_last or last_dates.get(pid), meeting_date)
         if role_last:
             what = f"{wording}, this same part"
         else:

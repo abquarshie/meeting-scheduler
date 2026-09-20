@@ -83,6 +83,25 @@ def _part(n, item):
     return "%d. %s%s(Min. %s)" % (n, title, NB, m) if m else "%d. %s" % (n, title)
 
 
+def check_s140_template(template_bytes):
+    """Raise S140Error unless this is the blank S-140, so a wrong file is
+    refused when it is chosen rather than when someone tries to export."""
+    try:
+        doc = docx.Document(io.BytesIO(template_bytes))
+    except Exception as exc:
+        raise S140Error(
+            f"This file could not be read as a Word document: {str(exc)[:120]}"
+        ) from exc
+    if not doc.tables:
+        raise S140Error("The template has no table - is this the blank S-140?")
+    trs = doc.tables[0]._tbl.findall(qn("w:tr"))
+    weeks = sum(1 for tr in trs if "[DEETI]" in _txt(tr))
+    if not weeks:
+        raise S140Error(
+            "No [DEETI] rows found — this does not look like the blank S-140.")
+    return weeks
+
+
 def fill_s140(template_bytes, data, widen=True):
     """Return the filled template as bytes."""
     weeks = data["weeks"]
