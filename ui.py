@@ -17,7 +17,6 @@ NAV = [
     ("Manage Participants", "nav_participants", ":material/group:"),
     ("Upload PDF Brochure", "nav_workbook", ":material/menu_book:"),
     ("Reports", "nav_reports", ":material/bar_chart:"),
-    ("Export", "nav_export", ":material/ios_share:"),
     ("Admin", "nav_admin", ":material/admin_panel_settings:"),
 ]
 

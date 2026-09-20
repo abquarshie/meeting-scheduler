@@ -153,15 +153,16 @@ SAME_ROLE_GAP_DAYS = 10
 # How recently someone had a part, counted in weeks back from the meeting being
 # scheduled — not from today, so reopening an old week reads as it did then.
 #
-# Three states in traffic-light order, because the colour is answering one
-# question: was this person on recently? How long ago exactly is already spelt
-# out in words beside the name, and five colours meant remembering whether blue
-# ranked above or below yellow.
+# Two states, because the rotation has exactly one threshold: a turn this week
+# means a break next week, and after that you are available again. Grading
+# "2 weeks" against "4 weeks" would invent a preference the rotation does not
+# have — and the exact distance is already spelt out beside the name. Red is a
+# nudge, not a rule; the fallback still fills a part rather than leave it empty.
 # (weeks before this one, marker, wording)
 RECENCY_BANDS = [
     (1, "🔴", "last week"),
-    (2, "🟡", "2 weeks ago"),
-    (3, "🟡", "3 weeks ago"),
+    (2, "🟢", "2 weeks ago"),
+    (3, "🟢", "3 weeks ago"),
     (4, "🟢", "4 weeks ago"),
 ]
 LONG_AGO = ("🟢", "over a month ago")

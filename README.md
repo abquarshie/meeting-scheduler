@@ -18,7 +18,8 @@ slips, families, suspensions and away dates, and stores everything in Postgres.
 4. **Slips and printing.** Choose one meeting or a whole month, then download
    the S-89 slips and the midweek and weekend schedule sheets. The slips print
    on the official blank S-89, which is uploaded once under **Admin**.
-5. **Export.** CSV, or upload the blank S-140 template to get `Month Year.docx`.
+5. **Slips and printing** also holds the CSV of every schedule and the
+   S-140 for a month, filled from the blank stored under **Admin**.
 6. **Reports.** Parts and assisting per person over 3, 6 or 12 months, to spot
    anyone left out or overused.
 
@@ -96,7 +97,7 @@ i18n.py                 interface wording
 ui.py                   look and feel: sidebar, headers, section colours
 core.py                 one import for the pages
 dashboard.py, participants.py, schedule.py, view.py, month.py,
-workbook_page.py, reports.py, export.py, admin.py      one file per page
+workbook_page.py, reports.py, admin.py      one file per page
 conftest.py, test_*.py  automated tests (pytest)
 DejaVuSans*.ttf         fonts for ɛ ɔ ŋ
 config.toml             light and dark theme (copied into .streamlit/ automatically)

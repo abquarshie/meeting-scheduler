@@ -25,8 +25,8 @@ def slot_key(ns, hall, role, no, title, kind="student"):
 
 def test_every_page_opens(people):
     at = app()
-    for page in ["Manage Participants", "Schedule", "View Schedules", "Upload PDF Brochure",
-                 "Export", "Month", "Reports", "Admin", "Dashboard"]:
+    for page in ["Manage Participants", "Schedule", "View Schedules",
+                 "Upload PDF Brochure", "Month", "Reports", "Admin", "Dashboard"]:
         at.session_state["menu"] = page
         run(at)
 
@@ -389,3 +389,21 @@ def test_backup_file_is_offered(people, core):
     at = app("Admin")
     assert any(b.label.startswith("Download full backup")
                for b in at.get("download_button"))
+
+
+def test_printing_page_holds_every_document(people, core, s140_template=None):
+    """Schedules used to come from two pages depending on the format wanted.
+    Slips, sheets, the CSV and the S-140 are all in one place now."""
+    import core as c
+
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    core.save_schedule("2026-10-07", c.MIDWEEK,
+                       c.build_midweek_slots(c.default_midweek_parts()),
+                       {0: (people["Kofi Mensah"], None)}, {}, names)
+    at = app("View Schedules")
+    labels = [b.label for b in at.get("download_button")]
+    assert any(l.startswith("Midweek schedule") for l in labels), labels
+    assert any("CSV" in l for l in labels), labels
+
+    # and Export is no longer a page of its own
+    assert not any(b.key == "nav_Export" for b in at.button)
