@@ -184,13 +184,23 @@ def fill_s140(template_bytes, data, widen=True):
         _S(trs[b], 0, w.get("heading", ""))
         _S(trs[b], 2, w.get("chairman", ""))
 
+        # The counselor line. On the published blank this row is
+        # [blank | "Asa 2 Ŋaawolɔ:" | name], so the name goes in the third cell
+        # — writing it to the second replaced the form's own label.
+        counselor_cells = len(_cells(blk["group"]))
         if w.get("aux"):
-            # keep the form's "Asa 2 Ŋaawolɔ:" label and write the counselor beside it
-            _S(blk["group"], 1, w.get("aux_counselor", ""))
+            if counselor_cells >= 3:
+                _S(blk["group"], 2, w.get("aux_counselor", ""))
+            else:
+                _S(blk["group"], 1, w.get("aux_counselor", ""))
+        elif counselor_cells >= 3:
+            # no classroom this week: take the label and the name away
+            _S(blk["group"], 1, "")
+            _S(blk["group"], 2, "")
         else:
             _S(blk["group"], 0, data.get("group_label", "GROUP"))
             _S(blk["group"], 1, "")
-        _S(blk["group"], 2, "")
+            _S(blk["group"], 2, "")
 
         _S(blk["opening_song"], 1, _song(w.get("opening_song"), ga))
         _S(blk["opening_song"], 3, w.get("opening_prayer", ""))

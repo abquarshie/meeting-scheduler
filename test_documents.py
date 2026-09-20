@@ -532,3 +532,55 @@ def test_s140_template_check_rejects_the_wrong_file(core):
         core.check_s140_template(b"not a docx")
     with pytest.raises(core.S140Error):
         core.check_s140_template(S89_BLANK.read_bytes())      # a PDF
+
+
+@pytest.mark.skipif(not S140_GA.is_file(), reason="S-140 blanks not in the repo")
+def test_s140_fills_the_classroom_column(core, people):
+    """The blank has an Asa 2 / Main Hall pair of name columns. The classroom's
+    people belong in the first, and the counselor beside the form's own label
+    rather than on top of it."""
+    import docx
+    from docx.oxml.ns import qn
+
+    for n in ("Main Student", "Main Helper", "Aux Student", "Aux Helper",
+              "Counselor Man"):
+        core.add_student(n, "Brother", core.PRIVILEGES)
+    ids = dict(zip(core.get_students()["name"], core.get_students()["id"]))
+    names = {v: k for k, v in ids.items()}
+    slots = core.apply_aux(core.build_midweek_slots(core.default_midweek_parts()),
+                           True)
+    picks = {}
+    for i, s in enumerate(slots):
+        if s["role"] == "Aux Classroom Counselor":
+            picks[i] = (ids["Counselor Man"], None)
+        elif s["student_part"]:
+            aux = s["hall"] != core.MAIN_HALL
+            picks[i] = (ids["Aux Student" if aux else "Main Student"],
+                        ids["Aux Helper" if aux else "Main Helper"]
+                        if s["needs_assistant"] else None)
+        else:
+            picks[i] = (people["Kofi Mensah"], None)
+    core.save_schedule("2026-09-16", core.MIDWEEK, slots, picks,
+                       {"heading": "SEPTEMBER 14-20", "aux": True, "aux_group": "1",
+                        "opening_song": "Song 74"}, names)
+    data, skipped = core.build_s140_data([("2026-09-16", core.MIDWEEK)],
+                                         core.get_schedules(), "Teshie Asafo",
+                                         "GROUP")
+    assert not skipped and data["aux"]
+
+    def txt(el):
+        return "".join(n.text or "" for n in el.iter(qn("w:t")))
+
+    out = core.fill_s140(S140_GA.read_bytes(), data)
+    trs = docx.Document(io.BytesIO(out)).tables[0]._tbl.findall(qn("w:tr"))
+    rows = [[txt(c) for c in tr.findall(qn("w:tc"))] for tr in trs]
+
+    # the counselor sits beside the label, which survives
+    assert any(r[1:3] == ["Asa 2 Ŋaawolɔ:", "Counselor Man"] for r in rows if len(r) > 2)
+    # classroom names in the Asa 2 column, main hall in Asa 1
+    paired = [r for r in rows if len(r) >= 5 and "Aux Student" in r[3]]
+    assert paired, rows
+    for r in paired:
+        assert r[3].startswith("Aux Student") and r[4].startswith("Main Student")
+    # and the column captions are kept for a classroom week
+    assert any("Asa 2" in r[1] and "Asa 1" in r[2] for r in rows if len(r) > 2)
