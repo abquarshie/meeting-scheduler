@@ -481,3 +481,54 @@ def test_watchtower_conductor_is_labelled_in_ga(core, people):
                                           core.TRANSLATIONS["Ga"]))
     assert "Buu Mɔɔ Nɔkwɛlɔ" in ga               # conductor, now labelled
     assert "Buu Mɔɔ Nikasemɔ" in ga              # the study itself
+
+
+S140_EN = Path(__file__).resolve().parent / "tests_data" / "S-140_E.docx"
+S140_GA = Path(__file__).resolve().parent / "tests_data" / "S-140_GA.docx"
+
+
+@pytest.mark.skipif(not S140_EN.is_file(), reason="S-140 blanks not in the repo")
+def test_both_published_s140_blanks_fill(core, people):
+    """The published blank comes in each language and holds a single week. It
+    used to be rejected unless it carried the Ga [DEETI] marker, and a month
+    could not be exported from a one-week template."""
+    import docx
+
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    dates = ["2026-09-09", "2026-09-16", "2026-09-23"]
+    for d in dates:
+        slots = core.build_midweek_slots(core.default_midweek_parts())
+        picks = {i: (people["Kofi Mensah"],
+                     people["Ama Owusu"] if s["needs_assistant"] else None)
+                 for i, s in enumerate(slots)}
+        core.save_schedule(d, core.MIDWEEK, slots, picks,
+                           {"heading": f"WEEK OF {d}", "opening_song": "Song 74",
+                            "middle_song": "Song 142", "closing_song": "Song 134"},
+                           names)
+    data, skipped = core.build_s140_data([(d, core.MIDWEEK) for d in dates],
+                                         core.get_schedules(), "Teshie Asafo",
+                                         "GROUP")
+    assert not skipped and len(data["weeks"]) == 3
+
+    for path, ga in ((S140_EN, False), (S140_GA, True)):
+        blank = path.read_bytes()
+        assert core.check_s140_template(blank) == 1      # one week in the blank
+        out = core.fill_s140(blank, data)
+        doc = docx.Document(io.BytesIO(out))
+        text = "\n".join(c.text for r in doc.tables[0].rows for c in r.cells)
+        # a block per week, each with its own heading
+        for d in dates:
+            assert f"WEEK OF {d}" in text
+        assert "[DATE]" not in text and "[DEETI]" not in text
+        assert "[Name]" not in text and "[Gbɛ́i]" not in text
+        # the song word matches the template, not what was stored
+        assert ("Lala 74" in text) is ga
+        assert ("Song 74" in text) is (not ga)
+
+
+@pytest.mark.skipif(not S140_EN.is_file(), reason="S-140 blanks not in the repo")
+def test_s140_template_check_rejects_the_wrong_file(core):
+    with pytest.raises(core.S140Error):
+        core.check_s140_template(b"not a docx")
+    with pytest.raises(core.S140Error):
+        core.check_s140_template(S89_BLANK.read_bytes())      # a PDF

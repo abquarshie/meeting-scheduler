@@ -47,13 +47,14 @@ def render(students_df, t, selected_lang, aux_default):
     group_label = st.text_input(
         "Group label", get_setting("group_label", "GROUP"),
         help="Only used for weeks without the auxiliary classroom.")
-    template, template_name = load_template("s140")
+    template, template_name = load_template(f"s140_{selected_lang}")
     if template:
-        st.caption(f"Using the stored template: **{template_name}** "
-                   "(change it under Admin).")
+        st.caption(f"Using the stored {selected_lang} template: "
+                   f"**{template_name}** (change it under Admin).")
     else:
-        st.warning("No S-140 template stored. Upload the blank .docx once under "
-                   "Admin → S-140 template.", icon=":material/upload_file:")
+        st.warning(f"No {selected_lang} S-140 template stored. Upload the blank "
+                   ".docx once under Admin → S-140 template.",
+                   icon=":material/upload_file:")
     widen = st.checkbox("Widen title and name columns", value=True)
 
     data, skipped = build_s140_data(month_meetings, schedules_df, congregation, group_label)

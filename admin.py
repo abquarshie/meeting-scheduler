@@ -69,28 +69,32 @@ def render(students_df, t, selected_lang, aux_default):
                     st.rerun()
 
         st.subheader("S-140 template (Word)")
-        st.caption("Upload the blank S-140 once and the Export page uses it "
-                   "every month — it is a .docx, not a PDF.")
-        stored, file_name = load_template("s140")
-        c1, c2 = st.columns([4, 1])
-        if stored:
-            c1.success(f"In use: **{file_name}**")
-            if c2.button("Remove", key="rm_s140", width="stretch"):
-                delete_template("s140")
-                st.rerun()
-        else:
-            c1.info("No S-140 template uploaded.")
-        s140_file = st.file_uploader("Blank S-140 template (.docx)", type=["docx"],
-                                     key="up_s140")
-        if s140_file is not None:
-            try:
-                check_s140_template(s140_file.getvalue())
-            except S140Error as exc:
-                st.error(str(exc))
+        st.caption("Upload the blank once per language and the Export page uses "
+                   "it every month. It is a .docx, not a PDF, and the published "
+                   "blank holds one week — the app repeats it for the month.")
+        for language in TRANSLATIONS:
+            stored, file_name = load_template(f"s140_{language}")
+            c1, c2 = st.columns([4, 1])
+            if stored:
+                c1.success(f"{language}: **{file_name}**")
+                if c2.button("Remove", key=f"rm_s140_{language}", width="stretch"):
+                    delete_template(f"s140_{language}")
+                    st.rerun()
             else:
-                save_template("s140", s140_file.name, s140_file.getvalue())
-                st.success("Saved the S-140 template.")
-                st.rerun()
+                c1.info(f"{language}: no S-140 template uploaded.")
+            s140_file = st.file_uploader(f"Blank S-140 ({language}, .docx)",
+                                         type=["docx"], key=f"up_s140_{language}")
+            if s140_file is not None:
+                try:
+                    blocks = check_s140_template(s140_file.getvalue())
+                except S140Error as exc:
+                    st.error(str(exc))
+                else:
+                    save_template(f"s140_{language}", s140_file.name,
+                                  s140_file.getvalue())
+                    st.success(f"Saved the {language} S-140 — "
+                               f"{blocks} week block(s) in the blank.")
+                    st.rerun()
 
         st.subheader("Backup file")
         st.download_button(

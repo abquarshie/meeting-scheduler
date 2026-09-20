@@ -26,6 +26,10 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
 NB = "\u00a0"  # spacer the template uses before "(Min. X)"
+# The blank is published per language and marks its date row differently. Only
+# this marker is searched for; every other placeholder is replaced by position.
+DATE_MARKERS = ("[DEETI]", "[DATE]")
+CONG_MARKERS = ("[ASAFO", "[CONGREGATION")
 BLOCK_LEN = 24  # rows per week block, date row inclusive
 OFF = dict(group=1, opening_song=3, treasures_hdr=6, treasures=7,
            ministry_hdr=11, ministry=12, middle_song=18, living=19,
@@ -77,6 +81,41 @@ def _S(tr, idx, text):
         _set_text(cs[idx], text or "")
 
 
+def _song(value, ga):
+    """"Song 74" or "Lala 74", whichever matches the template.
+
+    Setting a cell replaces everything in it, including the template's own
+    "Song"/"Lala", so the word has to be written back with the number.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    found = re.search(r"\d+", text)
+    if not found:
+        return text
+    return f"{'Lala' if ga else 'Song'} {found.group()}"
+
+
+def _is_date_row(tr):
+    text = _txt(tr)
+    return any(marker in text for marker in DATE_MARKERS)
+
+
+def _repeat_table(doc, tbl, extra, blocks):
+    """Append `extra` more week blocks by copying the ones already there.
+
+    The published blank is one week to a sheet. Copying its rows lets a whole
+    month come out of the one template, with a page break before each new week
+    so they do not run together.
+    """
+    rows = tbl.findall(qn("w:tr"))
+    per_block = len(rows) // max(blocks, 1)
+    template_rows = rows[-per_block:] if per_block else rows
+    for _ in range(extra):
+        for tr in template_rows:
+            tbl.append(copy.deepcopy(tr))
+
+
 def _part(n, item):
     m = str(item.get("min", "") or "").strip()
     title = item["title"].strip()
@@ -95,10 +134,11 @@ def check_s140_template(template_bytes):
     if not doc.tables:
         raise S140Error("The template has no table - is this the blank S-140?")
     trs = doc.tables[0]._tbl.findall(qn("w:tr"))
-    weeks = sum(1 for tr in trs if "[DEETI]" in _txt(tr))
+    weeks = sum(1 for tr in trs if _is_date_row(tr))
     if not weeks:
         raise S140Error(
-            "No [DEETI] rows found — this does not look like the blank S-140.")
+            "No date row found — this does not look like the blank S-140. "
+            "It should contain [DATE] or [DEETI].")
     return weeks
 
 
@@ -111,14 +151,26 @@ def fill_s140(template_bytes, data, widen=True):
     tbl = doc.tables[0]._tbl
     trs = tbl.findall(qn("w:tr"))
 
-    date_rows = [i for i, tr in enumerate(trs) if "[DEETI]" in _txt(tr)]
-    head_rows = [i for i, tr in enumerate(trs) if "[ASAFO" in _txt(tr)]
+    # which language's blank this is, read before the placeholders are replaced
+    ga = any("[DEETI]" in _txt(tr) for tr in trs)
+    date_rows = [i for i, tr in enumerate(trs) if _is_date_row(tr)]
+    head_rows = [i for i, tr in enumerate(trs)
+                 if any(m in _txt(tr) for m in CONG_MARKERS)]
     if not date_rows:
-        raise S140Error("No [DEETI] rows found - is this the blank S-140 template?")
-    if len(weeks) > len(date_rows):
         raise S140Error(
-            f"The template has {len(date_rows)} week blocks but {len(weeks)} weeks were selected."
-        )
+            "No date row found - is this the blank S-140 template?")
+    if len(weeks) > len(date_rows):
+        # the published blank holds a single week, so it is repeated as many
+        # times as the month needs rather than refusing the export
+        _repeat_table(doc, tbl, len(weeks) - len(date_rows), len(date_rows))
+        trs = tbl.findall(qn("w:tr"))
+        date_rows = [i for i, tr in enumerate(trs) if _is_date_row(tr)]
+        head_rows = [i for i, tr in enumerate(trs)
+                     if any(m in _txt(tr) for m in CONG_MARKERS)]
+    if len(weeks) > len(date_rows):                     # pragma: no cover
+        raise S140Error(
+            f"The template has {len(date_rows)} week block(s) but "
+            f"{len(weeks)} weeks were selected.")
 
     cong = data.get("congregation")
     if cong:
@@ -140,7 +192,7 @@ def fill_s140(template_bytes, data, widen=True):
             _S(blk["group"], 1, "")
         _S(blk["group"], 2, "")
 
-        _S(blk["opening_song"], 1, w.get("opening_song", ""))
+        _S(blk["opening_song"], 1, _song(w.get("opening_song"), ga))
         _S(blk["opening_song"], 3, w.get("opening_prayer", ""))
 
         if data.get("clear_asa2", True):
@@ -178,7 +230,7 @@ def fill_s140(template_bytes, data, widen=True):
             n += 1
         drop += slots[len(ministry):]
 
-        _S(blk["middle_song"], 1, w.get("middle_song", ""))
+        _S(blk["middle_song"], 1, _song(w.get("middle_song"), ga))
         living = w.get("living", [])
         slots = [trs[b + OFF["living"] + k] for k in range(N_LIVING)]
         while len(slots) < len(living):
@@ -197,7 +249,7 @@ def fill_s140(template_bytes, data, widen=True):
         _S(blk["cbs"], 1, _part(n, cbs))
         _S(blk["cbs"], 3, cbs.get("name", ""))
 
-        _S(blk["closing_song"], 1, w.get("closing_song", ""))
+        _S(blk["closing_song"], 1, _song(w.get("closing_song"), ga))
         _S(blk["closing_song"], 3, w.get("closing_prayer", ""))
 
     for wi in range(len(weeks), len(date_rows)):

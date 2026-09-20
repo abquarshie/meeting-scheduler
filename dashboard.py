@@ -68,7 +68,8 @@ def setup_gaps(students_df):
                      "Upload PDF Brochure"))
     if not any(load_template(f"s89_{language}")[0] for language in TRANSLATIONS):
         gaps.append(("Upload the blank S-89 — slips are printed on it", "Admin"))
-    if not load_template("s140")[0]:
+    if not any(load_template(f"s140_{language}")[0]
+               for language in TRANSLATIONS):
         gaps.append(("Upload the blank S-140 template for the monthly export",
                      "Admin"))
     return gaps
