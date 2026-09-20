@@ -499,3 +499,27 @@ def test_setup_checklist_clears_as_things_are_done(core, people):
     gaps = [what for what, _ in dashboard.setup_gaps(students)]
     assert not any("congregation name" in g for g in gaps)
     assert any("S-89" in g for g in gaps)             # the rest remain
+
+
+def test_talks_import_in_bulk(core):
+    """Two hundred outlines arrive as a list, not typed a row at a time."""
+    rows = [(str(n), f"Title {n}") for n in range(1, 195)]
+    total, added = core.import_talks(rows)
+    assert (total, added) == (194, 194)
+    assert len(core.get_talks()) == 194
+    assert [n for n, _ in core.get_talks()][:3] == ["1", "2", "3"]
+
+    # re-importing the same numbers corrects titles in place
+    total, added = core.import_talks([("52", "A better title")])
+    assert (total, added) == (1, 0)
+    assert dict(core.get_talks())["52"] == "A better title"
+    assert len(core.get_talks()) == 194
+
+    # blank and duplicate numbers are dropped rather than stored
+    total, _ = core.import_talks([("", "no number"), ("7", "x"), ("7", "again")])
+    assert total == 1
+    assert dict(core.get_talks())["7"] == "x"
+
+    # replacing swaps the whole list
+    total, _ = core.import_talks([("1", "Only one")], replace=True)
+    assert total == 1 and len(core.get_talks()) == 1

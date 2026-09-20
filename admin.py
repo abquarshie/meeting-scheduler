@@ -191,6 +191,37 @@ def render(students_df, t, selected_lang, aux_default):
         st.caption("Add a row with the + at the bottom; clear a row's number "
                    "to remove that talk.")
 
+        st.divider()
+        st.markdown("**Load a list**")
+        st.caption("A CSV with a `number` and a `title` column. Re-importing the "
+                   "same numbers updates their titles, so corrections are one "
+                   "upload rather than a hunt through the table.")
+        csv_file = st.file_uploader("Talks CSV", type=["csv"], key="talks_csv")
+        replace = st.checkbox("Replace the whole list", key="talks_replace",
+                              help="Otherwise the file is merged into what is "
+                                   "already there.")
+        if csv_file is not None and st.button("Import talks", type="primary"):
+            try:
+                frame = pd.read_csv(csv_file, dtype=str).fillna("")
+                columns = {c.strip().lower(): c for c in frame.columns}
+                if "number" not in columns or "title" not in columns:
+                    raise ValueError("needs a 'number' and a 'title' column")
+                pairs = list(zip(frame[columns["number"]], frame[columns["title"]]))
+            except Exception as exc:
+                st.error(f"Couldn't read that CSV: {str(exc)[:160]}")
+            else:
+                total, added = import_talks(pairs, replace=replace)
+                st.success(f"Imported {total} talk(s), {added} new.")
+                st.rerun()
+
+        if talks:
+            st.download_button(
+                "Download the list as CSV",
+                data=pd.DataFrame(talks, columns=["number", "title"]).to_csv(
+                    index=False).encode("utf-8-sig"),
+                file_name="public_talks.csv", mime="text/csv",
+                icon=":material/download:")
+
     with tab_log:
         log = get_log()
         if log.empty:

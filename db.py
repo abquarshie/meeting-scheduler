@@ -562,6 +562,36 @@ def save_talk(number, title):
     log_change("Public talk saved", talk_label(number, title))
 
 
+def import_talks(rows, replace=False):
+    """Load talks in bulk from (number, title) pairs.
+
+    Two hundred outlines is not a thing to type into a table one row at a time,
+    and a correction should be a re-import rather than a hunt.
+    """
+    clean = []
+    seen = set()
+    for number, title in rows:
+        number = nfc(str(number or "")).strip()
+        if not number or number in seen:
+            continue
+        seen.add(number)
+        clean.append((number, nfc(title or "")))
+    if not clean:
+        return 0, 0
+    before = {n for n, _ in get_talks()}
+    with get_conn() as conn:
+        if replace:
+            conn.execute("DELETE FROM talks")
+        conn.executemany(
+            "INSERT INTO talks (number, title) VALUES (?, ?) "
+            "ON CONFLICT(number) DO UPDATE SET title = excluded.title", clean)
+    _talks.clear()
+    added = len([n for n, _ in clean if n not in before])
+    log_change("Public talks imported",
+               f"{len(clean)} talk(s), {added} new")
+    return len(clean), added
+
+
 def delete_talk(number):
     with get_conn() as conn:
         conn.execute("DELETE FROM talks WHERE number = ?", (nfc(str(number)),))
