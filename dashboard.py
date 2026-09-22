@@ -126,13 +126,16 @@ def render(students_df, t, selected_lang, aux_default):
                     f'<div class="ms-open">{open_n}</div>'
                     f'<div class="ms-open-label">{word if open_n else "Every part is filled"}</div>',
                     unsafe_allow_html=True)
-                if st.button("Fill open slots" if open_n else "Edit schedule",
-                             icon=":material/edit:",
-                             type="primary" if open_n else "secondary",
-                             width="stretch", key="home_fill",
-                             help="Suggest fills only the empty ones; anyone "
-                                  "already chosen stays." if open_n else None):
-                    go("Schedule", schedule_mode="Edit saved", edit_meeting=(md, mt))
+                if can_manage(mt):
+                    if st.button("Fill open slots" if open_n else "Edit schedule",
+                                 icon=":material/edit:",
+                                 type="primary" if open_n else "secondary",
+                                 width="stretch", key="home_fill",
+                                 help="Suggest fills only the empty ones; anyone "
+                                      "already chosen stays." if open_n else None):
+                        go("Schedule", schedule_mode="Edit saved", edit_meeting=(md, mt))
+                else:
+                    st.caption(f"Managed by the {MEETING_TYPE_ROLE_LABEL[mt]}.")
                 if st.button("Print slips", icon=":material/print:", width="stretch",
                              key="home_print"):
                     go("View Schedules", view_meeting=(md, mt))
@@ -141,10 +144,14 @@ def render(students_df, t, selected_lang, aux_default):
             st.markdown(f'<div class="ms-next-when">{long_date(when.isoformat())}</div>'
                         f'<div class="ms-next-meta">{html_escape(label)} has no schedule yet.</div>',
                         unsafe_allow_html=True)
-            if st.button("Create this week", icon=":material/add:", type="primary",
-                         key="home_gap_first"):
-                go("Schedule", schedule_mode="Create new",
-                   new_meeting_type=MIDWEEK, new_meeting_date=when)
+            if can_manage(MIDWEEK):
+                if st.button("Create this week", icon=":material/add:", type="primary",
+                             key="home_gap_first"):
+                    go("Schedule", schedule_mode="Create new",
+                       new_meeting_type=MIDWEEK, new_meeting_date=when)
+            else:
+                st.caption(f"The {MEETING_TYPE_ROLE_LABEL[MIDWEEK]} still needs "
+                           "to create this week.")
         else:
             st.markdown('<div class="ms-next-when">No meetings scheduled yet</div>'
                         '<div class="ms-next-meta">Upload the workbook to get each week’s '
@@ -162,9 +169,13 @@ def render(students_df, t, selected_lang, aux_default):
         c1, c2 = st.columns([3, 1], vertical_alignment="center")
         c1.info(f"{label} ({long_date(when.isoformat())}) has no schedule yet.",
                 icon=":material/event_busy:")
-        if c2.button("Create it", icon=":material/add:", width="stretch", key="home_gap"):
-            go("Schedule", schedule_mode="Create new",
-               new_meeting_type=MIDWEEK, new_meeting_date=when)
+        if can_manage(MIDWEEK):
+            if c2.button("Create it", icon=":material/add:", width="stretch",
+                         key="home_gap"):
+                go("Schedule", schedule_mode="Create new",
+                   new_meeting_type=MIDWEEK, new_meeting_date=when)
+        else:
+            c2.caption(MEETING_TYPE_ROLE_LABEL[MIDWEEK])
 
     # ---- is there a second copy of the data anywhere? ------------------------------
     overdue, days = backup_overdue()
@@ -234,4 +245,8 @@ def render(students_df, t, selected_lang, aux_default):
         st.caption("Select a row to open that schedule.")
         picked = getattr(getattr(event, "selection", None), "rows", None)
         if picked:
-            go("Schedule", schedule_mode="Edit saved", edit_meeting=df.iloc[picked[0]]["_key"])
+            key = df.iloc[picked[0]]["_key"]
+            if can_manage(key[1]):
+                go("Schedule", schedule_mode="Edit saved", edit_meeting=key)
+            else:
+                st.info(f"That meeting is managed by the {MEETING_TYPE_ROLE_LABEL[key[1]]}.")

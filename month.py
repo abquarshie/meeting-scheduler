@@ -73,42 +73,46 @@ def render(students_df, t, selected_lang, aux_default):
 
     if to_create:
         st.markdown("**Workbook weeks without a schedule**")
-        if len(to_create) > 1:
-            with st.container(border=True):
-                st.write(f"{len(to_create)} weeks this month have no schedule. "
-                         "They can be created and filled in one go, then checked "
-                         "week by week — the suggestions follow the same rotation "
-                         "as the Suggest button.")
-                use_aux = st.checkbox("Auxiliary classroom in these weeks",
-                                      value=aux_default, key="bulk_aux")
-                group = ""
-                if use_aux:
-                    group = nfc(st.text_input("Group using the classroom",
-                                              key="bulk_group", placeholder="e.g. 1"))
-                if st.button(f"Create all {len(to_create)} weeks",
-                             icon=":material/auto_awesome_motion:", type="primary"):
-                    made = []
-                    for md, label in to_create:
-                        week = workbook.get(label)
-                        if not week:
-                            continue
-                        filled, total = create_week(md, label, week, students_df,
-                                                    use_aux, group)
-                        made.append(f"{fmt_date(md, short=True)} ({filled}/{total})")
-                    if made:
-                        st.success("Created " + ", ".join(made)
-                                   + ". Open each week to check it before printing.")
-                        st.rerun()
-                    else:
-                        st.warning("Those weeks are no longer in the workbook.")
-        cols = st.columns(min(len(to_create), 4))
-        for i, (md, label) in enumerate(to_create):
-            if cols[i % len(cols)].button(f"Create {fmt_date(md, short=True)}",
-                                          icon=":material/add:",
-                                          key=f"create_{md}", width="stretch"):
-                go("Schedule", schedule_mode="Create new",
-                   new_meeting_type=MIDWEEK,
-                   new_meeting_date=datetime.strptime(md, "%Y-%m-%d").date())
+        if not can_manage(MIDWEEK):
+            st.caption(f"{len(to_create)} week(s) still need a schedule — the "
+                       f"{MEETING_TYPE_ROLE_LABEL[MIDWEEK]} creates these.")
+        else:
+            if len(to_create) > 1:
+                with st.container(border=True):
+                    st.write(f"{len(to_create)} weeks this month have no schedule. "
+                             "They can be created and filled in one go, then checked "
+                             "week by week — the suggestions follow the same rotation "
+                             "as the Suggest button.")
+                    use_aux = st.checkbox("Auxiliary classroom in these weeks",
+                                          value=aux_default, key="bulk_aux")
+                    group = ""
+                    if use_aux:
+                        group = nfc(st.text_input("Group using the classroom",
+                                                  key="bulk_group", placeholder="e.g. 1"))
+                    if st.button(f"Create all {len(to_create)} weeks",
+                                 icon=":material/auto_awesome_motion:", type="primary"):
+                        made = []
+                        for md, label in to_create:
+                            week = workbook.get(label)
+                            if not week:
+                                continue
+                            filled, total = create_week(md, label, week, students_df,
+                                                        use_aux, group)
+                            made.append(f"{fmt_date(md, short=True)} ({filled}/{total})")
+                        if made:
+                            st.success("Created " + ", ".join(made)
+                                       + ". Open each week to check it before printing.")
+                            st.rerun()
+                        else:
+                            st.warning("Those weeks are no longer in the workbook.")
+            cols = st.columns(min(len(to_create), 4))
+            for i, (md, label) in enumerate(to_create):
+                if cols[i % len(cols)].button(f"Create {fmt_date(md, short=True)}",
+                                              icon=":material/add:",
+                                              key=f"create_{md}", width="stretch"):
+                    go("Schedule", schedule_mode="Create new",
+                       new_meeting_type=MIDWEEK,
+                       new_meeting_date=datetime.strptime(md, "%Y-%m-%d").date())
 
     st.divider()
 
