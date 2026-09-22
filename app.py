@@ -2,7 +2,6 @@
 """Meeting Scheduler: midweek/weekend assignments, S-89 slips and S-140 export."""
 
 import streamlit as st
-from auth import current_user_role, can_manage_midweek, can_manage_weekend, ROLE_OVERSEER
 
 
 st.set_page_config(page_title="Meeting Scheduler", page_icon=":material/event_note:",
@@ -90,7 +89,7 @@ with st.sidebar.expander(tr("settings"), icon=":material/settings:"):
     if st.button("Clear filters and unsaved picks", icon=":material/restart_alt:",
                  type="tertiary"):
         keep = {k: st.session_state[k]
-                for k in ("auth_ok", "user_name", "user_role", "slip_lang", "menu")
+                for k in ("auth_ok", "user_name", "slip_lang", "menu")
                 if k in st.session_state}
         st.session_state.clear()
         st.session_state.update(keep)
@@ -121,13 +120,5 @@ PAGES = {
     "Reports": reports.render,
     "Admin": admin.render,
 }
-
-# Role-based guard for restricted pages
-user_role = current_user_role()
-if menu == "Upload PDF Brochure" and user_role != "Admin" and not can_manage_midweek():
-    st.warning("Access restricted: Uploading PDF Brochures is restricted to the Life and Ministry Overseer.")
-    menu = "Dashboard"
-    st.session_state["menu"] = menu
-
 students_df = get_students()
 PAGES.get(menu, dashboard.render)(students_df, t, selected_lang, aux_default)
