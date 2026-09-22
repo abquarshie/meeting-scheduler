@@ -1,3 +1,4 @@
+# File: month.py
 # -*- coding: utf-8 -*-
 """Month overview: every meeting in a month, open slots, and month-wide printing."""
 from core import *  # noqa: F401,F403
@@ -14,11 +15,15 @@ def meeting_day(meeting_type):
 
 def render(students_df, t, selected_lang, aux_default):
     page_header(tr("h_month"), tr("sub_month"))
-    schedules_df = get_schedules()
+    role = current_role()
+    schedules_df = filter_schedules(get_schedules(), role)
     workbook, _ = load_workbook()
 
     months = {d[:7] for d in schedules_df["meeting_date"]}
-    months |= {w["start"][:7] for w in workbook.values() if w.get("start")}
+    # Workbook weeks are midweek only, so a coordinator has no reason to see
+    # their months in the picker.
+    if may_touch(MIDWEEK, role):
+        months |= {w["start"][:7] for w in workbook.values() if w.get("start")}
     months.add(date.today().isoformat()[:7])
     months = sorted(months, reverse=True)
     this_month = date.today().isoformat()[:7]
@@ -42,18 +47,19 @@ def render(students_df, t, selected_lang, aux_default):
             "Heading": meta.get("heading") or talk_text(meta),
         })
 
-    saved_midweek = {md for md, mt in saved_meetings(schedules_df) if mt == MIDWEEK}
-    for label, w in workbook.items():
-        if not w.get("start"):
-            continue
-        start = datetime.strptime(w["start"], "%Y-%m-%d").date()
-        md = (start + timedelta(days=meeting_day(MIDWEEK))).isoformat()
-        if md.startswith(month) and md not in saved_midweek and \
-                not any(w["start"] <= d <= w["end"] for d in saved_midweek):
-            to_create.append((md, label))
-            rows.append({"Date": fmt_date(md), "Meeting": MIDWEEK, "Filled": None,
-                         "Open slots": None, "Aux. classroom": "",
-                         "Heading": f"{label} · not created yet"})
+    if may_touch(MIDWEEK, role):
+        saved_midweek = {md for md, mt in saved_meetings(schedules_df) if mt == MIDWEEK}
+        for label, w in workbook.items():
+            if not w.get("start"):
+                continue
+            start = datetime.strptime(w["start"], "%Y-%m-%d").date()
+            md = (start + timedelta(days=meeting_day(MIDWEEK))).isoformat()
+            if md.startswith(month) and md not in saved_midweek and \
+                    not any(w["start"] <= d <= w["end"] for d in saved_midweek):
+                to_create.append((md, label))
+                rows.append({"Date": fmt_date(md), "Meeting": MIDWEEK, "Filled": None,
+                             "Open slots": None, "Aux. classroom": "",
+                             "Heading": f"{label} · not created yet"})
 
     if not rows:
         st.info("Nothing scheduled this month yet.")
