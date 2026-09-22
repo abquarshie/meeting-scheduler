@@ -1,4 +1,3 @@
-# File: admin.py
 # -*- coding: utf-8 -*-
 """Admin: Google Sheets sync, backup and restore, settings, wording, change log."""
 from core import *  # noqa: F401,F403
@@ -6,11 +5,6 @@ from month import WEEKDAYS
 
 
 def render(students_df, t, selected_lang, aux_default):
-    role = current_role()
-    if role and role not in (OVERSEER, ""):
-        st.error(f"Admin is only available to the Life and Ministry Overseer. "
-                 f"Your role is {role_label(role)}.")
-        return
     page_header(tr("h_admin"), tr("sub_admin"))
     tab_data, tab_settings, tab_talks, tab_log = st.tabs(
         ["Data & backup", "Settings", "Public talks", "Change log"])
@@ -38,16 +32,10 @@ def render(students_df, t, selected_lang, aux_default):
                 except S89Error as exc:
                     st.error(str(exc))
                 else:
-                    # Validate now, save when the button is pressed — an upload
-                    # alone should not write to the database.
-                    st.caption(f"**{blank.name}** — {per_page} slip(s) per page. "
-                               "Not saved yet.")
-                    if st.button(f"Save the {language} blank form",
-                                 key=f"save_s89_{language}", type="primary"):
-                        save_template(f"s89_{language}", blank.name, blank.getvalue())
-                        st.success(f"Saved the {language} blank form — "
-                                   f"{per_page} slip(s) per page.")
-                        st.rerun()
+                    save_template(f"s89_{language}", blank.name, blank.getvalue())
+                    st.success(f"Saved the {language} blank form — "
+                               f"{per_page} slip(s) per page.")
+                    st.rerun()
 
         st.subheader("S-140 template (Word)")
         st.caption("Upload the blank once per language and the Export page uses "
@@ -71,15 +59,11 @@ def render(students_df, t, selected_lang, aux_default):
                 except S140Error as exc:
                     st.error(str(exc))
                 else:
-                    st.caption(f"**{s140_file.name}** — {blocks} week block(s) "
-                               "in the blank. Not saved yet.")
-                    if st.button(f"Save the {language} S-140 template",
-                                 key=f"save_s140_{language}", type="primary"):
-                        save_template(f"s140_{language}", s140_file.name,
-                                      s140_file.getvalue())
-                        st.success(f"Saved the {language} S-140 — "
-                                   f"{blocks} week block(s) in the blank.")
-                        st.rerun()
+                    save_template(f"s140_{language}", s140_file.name,
+                                  s140_file.getvalue())
+                    st.success(f"Saved the {language} S-140 — "
+                               f"{blocks} week block(s) in the blank.")
+                    st.rerun()
 
         st.subheader("Backup file")
         st.download_button(

@@ -8,6 +8,7 @@ from html import escape as html_escape
 
 from i18n import *  # noqa: F401,F403
 
+# page key, wording key, Material icon
 NAV = [
     ("Dashboard", "nav_home", ":material/space_dashboard:"),
     ("Month", "nav_month", ":material/calendar_month:"),
@@ -21,9 +22,11 @@ NAV = [
 
 CSS = """
 <style>
+/* typeface comes from the theme (config.toml); only sizes and spacing here */
 h1, h2, h3, h4 { letter-spacing: -0.01em; }
 .block-container { padding-top: 2.2rem; max-width: 1180px; }
 
+/* sidebar: brand + navigation list */
 .ms-brand { font-weight: 700; font-size: 1.05rem; margin: 0 0 .1rem 0; }
 .ms-brand-sub { font-size: .8rem; opacity: .65; margin: 0 0 1rem 0; }
 [class*="st-key-nav_"] button {
@@ -40,9 +43,11 @@ h1, h2, h3, h4 { letter-spacing: -0.01em; }
 [class*="st-key-nav_"] button p { font-weight: 500; }
 [class*="st-key-nav_"] { margin-bottom: -0.55rem; }
 
+/* page header */
 .ms-page-title { font-size: 1.75rem; font-weight: 700; margin: 0; line-height: 1.2; }
 .ms-page-sub { opacity: .7; margin: .3rem 0 1.2rem 0; max-width: 62ch; }
 
+/* next-meeting panel on the dashboard */
 .ms-next-when { font-size: 1.9rem; font-weight: 700; line-height: 1.15; margin: 0; }
 .ms-next-meta { opacity: .7; margin: .25rem 0 1.1rem 0; }
 .ms-bars { display: grid; gap: .7rem; }
@@ -62,6 +67,7 @@ h1, h2, h3, h4 { letter-spacing: -0.01em; }
   .ms-next-when { font-size: 1.5rem; }
 }
 
+/* section headings inside a schedule */
 .ms-section { display: flex; align-items: center; gap: .6rem; margin: 1.4rem 0 .4rem 0;
               font-weight: 600; font-size: 1.05rem; }
 .ms-section::before { content: ""; width: .35rem; height: 1.3rem; border-radius: 2px;
@@ -74,6 +80,7 @@ button:focus-visible { outline: 2px solid #24527A; outline-offset: 2px; }
 
 
 def go(page, **state):
+    """Switch page, optionally presetting widget state, and rerun."""
     st.session_state["menu"] = page
     for key, value in state.items():
         st.session_state[key] = value
@@ -85,6 +92,7 @@ def inject_css():
 
 
 def sidebar(current):
+    """App name, then one row per page. The current page is highlighted."""
     with st.sidebar:
         st.markdown(f'<div class="ms-brand">{html_escape(tr("app_name"))}</div>'
                     f'<div class="ms-brand-sub">{html_escape(tr("app_tagline"))}</div>',

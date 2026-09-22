@@ -54,29 +54,9 @@ password = "choose-a-shared-password"
 ```
 
 Everyone then signs in with their name and that password, and the change log
-records their name; this shared-password sign-in has full access to both
-meetings. Without an `[auth]` section the app stays open to anyone with the
-link.
-
-To split responsibilities instead, give each person their own account with a
-role (see `secrets.toml.example`):
-
-```toml
-[auth.users.Kofi]
-password = "first-password"
-role = "overseer"     # Life and Ministry Overseer — creates/edits the midweek
-
-[auth.users.Ama]
-password = "second-password"
-role = "talks"        # Talk Coordinator — creates/edits the weekend
-```
-
-The **Life and Ministry Overseer** creates and edits the midweek meeting; the
-**Talk Coordinator** creates and edits the weekend meeting. Every other page
-— participants, the workbook, printing, reports, admin — is the same shared
-data for both accounts, so a name added or an away date set by one shows up
-for the other straight away. An account with no `role` (or `role = "both"`)
-keeps full access to both meetings, for an elder overseeing everything.
+records their name. To give each person their own password, use `[auth.users]`
+instead (see `secrets.toml.example`). Without an `[auth]` section the
+app stays open to anyone with the link.
 
 ### 2. Database
 
@@ -112,7 +92,7 @@ sheets_pdf.py           printable schedule sheets and S-140 data
 slips.py                S-89 slips, filled on the official blank
 picking.py              eligibility, rotation, Suggest
 backup.py               full backup / restore
-auth.py                 sign-in and roles (Overseer / Talk Coordinator)
+auth.py                 password sign-in
 i18n.py                 interface wording
 ui.py                   look and feel: sidebar, headers, section colours
 core.py                 one import for the pages

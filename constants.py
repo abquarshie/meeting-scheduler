@@ -13,27 +13,6 @@ APP_DIR = Path(__file__).resolve().parent
 MIDWEEK = "Midweek Meeting"
 WEEKEND = "Weekend Meeting"
 MEETING_TYPES = [MIDWEEK, WEEKEND]
-
-# Sign-in roles (constants.USER_ROLE_*) — who may create/edit which meeting.
-# Distinct from PRIVILEGES/ROLES below, which are meeting *parts*. These are
-# the two named responsibilities from the congregation's own structure, plus
-# a full-access role for an account not scoped to just one meeting (an elder
-# overseeing both, or the old shared-password sign-in).
-ROLE_OVERSEER = "overseer"    # Life and Ministry Overseer — the midweek meeting
-ROLE_TALKS = "talks"          # Talk Coordinator — the weekend meeting
-ROLE_BOTH = "both"            # full access to both meetings
-USER_ROLES = [ROLE_OVERSEER, ROLE_TALKS, ROLE_BOTH]
-USER_ROLE_LABELS = {
-    ROLE_OVERSEER: "Life and Ministry Overseer",
-    ROLE_TALKS: "Talk Coordinator",
-    ROLE_BOTH: "Full access",
-}
-# Which meeting type a scoped role manages; ROLE_BOTH is deliberately absent
-# here — callers check that case separately, since it manages both.
-USER_ROLE_MEETING_TYPE = {ROLE_OVERSEER: MIDWEEK, ROLE_TALKS: WEEKEND}
-MEETING_TYPE_ROLE_LABEL = {MIDWEEK: USER_ROLE_LABELS[ROLE_OVERSEER],
-                          WEEKEND: USER_ROLE_LABELS[ROLE_TALKS]}
-
 CATEGORIES = ["Brother", "Sister"]
 GROUPS = ["Child", "Youth", "New student"]
 GROUP_TAGS = {"Child": "child", "Youth": "youth", "New student": "new"}
