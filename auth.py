@@ -1,20 +1,18 @@
 # -*- coding: utf-8 -*-
-"""Password gate.
+"""Password gate and role assignment for Life and Ministry Overseer & Talk Coordinator.
 
 Secrets (Streamlit Cloud → Settings → Secrets, or .streamlit/secrets.toml):
 
-    [auth]
-    password = "shared-password"      # everyone uses this and types their name
-
-    # …or give each person their own password instead:
     [auth.users]
-    Xan = "first-password"
-    Kofi = "second-password"
+    "Overseer Name" = "password-midweek"
+    "Coordinator Name" = "password-weekend"
 """
 import hmac
-
 from backup import *  # noqa: F401,F403
 
+ROLE_OVERSEER = "Life and Ministry Overseer"
+ROLE_COORDINATOR = "Talk Coordinator"
+ROLE_ADMIN = "Admin"  # Optional or fallback if configured
 
 def _auth_config():
     try:
@@ -24,29 +22,41 @@ def _auth_config():
     if not auth:
         return None
     users = dict(auth.get("users", {}) or {})
+    roles = dict(auth.get("roles", {}) or {})
     password = auth.get("password")
     if not users and not password:
         return None
-    return {"password": password, "users": users}
-
+    return {"password": password, "users": users, "roles": roles}
 
 def login_enabled():
     return _auth_config() is not None
 
-
 def _matches(given, expected):
     return bool(expected) and hmac.compare_digest(str(given), str(expected))
 
+def get_user_role(name):
+    cfg = _auth_config()
+    if not cfg:
+        return ROLE_OVERSEER # Default fallback if auth is disabled
+    roles = cfg.get("roles", {})
+    if name in roles:
+        return roles[name]
+    # Heuristic fallback based on name or default to Overseer if not specified
+    name_lower = name.lower()
+    if "coord" in name_lower or "talk" in name_lower:
+        return ROLE_COORDINATOR
+    return ROLE_OVERSEER
 
 def require_login():
-    """Stop the page until the right password is given. Returns True when open."""
+    """Stop the page until the right password is given and assign user role."""
     cfg = _auth_config()
     if cfg is None:
+        st.session_state["user_role"] = ROLE_OVERSEER
         return True
     if st.session_state.get("auth_ok"):
         return True
 
-    from ui import inject_css, page_header  # imported here: ui builds on this module
+    from ui import inject_css, page_header
     from i18n import tr
     inject_css()
     page_header(tr("app_name"), "Sign in to manage assignments.")
@@ -64,19 +74,31 @@ def require_login():
                 user_pw is None and _matches(password, cfg["password"])):
             st.session_state["auth_ok"] = True
             st.session_state["user_name"] = name
-            log_change("Signed in", name)
+            st.session_state["user_role"] = get_user_role(name)
+            log_change("Signed in", f"{name} ({st.session_state['user_role']})")
             st.rerun()
         else:
             st.error("Wrong name or password.")
     st.stop()
 
-
 def logout_button():
     if not login_enabled():
         return
     who = st.session_state.get("user_name", "")
+    role = st.session_state.get("user_role", "")
     if st.sidebar.button(f"Sign out {who}".strip(), icon=":material/logout:",
                          type="tertiary", width="stretch"):
-        for key in ("auth_ok", "user_name"):
+        for key in ("auth_ok", "user_name", "user_role"):
             st.session_state.pop(key, None)
         st.rerun()
+
+def current_user_role():
+    return st.session_state.get("user_role", ROLE_OVERSEER)
+
+def can_manage_midweek():
+    role = current_user_role()
+    return role in (ROLE_OVERSEER, ROLE_ADMIN)
+
+def can_manage_weekend():
+    role = current_user_role()
+    return role in (ROLE_COORDINATOR, ROLE_ADMIN)
