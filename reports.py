@@ -1,3 +1,4 @@
+# File: reports.py
 # -*- coding: utf-8 -*-
 """How often each person has had parts, to spot anyone left out or overused."""
 from core import *  # noqa: F401,F403
@@ -38,7 +39,11 @@ def build_report(students_df, schedules_df, start, end):
 
 def render(students_df, t, selected_lang, aux_default):
     page_header(tr("h_reports"), tr("sub_reports"))
-    schedules_df = get_schedules()
+    role = current_role()
+    # The report counts parts per role, so the role-filtered schedules give
+    # each user the report for their own meeting type — same participants,
+    # same tables, different slice.
+    schedules_df = filter_schedules(get_schedules(), role)
     if students_df.empty:
         st.info("No participants yet.")
         return
