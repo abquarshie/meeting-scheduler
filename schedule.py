@@ -1,4 +1,3 @@
-# File: schedule.py
 # -*- coding: utf-8 -*-
 """Schedule page."""
 from core import *  # noqa: F401,F403
@@ -6,44 +5,25 @@ from core import *  # noqa: F401,F403
 
 def render(students_df, t, selected_lang, aux_default):
     page_header(tr("h_schedule"), tr("sub_schedule"))
-    role = current_role()
-    allowed = allowed_meetings(role)          # empty set = full access
-    single_role = bool(allowed)               # exactly one meeting type
-
-    schedules_df = filter_schedules(get_schedules(), role)
+    schedules_df = get_schedules()
     meetings = saved_meetings(schedules_df)
 
     mode = st.radio("Mode", ["Create new", "Edit saved"], horizontal=True,
                     key="schedule_mode")
     if mode == "Edit saved":
         if not meetings:
-            label = (f"No {next(iter(allowed))} schedules have been saved yet."
-                     if single_role else "No saved schedules yet.")
-            st.info(label)
+            st.info("No saved schedules yet.")
             st.stop()
         if st.session_state.get("edit_meeting") not in meetings:
             st.session_state.pop("edit_meeting", None)
         meeting_date, meeting_type = st.selectbox(
             "Saved schedule", meetings, format_func=meeting_label, key="edit_meeting")
     else:
+        c1, c2 = st.columns(2)
         st.session_state.setdefault("new_meeting_type", MIDWEEK)
         st.session_state.setdefault("new_meeting_date", date.today())
-        if single_role:
-            # The role pins the meeting type: the coordinator never creates a
-            # midweek schedule, and the overseer never creates a weekend one.
-            fixed = next(iter(allowed))
-            st.session_state["new_meeting_type"] = fixed
-            meeting_type = fixed
-            st.caption(f"Creating a **{fixed}** schedule "
-                       f"(your role: {role_label(role)}).")
-            meeting_date = st.date_input(
-                "Meeting date", key="new_meeting_date").isoformat()
-        else:
-            c1, c2 = st.columns(2)
-            meeting_type = c1.selectbox("Meeting type", MEETING_TYPES,
-                                        key="new_meeting_type")
-            meeting_date = c2.date_input("Meeting date",
-                                         key="new_meeting_date").isoformat()
+        meeting_type = c1.selectbox("Meeting type", MEETING_TYPES, key="new_meeting_type")
+        meeting_date = c2.date_input("Meeting date", key="new_meeting_date").isoformat()
 
     saved_slots, saved_picks, saved_visitors = load_schedule(
         meeting_date, meeting_type, schedules_df)
@@ -293,7 +273,11 @@ def render(students_df, t, selected_lang, aux_default):
         current = st.session_state.get(f"{wkey}|student")
 
         # Labels on one row, dropdowns on the next, so the part and its
-        # assistant always line up.
+        # assistant always line up. Putting the category control in the left
+        # column pushed that column down and left the two out of step.
+        # two columns only when there is an assistant: a single part already
+        # shares its row with another one, and nesting columns inside that
+        # would leave half of each half empty
         if needs_assistant:
             head_left, head_right = st.columns(2)
             head_right.markdown("**Assistant**")
@@ -316,6 +300,8 @@ def render(students_df, t, selected_lang, aux_default):
         if pre_sid not in options:
             pre_sid = None
         elif pre_sid is not None and pre_sid not in eligible:
+            # saved earlier, unavailable now: keep it visible so it can be
+            # changed deliberately rather than disappearing on open
             head_left.caption(f"{names.get(pre_sid, 'This person')} is no longer "
                               "available — choose someone else.")
         label = person_label_factory(students_df, last_dates, away, role_dates,

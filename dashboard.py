@@ -1,4 +1,3 @@
-# File: dashboard.py
 # -*- coding: utf-8 -*-
 """Home: the next meeting and what's still open, then what's coming up."""
 from core import *  # noqa: F401,F403
@@ -78,17 +77,9 @@ def setup_gaps(students_df):
 
 def render(students_df, t, selected_lang, aux_default):
     today = date.today()
-    role = current_role()
     page_header(greeting(), f"{today:%A} {today.day} {today:%B %Y}")
 
     gaps = setup_gaps(students_df)
-    # The workbook, S-89 and S-140 all feed the midweek meeting, so a
-    # Talk Coordinator has no reason to be nudged about them.
-    if not may_touch(MIDWEEK, role):
-        gaps = [(w, p) for w, p in gaps
-                if "workbook" not in w.lower()
-                and "S-89" not in w
-                and "S-140" not in w]
     if gaps:
         with st.container(border=True):
             st.markdown("#### Still to set up")
@@ -108,10 +99,9 @@ def render(students_df, t, selected_lang, aux_default):
                 go("Manage Participants")
         return
 
-    # Both roles read the same tables; only the role's meetings reach the page.
-    schedules_df = filter_schedules(get_schedules(), role)
+    schedules_df = get_schedules()
     upcoming = sorted(p for p in saved_meetings(schedules_df) if p[0] >= today.isoformat())
-    gap = next_unscheduled_week(schedules_df) if may_touch(MIDWEEK, role) else None
+    gap = next_unscheduled_week(schedules_df)
 
     # ---- the next meeting -----------------------------------------------------
     with st.container(border=True):
@@ -164,8 +154,7 @@ def render(students_df, t, selected_lang, aux_default):
             if c1.button("Create a schedule", icon=":material/add:", type="primary",
                          width="stretch"):
                 go("Schedule", schedule_mode="Create new")
-            if may_touch(MIDWEEK, role) and c2.button(
-                    "Upload workbook", icon=":material/upload_file:", width="stretch"):
+            if c2.button("Upload workbook", icon=":material/upload_file:", width="stretch"):
                 go("Upload PDF Brochure")
 
     if upcoming and gap:
@@ -201,8 +190,7 @@ def render(students_df, t, selected_lang, aux_default):
     away = get_unavailable_between(today.isoformat(), week_end)
     away |= get_suspended(students_df, today.isoformat())
     m1, m2, m3 = st.columns(3)
-    not_created = (unscheduled_weeks(schedules_df, within_days=28)
-                   if may_touch(MIDWEEK, role) else [])
+    not_created = unscheduled_weeks(schedules_df, within_days=28)
     if not soon and not_created:
         # no schedules ahead, so "0 open slots" would read as "nothing to do"
         m1.metric("Weeks not yet created", len(not_created), border=True,

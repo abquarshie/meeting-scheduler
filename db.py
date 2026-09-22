@@ -821,34 +821,15 @@ def undo_last(meeting_date, meeting_type):
     return restored
 
 
-def as_int(value):
-    """An integer, or None. Anything that is not one becomes None.
-
-    Postgres refuses a string where an integer belongs, and the values here
-    have come through a workbook parse, a JSON round trip, a data editor and a
-    set of widgets — any of which can hand back "" or a float. Coercing at the
-    point of the insert is cheaper than trusting all of them.
-    """
-    if value is None or isinstance(value, bool):
-        return int(value) if isinstance(value, bool) else None
-    if value != value:                       # NaN
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def save_schedule(meeting_date, meeting_type, slots, picks, meta, names):
     """Replace everything stored for this date + meeting type."""
     rows = []
     for order, slot in enumerate(slots):
         sid, aid = picks.get(order, (None, None))
-        sid, aid = as_int(sid), as_int(aid)
         rows.append((
-            str(meeting_date), meeting_type, as_int(slot["part_no"]), slot["title"],
-            as_int(slot.get("minutes")), slot["section"], slot["role"],
-            int(bool(slot["student_part"])), int(bool(slot["needs_assistant"])),
+            str(meeting_date), meeting_type, slot["part_no"], slot["title"],
+            slot.get("minutes"), slot["section"], slot["role"],
+            int(slot["student_part"]), int(slot["needs_assistant"]),
             sid, names.get(sid), aid, names.get(aid), order,
             slot.get("hall") or MAIN_HALL, picks.get(order + 10000) or None,
         ))

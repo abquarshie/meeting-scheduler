@@ -1,4 +1,3 @@
-# File: app.py
 # -*- coding: utf-8 -*-
 """Meeting Scheduler: midweek/weekend assignments, S-89 slips and S-140 export."""
 
@@ -90,7 +89,7 @@ with st.sidebar.expander(tr("settings"), icon=":material/settings:"):
     if st.button("Clear filters and unsaved picks", icon=":material/restart_alt:",
                  type="tertiary"):
         keep = {k: st.session_state[k]
-                for k in ("auth_ok", "user_name", "user_role", "slip_lang", "menu")
+                for k in ("auth_ok", "user_name", "slip_lang", "menu")
                 if k in st.session_state}
         st.session_state.clear()
         st.session_state.update(keep)
@@ -121,17 +120,5 @@ PAGES = {
     "Reports": reports.render,
     "Admin": admin.render,
 }
-
-# Role gate at the router: a page a role may not open is refused here, so
-# setting st.session_state["menu"] by hand cannot bypass the sidebar.
-role = current_role()
-allowed_pages = {p for p, _, _ in pages_for(role)}
-if menu not in allowed_pages:
-    st.warning(f"Your role ({role_label(role)}) doesn't have access to "
-               f"**{menu}**. Showing the dashboard instead.",
-               icon=":material/lock:")
-    menu = "Dashboard"
-    st.session_state["menu"] = menu
-
 students_df = get_students()
 PAGES.get(menu, dashboard.render)(students_df, t, selected_lang, aux_default)
