@@ -1,8 +1,14 @@
+# File: ui.py
 # -*- coding: utf-8 -*-
 """Look and feel: theme CSS, sidebar navigation and small display pieces.
 
 Colour carries meaning only: the three workbook section colours mark sections,
 and the ink blue marks actions. Everything else stays neutral.
+
+Navigation is role-aware: a Life and Ministry Overseer does not see the
+weekend-only parts of the app, and a Talk Coordinator does not see the
+midweek-only ones. The colour decisions in this file and in sheets_pdf.py are
+unaffected by the split.
 """
 from html import escape as html_escape
 
@@ -20,6 +26,26 @@ NAV = [
     ("Admin", "nav_admin", ":material/admin_panel_settings:"),
 ]
 
+# Pages only one role may open. Everything else is shared.
+#   Upload PDF Brochure feeds the midweek meeting, so it belongs to the overseer.
+#   Admin (secrets, backups, talks) is also the overseer's.
+ROLE_ONLY = {
+    "Upload PDF Brochure": (OVERSEER,),
+    "Admin": (OVERSEER,),
+}
+
+
+def pages_for(role):
+    """Navigation entries this role may see. "" or None = full access."""
+    out = []
+    for page, key, icon in NAV:
+        allowed = ROLE_ONLY.get(page)
+        if allowed and role not in allowed and role not in ("", None):
+            continue
+        out.append((page, key, icon))
+    return out
+
+
 CSS = """
 <style>
 /* typeface comes from the theme (config.toml); only sizes and spacing here */
@@ -28,7 +54,8 @@ h1, h2, h3, h4 { letter-spacing: -0.01em; }
 
 /* sidebar: brand + navigation list */
 .ms-brand { font-weight: 700; font-size: 1.05rem; margin: 0 0 .1rem 0; }
-.ms-brand-sub { font-size: .8rem; opacity: .65; margin: 0 0 1rem 0; }
+.ms-brand-sub { font-size: .8rem; opacity: .65; margin: 0 0 .5rem 0; }
+.ms-role { font-size: .78rem; opacity: .7; margin: 0 0 1rem 0; }
 [class*="st-key-nav_"] button {
     justify-content: flex-start;
     padding-left: .75rem;
@@ -92,12 +119,14 @@ def inject_css():
 
 
 def sidebar(current):
-    """App name, then one row per page. The current page is highlighted."""
+    """App name, role caption, then one row per page the role may open."""
+    role = current_role()
     with st.sidebar:
         st.markdown(f'<div class="ms-brand">{html_escape(tr("app_name"))}</div>'
-                    f'<div class="ms-brand-sub">{html_escape(tr("app_tagline"))}</div>',
+                    f'<div class="ms-brand-sub">{html_escape(tr("app_tagline"))}</div>'
+                    f'<div class="ms-role">{html_escape(role_label(role))}</div>',
                     unsafe_allow_html=True)
-        for page, key, icon in NAV:
+        for page, key, icon in pages_for(role):
             active = page == current
             if st.button(tr(key), icon=icon, key=f"nav_{page.replace(' ', '_')}",
                          type="primary" if active else "tertiary", width="stretch"):
@@ -115,6 +144,7 @@ def page_header(title, subtitle=None):
 
 
 def section_heading(section):
+    """Workbook section heading. Colour is unchanged by the role split."""
     color = SECTION_COLORS.get(section, "#8A94A0")
     name = SECTION_TITLES.get(section, section or "")
     st.markdown(f'<div class="ms-section" style="--ms-color:{color}">'
