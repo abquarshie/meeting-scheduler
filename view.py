@@ -1,3 +1,4 @@
+# File: view.py
 # -*- coding: utf-8 -*-
 """View Schedules page."""
 from core import *  # noqa: F401,F403
@@ -5,10 +6,11 @@ from core import *  # noqa: F401,F403
 
 def render(students_df, t, selected_lang, aux_default):
     page_header(tr("h_view"), tr("sub_view"))
-    schedules_df = get_schedules()
+    role = current_role()
+    schedules_df = filter_schedules(get_schedules(), role)
     meetings = saved_meetings(schedules_df)
     if not meetings:
-        st.info("No schedules have been created yet.")
+        st.info("No schedules have been created yet for your role.")
         st.stop()
 
     # one page for printing, whichever scope you want
