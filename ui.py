@@ -20,6 +20,12 @@ NAV = [
     ("Admin", "nav_admin", ":material/admin_panel_settings:"),
 ]
 
+# The Talk Coordinator's whole world: assigning the weekend meeting and
+# generating its printed schedule. The Life and Ministry Overseer sees every
+# page above — participants, the workbook, month view, reports and admin
+# (S-89, S-140, backup, settings) are all theirs to handle.
+TALK_COORDINATOR_PAGES = ["Dashboard", "Schedule", "View Schedules"]
+
 CSS = """
 <style>
 /* typeface comes from the theme (config.toml); only sizes and spacing here */
@@ -92,12 +98,14 @@ def inject_css():
 
 
 def sidebar(current):
-    """App name, then one row per page. The current page is highlighted."""
+    """App name, then one row per page the signed-in role may use."""
+    visible = [n for n in NAV
+              if current_role() != ROLE_TALKS or n[0] in TALK_COORDINATOR_PAGES]
     with st.sidebar:
         st.markdown(f'<div class="ms-brand">{html_escape(tr("app_name"))}</div>'
                     f'<div class="ms-brand-sub">{html_escape(tr("app_tagline"))}</div>',
                     unsafe_allow_html=True)
-        for page, key, icon in NAV:
+        for page, key, icon in visible:
             active = page == current
             if st.button(tr(key), icon=icon, key=f"nav_{page.replace(' ', '_')}",
                          type="primary" if active else "tertiary", width="stretch"):

@@ -7,6 +7,9 @@ def render(students_df, t, selected_lang, aux_default):
     page_header(tr("h_view"), tr("sub_view"))
     schedules_df = get_schedules()
     meetings = saved_meetings(schedules_df)
+    weekend_only = current_role() == ROLE_TALKS
+    if weekend_only:
+        meetings = [m for m in meetings if m[1] == WEEKEND]
     if not meetings:
         st.info("No schedules have been created yet.")
         st.stop()
@@ -57,30 +60,42 @@ def render(students_df, t, selected_lang, aux_default):
             go("Schedule", schedule_mode="Edit saved", edit_meeting=chosen[0])
 
     st.divider()
-    st.subheader("S-89 assignment slips")
-    slip_rows = slip_rows_for(rows)
-    if not slip_rows:
-        st.info("No student parts are assigned, so there are no slips to print.")
-    else:
-        n_aux = sum(1 for r in slip_rows if r["hall"] != MAIN_HALL)
-        if n_aux:
-            st.caption(f"{len(slip_rows) - n_aux} main hall and {n_aux} auxiliary "
-                       "classroom slip(s); each has its room ticked.")
-        try:
-            slips = slips_pdf(slip_rows, t, selected_lang)
-        except S89Error as exc:
-            st.error(str(exc), icon=":material/upload_file:")
+    if not weekend_only:
+        st.subheader("S-89 assignment slips")
+        slip_rows = slip_rows_for(rows)
+        if not slip_rows:
+            st.info("No student parts are assigned, so there are no slips to print.")
         else:
-            st.download_button(
-                f"Download {len(slip_rows)} slip(s) ({selected_lang})",
-                icon=":material/receipt_long:", data=slips,
-                file_name=f"S89_slips_{label_for_file}_{selected_lang}.pdf",
-                mime="application/pdf",
-            )
-
-    st.divider()
+            n_aux = sum(1 for r in slip_rows if r["hall"] != MAIN_HALL)
+            if n_aux:
+                st.caption(f"{len(slip_rows) - n_aux} main hall and {n_aux} auxiliary "
+                           "classroom slip(s); each has its room ticked.")
+            try:
+                slips = slips_pdf(slip_rows, t, selected_lang)
+            except S89Error as exc:
+                st.error(str(exc), icon=":material/upload_file:")
+            else:
+                st.download_button(
+                    f"Download {len(slip_rows)} slip(s) ({selected_lang})",
+                    icon=":material/receipt_long:", data=slips,
+                    file_name=f"S89_slips_{label_for_file}_{selected_lang}.pdf",
+                    mime="application/pdf",
+                )
+        st.divider()
     st.subheader("Printable schedule")
     midweek, weekend = split_by_type(chosen)
+    if weekend_only:
+        if not weekend:
+            st.info("No weekend meeting in this selection.")
+        else:
+            st.download_button(
+                f"Weekend schedule ({len(weekend)})", icon=":material/print:",
+                data=generate_schedule_pdf(weekend, schedules_df, t, compact=False),
+                file_name=f"weekend_schedule_{label_for_file}.pdf",
+                mime="application/pdf", width="stretch", key="dl_Weekend",
+            )
+        return
+
     two_up = False
     if len(midweek) > 1:
         two_up = st.checkbox(

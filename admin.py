@@ -5,6 +5,9 @@ from month import WEEKDAYS
 
 
 def render(students_df, t, selected_lang, aux_default):
+    if current_role() == ROLE_TALKS:
+        st.info("Admin is managed by the Life and Ministry Overseer.")
+        st.stop()
     page_header(tr("h_admin"), tr("sub_admin"))
     tab_data, tab_settings, tab_talks, tab_log = st.tabs(
         ["Data & backup", "Settings", "Public talks", "Change log"])

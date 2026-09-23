@@ -73,6 +73,9 @@ FONT_REGULAR, FONT_BOLD, FONT_SUPPORTS_GA = register_fonts()
 
 if "menu" not in st.session_state:
     st.session_state["menu"] = "Dashboard"
+if (current_role() == ROLE_TALKS
+        and st.session_state["menu"] not in TALK_COORDINATOR_PAGES):
+    st.session_state["menu"] = "Dashboard"
 
 # --- sidebar -------------------------------------------------------------------
 menu = st.session_state["menu"]
