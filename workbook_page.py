@@ -6,6 +6,9 @@ from core import *  # noqa: F401,F403
 
 
 def render(students_df, t, selected_lang, aux_default):
+    if current_role() == ROLE_TALKS:
+        st.info("The workbook is managed by the Life and Ministry Overseer.")
+        st.stop()
     page_header(tr("h_workbook"), tr("sub_workbook"))
     st.write(
         "Upload the Life and Ministry Meeting Workbook PDF. Numbered parts with "
@@ -20,13 +23,14 @@ def render(students_df, t, selected_lang, aux_default):
             save_workbook({}, "")
             st.rerun()
 
+    # Written only when a button below actually uses it (uploading, or Apply
+    # dates) rather than on every toggle, so ticking this alone is never a
+    # database write.
     skip_past = st.checkbox(
         "Start from the current week", value=get_setting("skip_past_weeks", "1") == "1",
         help="Weeks that finished before today are left out. Untick to keep the "
              "whole workbook, for example to fill in a week you missed.",
     )
-    if skip_past != (get_setting("skip_past_weeks", "1") == "1"):
-        set_setting("skip_past_weeks", "1" if skip_past else "0")
 
     uploaded_pdf = st.file_uploader("Choose PDF file", type=["pdf"])
     raw_text = ""
@@ -42,6 +46,7 @@ def render(students_df, t, selected_lang, aux_default):
                 if skip_past:
                     dated, dropped = drop_past_weeks(dated)
                 save_workbook(dated, uploaded_pdf.name)
+                set_setting("skip_past_weeks", "1" if skip_past else "0")
                 set_setting("workbook_dates_sure", "1" if sure else "0")
                 st.session_state["weeks_dropped"] = dropped
                 stored, stored_file = load_workbook()
@@ -99,6 +104,7 @@ def render(students_df, t, selected_lang, aux_default):
             if skip_past:
                 dated, _ = drop_past_weeks(dated)
             save_workbook(dated, stored_file)
+            set_setting("skip_past_weeks", "1" if skip_past else "0")
             set_setting("workbook_dates_sure", "1")
             st.success("Week dates updated.")
             st.rerun()

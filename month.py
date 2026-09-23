@@ -13,6 +13,9 @@ def meeting_day(meeting_type):
 
 
 def render(students_df, t, selected_lang, aux_default):
+    if current_role() == ROLE_TALKS:
+        st.info("The month view is managed by the Life and Ministry Overseer.")
+        st.stop()
     page_header(tr("h_month"), tr("sub_month"))
     schedules_df = get_schedules()
     workbook, _ = load_workbook()

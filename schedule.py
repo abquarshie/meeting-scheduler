@@ -7,6 +7,11 @@ def render(students_df, t, selected_lang, aux_default):
     page_header(tr("h_schedule"), tr("sub_schedule"))
     schedules_df = get_schedules()
     meetings = saved_meetings(schedules_df)
+    fixed_type = managed_meeting_type()   # None when the account has full access
+    if fixed_type:
+        st.caption(f"Signed in as the {user_role_label()} — you create and "
+                   f"manage the {fixed_type.lower()}.")
+        meetings = [m for m in meetings if m[1] == fixed_type]
 
     mode = st.radio("Mode", ["Create new", "Edit saved"], horizontal=True,
                     key="schedule_mode")
@@ -20,9 +25,16 @@ def render(students_df, t, selected_lang, aux_default):
             "Saved schedule", meetings, format_func=meeting_label, key="edit_meeting")
     else:
         c1, c2 = st.columns(2)
-        st.session_state.setdefault("new_meeting_type", MIDWEEK)
+        st.session_state.setdefault("new_meeting_type", fixed_type or MIDWEEK)
         st.session_state.setdefault("new_meeting_date", date.today())
-        meeting_type = c1.selectbox("Meeting type", MEETING_TYPES, key="new_meeting_type")
+        if fixed_type:
+            # the widget below is skipped, so nothing can override this
+            st.session_state["new_meeting_type"] = fixed_type
+            c1.text_input("Meeting type", fixed_type, disabled=True)
+            meeting_type = fixed_type
+        else:
+            meeting_type = c1.selectbox("Meeting type", MEETING_TYPES,
+                                        key="new_meeting_type")
         meeting_date = c2.date_input("Meeting date", key="new_meeting_date").isoformat()
 
     saved_slots, saved_picks, saved_visitors = load_schedule(
@@ -380,6 +392,10 @@ def render(students_df, t, selected_lang, aux_default):
 
     b1, b2 = st.columns([1, 1])
     if b1.button(tr("save_schedule"), icon=":material/save:", type="primary", width="stretch"):
+        if not can_manage(meeting_type):
+            st.error(f"Only the {MEETING_TYPE_ROLE_LABEL[meeting_type]} can save "
+                     "this meeting.")
+            st.stop()
         errors, warnings = [], []
         usage = {}
         for i, val in picks.items():
@@ -430,7 +446,7 @@ def render(students_df, t, selected_lang, aux_default):
                 st.warning(f"Check: {w}")
 
     snap = last_snapshot(meeting_date, meeting_type)
-    if snap:
+    if snap and can_manage(meeting_type):
         note = ("the schedule before it was deleted" if snap["reason"] == "before delete"
                 else f"{snap['assigned']} assignment(s) as saved at "
                      f"{snap['ts'][11:16]}" + (f" by {snap['user']}" if snap["user"] else ""))
@@ -449,8 +465,9 @@ def render(students_df, t, selected_lang, aux_default):
                 st.session_state.pop("confirm_undo")
                 st.rerun()
 
-    if saved_slots and b2.button("Delete this schedule", icon=":material/delete:",
-                                     width="stretch"):
+    if (saved_slots and can_manage(meeting_type)
+            and b2.button("Delete this schedule", icon=":material/delete:",
+                          width="stretch")):
         st.session_state["confirm_delete"] = (meeting_date, meeting_type)
     if st.session_state.get("confirm_delete") == (meeting_date, meeting_type):
         st.error(f"Delete the {meeting_type} for {fmt_date(meeting_date)}?")
