@@ -60,10 +60,12 @@ h1, h2, h3, h4 { letter-spacing: -0.01em; }
 .ms-bar-row { display: grid; grid-template-columns: minmax(10rem, 17rem) 1fr 4.5rem;
               align-items: center; gap: .8rem; }
 .ms-bar-name { font-size: .92rem; display: flex; align-items: center; gap: .5rem; }
-.ms-swatch { width: .7rem; height: .7rem; border-radius: 2px; flex: none; }
+.ms-swatch { width: .7rem; height: .7rem; border-radius: 2px; flex: none;
+             box-shadow: inset 0 0 0 1px rgba(128,128,128,.35); }
 .ms-bar-track { height: .55rem; border-radius: 99px; background: rgba(128,128,128,.18);
                 overflow: hidden; }
-.ms-bar-fill { height: 100%; border-radius: 99px; }
+.ms-bar-fill { height: 100%; border-radius: 99px;
+               box-shadow: inset 0 0 0 1px rgba(128,128,128,.25); }
 .ms-bar-count { font-variant-numeric: tabular-nums; text-align: right; font-size: .9rem; }
 .ms-open { font-size: 2.6rem; font-weight: 700; line-height: 1; margin: 0; }
 .ms-open-label { opacity: .7; margin: .2rem 0 .9rem 0; }
@@ -77,7 +79,8 @@ h1, h2, h3, h4 { letter-spacing: -0.01em; }
 .ms-section { display: flex; align-items: center; gap: .6rem; margin: 1.4rem 0 .4rem 0;
               font-weight: 600; font-size: 1.05rem; }
 .ms-section::before { content: ""; width: .35rem; height: 1.3rem; border-radius: 2px;
-                      background: var(--ms-color); }
+                      background: var(--ms-color);
+                      box-shadow: inset 0 0 0 1px rgba(128,128,128,.3); }
 
 button:focus-visible { outline: 2px solid #24527A; outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

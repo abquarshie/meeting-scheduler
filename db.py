@@ -405,6 +405,15 @@ def set_setting(key, value):
     _forget_settings()
 
 
+def same_role_gap_days():
+    """Days before someone may take the same part again (Admin → Settings).
+    Falls back to the built-in default until a congregation sets its own."""
+    try:
+        return int(get_setting("same_role_gap_days", str(SAME_ROLE_GAP_DAYS)))
+    except (TypeError, ValueError):
+        return SAME_ROLE_GAP_DAYS
+
+
 def get_students(active_only=False):
     query = ("SELECT id, name, gender, privileges, active, family, groups, "
              "suspended, suspended_until FROM students")

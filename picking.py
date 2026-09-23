@@ -87,8 +87,15 @@ def assistant_pool(students, student_id, away):
             if cats.get(p) == cats.get(student_id) or same_family(fam, p, student_id)]
 
 
-def held_recently(role_dates, pid, meeting_date, gap=SAME_ROLE_GAP_DAYS):
-    """True if this person had this same part within the last `gap` days."""
+def held_recently(role_dates, pid, meeting_date, gap=None):
+    """True if this person had this same part within the last `gap` days.
+
+    `gap` defaults to the congregation's rest period (Admin → Settings),
+    resolved here rather than at import time so a change to the setting
+    takes effect immediately.
+    """
+    if gap is None:
+        gap = same_role_gap_days()
     last = role_dates.get(pid)
     if not last:
         return False
@@ -100,7 +107,7 @@ def held_recently(role_dates, pid, meeting_date, gap=SAME_ROLE_GAP_DAYS):
     return 0 <= (when - then).days <= gap
 
 
-def recent_student_part(students_parts, pid, meeting_date, gap=SAME_ROLE_GAP_DAYS):
+def recent_student_part(students_parts, pid, meeting_date, gap=None):
     """True if this person had any field-ministry part recently.
 
     The ministry parts are separate roles, so a rule about the identical part

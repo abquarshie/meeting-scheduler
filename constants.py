@@ -165,7 +165,9 @@ ROLE_LABELS = {
 
 # Nobody takes the same part two meetings running: a chairman this week is
 # given something else next week. Held to only when somebody else qualifies —
-# a small congregation would otherwise leave the part empty.
+# a small congregation would otherwise leave the part empty. This is only the
+# default the first time the app runs — Admin → Settings can change the rest
+# period without touching code; see db.same_role_gap_days().
 SAME_ROLE_GAP_DAYS = 10
 
 # How long since someone last had a part, as a coloured band. Streamlit's
@@ -187,8 +189,15 @@ RECENCY_BANDS = [
     (4, "🟢", "4 weeks ago"),
 ]
 LONG_AGO = ("🟢", "over a month ago")
-NEVER_BAND = ("🟢", "no parts yet")
+# A distinct marker rather than plain green: green elsewhere means "available
+# and rested", but nobody has actually rested here — they've simply never
+# served. Worth its own look, especially for spotting newer participants.
+NEVER_BAND = ("⭐", "no parts yet")
 THIS_WEEK = ("🔴", "this week")
+# A person already assigned to something *after* this meeting reads as a
+# scheduling conflict, not a rotation cooldown — a different problem from
+# "had this last week", so it gets its own colour rather than sharing red.
+CONFLICT = ("🟠", "already scheduled")
 
 GA_CHARS = "ɛɔŋƐƆŊ"
 

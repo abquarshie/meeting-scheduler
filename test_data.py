@@ -377,6 +377,26 @@ def test_the_same_part_is_not_given_two_meetings_running(core, people):
     assert picks[chairman][0] == people["Kofi Mensah"]
 
 
+def test_same_role_gap_is_a_setting_not_a_constant(core, people):
+    """Admin → Settings can shorten or lengthen the rest period without a
+    code change; held_recently() picks up the new value immediately."""
+    from datetime import date, timedelta
+
+    three_days_ago = (date.today() - timedelta(days=3)).isoformat()
+    today = date.today().isoformat()
+    role_dates = {people["Kofi Mensah"]: three_days_ago}
+
+    assert core.same_role_gap_days() == 10          # the built-in default
+    assert core.held_recently(role_dates, people["Kofi Mensah"], today)
+
+    core.set_setting("same_role_gap_days", "2")       # shorten it to 2 days
+    assert core.same_role_gap_days() == 2
+    assert not core.held_recently(role_dates, people["Kofi Mensah"], today)
+
+    core.set_setting("same_role_gap_days", "not-a-number")   # guarded
+    assert core.same_role_gap_days() == 10
+
+
 def test_suggest_keeps_what_is_already_chosen(core, people):
     """Suggest used to compute a pick for every slot and override whatever was
     there — five parts done by hand were silently replaced."""
@@ -467,10 +487,13 @@ def test_recency_is_measured_from_the_meeting_not_today(core):
     assert core.recency("2026-09-16", meeting) == ("🟢", "4 weeks ago")
     assert core.recency("2026-08-12", meeting)[0] == "🟢"
     assert core.recency(None, meeting) == core.NEVER_BAND
-    # never had a part ranks with the longest wait, not against it
-    assert core.NEVER_BAND[0] == "🟢"
+    # never had a part gets its own marker — green means "rested", not "new"
+    assert core.NEVER_BAND[0] == "⭐"
     # the same date reads differently against a later meeting
     assert core.recency("2026-10-07", "2026-11-11")[0] == "🟢"
+    # already assigned to something after this meeting is a conflict, not a
+    # rotation cooldown, so it gets its own colour rather than sharing red
+    assert core.recency("2026-10-21", meeting) == core.CONFLICT
 
 
 def test_setup_checklist_clears_as_things_are_done(core, people):

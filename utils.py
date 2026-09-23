@@ -163,7 +163,7 @@ def recency(last_date, meeting_date=None):
         return NEVER_BAND
     days = (now - then).days
     if days < 0:
-        return "🔴", "already scheduled"
+        return CONFLICT
     if days < 7:
         return THIS_WEEK
     weeks = days // 7

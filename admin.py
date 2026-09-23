@@ -132,6 +132,19 @@ def render(students_df, t, selected_lang, aux_default):
             log_change("Meeting days changed", f"midweek {mid}, weekend {wkd}")
             st.success("Saved.")
 
+        st.subheader("Rotation")
+        gap_days = st.number_input(
+            "Days before someone may take the same part again", min_value=1,
+            max_value=90, value=same_role_gap_days(), step=1,
+            help="Suggest and the 🔴 marker treat a part as \"too soon\" within "
+                 "this many days of someone's last turn at it. The rest of the "
+                 "colour-coding (2 weeks ago, 3 weeks ago, and so on) doesn't "
+                 "change — this only moves where the red/green line falls.")
+        if st.button("Save rotation setting"):
+            set_setting("same_role_gap_days", str(int(gap_days)))
+            log_change("Rotation rest period changed", f"{int(gap_days)} day(s)")
+            st.success("Saved.")
+
     with tab_talks:
         st.caption("The outlines your congregation uses. Once they are here, "
                    "creating a weekend schedule is picking one from the list.")
