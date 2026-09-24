@@ -116,7 +116,8 @@ def render(students_df, t, selected_lang, aux_default):
             sub = f"{mt.capitalize()}, {days_away(md)}" + (f". {detail}" if detail else "")
             left, right = st.columns([3, 1], gap="large")
             with left:
-                st.markdown(f'<div class="ms-next-when">{long_date(md)}</div>'
+                st.markdown('<div class="ms-hero-accent"></div>'
+                            f'<div class="ms-next-when">{long_date(md)}</div>'
                             f'<div class="ms-next-meta">{html_escape(sub)}</div>',
                             unsafe_allow_html=True)
                 section_bars(rows)
@@ -138,7 +139,8 @@ def render(students_df, t, selected_lang, aux_default):
                     go("View Schedules", view_meeting=(md, mt))
         elif gap:
             label, when = gap
-            st.markdown(f'<div class="ms-next-when">{long_date(when.isoformat())}</div>'
+            st.markdown('<div class="ms-hero-accent"></div>'
+                        f'<div class="ms-next-when">{long_date(when.isoformat())}</div>'
                         f'<div class="ms-next-meta">{html_escape(label)} has no schedule yet.</div>',
                         unsafe_allow_html=True)
             if st.button("Create this week", icon=":material/add:", type="primary",
@@ -146,7 +148,8 @@ def render(students_df, t, selected_lang, aux_default):
                 go("Schedule", schedule_mode="Create new",
                    new_meeting_type=MIDWEEK, new_meeting_date=when)
         else:
-            st.markdown('<div class="ms-next-when">No meetings scheduled yet</div>'
+            st.markdown('<div class="ms-hero-accent"></div>'
+                        '<div class="ms-next-when">No meetings scheduled yet</div>'
                         '<div class="ms-next-meta">Upload the workbook to get each week’s '
                         'parts, then create the first schedule.</div>',
                         unsafe_allow_html=True)
@@ -189,18 +192,27 @@ def render(students_df, t, selected_lang, aux_default):
     week_end = (today + timedelta(days=6)).isoformat()
     away = get_unavailable_between(today.isoformat(), week_end)
     away |= get_suspended(students_df, today.isoformat())
-    m1, m2, m3 = st.columns(3)
     not_created = unscheduled_weeks(schedules_df, within_days=28)
     if not soon and not_created:
         # no schedules ahead, so "0 open slots" would read as "nothing to do"
-        m1.metric("Weeks not yet created", len(not_created), border=True,
-                  help="Workbook weeks in the next 4 weeks with no schedule.")
+        first_label, first_value = "Weeks not yet created", len(not_created)
     else:
-        m1.metric("Open slots in the next 4 weeks", open_soon, border=True,
-                  help=(f"{len(not_created)} week(s) in this period still have no "
-                        "schedule." if not_created else None))
-    m2.metric("Active participants", int((students_df["active"] == 1).sum()), border=True)
-    m3.metric("Away or suspended this week", len(away), border=True)
+        first_label, first_value = "Open slots, next 4 weeks", open_soon
+    stats = [
+        (first_label, first_value),
+        ("Active participants", int((students_df["active"] == 1).sum())),
+        ("Away or suspended this week", len(away)),
+    ]
+    st.markdown(
+        '<div class="ms-stats">' + "".join(
+            f'<div class="ms-stat"><div class="ms-stat-value">{value}</div>'
+            f'<div class="ms-stat-label">{html_escape(label)}</div></div>'
+            for label, value in stats
+        ) + '</div>',
+        unsafe_allow_html=True)
+    if soon and not_created:
+        st.caption(f"{len(not_created)} week(s) in the next 4 weeks still "
+                   "have no schedule.")
 
     # ---- coming up ----------------------------------------------------------------
     later = upcoming[1:9]
