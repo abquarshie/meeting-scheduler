@@ -5,9 +5,6 @@ from month import WEEKDAYS
 
 
 def render(students_df, t, selected_lang, aux_default):
-    if current_role() == ROLE_TALKS:
-        st.info("Admin is managed by the Life and Ministry Overseer.")
-        st.stop()
     page_header(tr("h_admin"), tr("sub_admin"))
     tab_data, tab_settings, tab_talks, tab_log = st.tabs(
         ["Data & backup", "Settings", "Public talks", "Change log"])
@@ -146,7 +143,7 @@ def render(students_df, t, selected_lang, aux_default):
             "Talk Coordinator sign-off name",
             get_setting("talk_coordinator_signoff", "Bernard Mensah"),
             help="Signs every guest speaker letter. Update this here whenever "
-                 "the Talk Coordinator changes — only the Overseer can.")
+                 "the Talk Coordinator changes.")
         if st.button("Save weekend meeting details"):
             set_setting("meeting_time", meeting_time)
             set_setting("hall_address", hall_address)

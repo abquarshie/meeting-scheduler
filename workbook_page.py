@@ -6,9 +6,6 @@ from core import *  # noqa: F401,F403
 
 
 def render(students_df, t, selected_lang, aux_default):
-    if current_role() == ROLE_TALKS:
-        st.info("The workbook is managed by the Life and Ministry Overseer.")
-        st.stop()
     page_header(tr("h_workbook"), tr("sub_workbook"))
     st.write(
         "Upload the Life and Ministry Meeting Workbook PDF. Numbered parts with "
