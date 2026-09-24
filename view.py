@@ -94,29 +94,108 @@ def render(students_df, t, selected_lang, aux_default):
                 file_name=f"weekend_schedule_{label_for_file}.pdf",
                 mime="application/pdf", width="stretch", key="dl_Weekend",
             )
-        return
+    else:
+        two_up = False
+        if len(midweek) > 1:
+            two_up = st.checkbox(
+                "Two midweek weeks per sheet", value=True, key="midweek_two_up",
+                help="A week using the auxiliary classroom still prints on its own "
+                     "sheet — it is too tall to pair without shrinking it.")
+        st.caption("The midweek and weekend sheets download separately.")
+        c1, c2 = st.columns(2)
+        for column, picked, kind in ((c1, midweek, "Midweek"), (c2, weekend, "Weekend")):
+            if not picked:
+                column.button(f"{kind} schedule", disabled=True, width="stretch",
+                              help=f"No {kind.lower()} meeting in this selection.",
+                              key=f"no_{kind}")
+                continue
+            column.download_button(
+                f"{kind} schedule ({len(picked)})", icon=":material/print:",
+                data=generate_schedule_pdf(picked, schedules_df, t,
+                                           compact=two_up and kind == "Midweek"),
+                file_name=f"{kind.lower()}_schedule_{label_for_file}.pdf",
+                mime="application/pdf", width="stretch", key=f"dl_{kind}",
+            )
 
-    two_up = False
-    if len(midweek) > 1:
-        two_up = st.checkbox(
-            "Two midweek weeks per sheet", value=True, key="midweek_two_up",
-            help="A week using the auxiliary classroom still prints on its own "
-                 "sheet — it is too tall to pair without shrinking it.")
-    st.caption("The midweek and weekend sheets download separately.")
-    c1, c2 = st.columns(2)
-    for column, picked, kind in ((c1, midweek, "Midweek"), (c2, weekend, "Weekend")):
-        if not picked:
-            column.button(f"{kind} schedule", disabled=True, width="stretch",
-                          help=f"No {kind.lower()} meeting in this selection.",
-                          key=f"no_{kind}")
-            continue
-        column.download_button(
-            f"{kind} schedule ({len(picked)})", icon=":material/print:",
-            data=generate_schedule_pdf(picked, schedules_df, t,
-                                       compact=two_up and kind == "Midweek"),
-            file_name=f"{kind.lower()}_schedule_{label_for_file}.pdf",
-            mime="application/pdf", width="stretch", key=f"dl_{kind}",
-        )
+    # ---- speaker reminders, guest letter, annual checklist (both roles) -----
+    st.divider()
+    st.subheader("Speaker reminders")
+    st.caption("A WhatsApp message for anyone with a Public Talk at least a "
+               "week away — copy it and send it yourself.")
+    reminders = upcoming_talk_reminders(schedules_df, min_days=7)
+    if not reminders:
+        st.info("Nobody has a Public Talk at least a week away yet.")
+    else:
+        for cand in reminders:
+            with st.container(border=True):
+                st.markdown(f"**{cand['person']}** — {fmt_date(cand['meeting_date'])}"
+                            + (" · guest speaker" if cand["is_guest"] else ""))
+                st.code(whatsapp_reminder_text(cand), language=None)
+
+    st.divider()
+    st.subheader("Guest speaker letter")
+    if scope != "One meeting" or chosen[0][1] != WEEKEND:
+        st.caption("Select a single weekend meeting above to print its letter.")
+    else:
+        talk_rows = rows[(rows["role"] == "Public Talk") & rows["person"].notna()]
+        if talk_rows.empty:
+            st.info("No Public Talk speaker assigned to this meeting yet.")
+        elif not clean_value(getattr(talk_rows.iloc[0], "visitor", "")):
+            st.caption("This meeting's speaker is a congregation participant, "
+                       "not a guest — no letter needed.")
+        else:
+            talk_row = talk_rows.iloc[0]
+            meeting_date = chosen[0][0]
+            meta = get_meeting_meta(meeting_date, WEEKEND)
+            candidate = {
+                "meeting_date": meeting_date, "person": talk_row["person"],
+                "talk_number": clean_value(meta.get("talk_number")),
+                "talk_title": clean_value(meta.get("talk_title")),
+            }
+            meeting_time = get_setting("meeting_time", "")
+            hall_address = get_setting("hall_address", "")
+            signoff = get_setting("talk_coordinator_signoff", "Bernard Mensah")
+            missing = [label for label, val in
+                      (("public meeting time", meeting_time),
+                       ("Kingdom Hall address", hall_address),
+                       ("Talk Coordinator sign-off name", signoff)) if not val]
+            if missing:
+                st.warning("Set the " + ", ".join(missing) + " under Admin → "
+                           "Settings → Weekend meeting first.")
+            else:
+                letter = guest_letter_pdf(candidate, get_setting("congregation", ""),
+                                          hall_address, meeting_time, signoff)
+                st.download_button(
+                    f"Letter for {talk_row['person']}", data=letter,
+                    icon=":material/mail:",
+                    file_name=(f"letter_{talk_row['person'].replace(' ', '_')}"
+                              f"_{meeting_date}.pdf"),
+                    mime="application/pdf")
+
+    st.divider()
+    st.subheader("Annual talk checklist")
+    st.caption("Which talk was given when, so a repeat is easy to spot before "
+               "the next one is scheduled. Nothing here is ever deleted.")
+    period = st.radio("Period", ["Last 1 year", "Last 2 years"], horizontal=True,
+                      key="checklist_years")
+    years_n = 1 if period == "Last 1 year" else 2
+    checklist_rows = talk_checklist_rows(schedules_df, years_n)
+    if not checklist_rows:
+        st.info("No talks recorded in this period yet.")
+    else:
+        st.dataframe(pd.DataFrame([
+            {"Date": fmt_date(r["meeting_date"]), "No.": r["talk_number"],
+             "Title": r["talk_title"], "Speaker": r["speaker"]}
+            for r in checklist_rows
+        ]), width="stretch", hide_index=True)
+        st.download_button(
+            f"Download checklist ({period})", icon=":material/checklist:",
+            data=talk_checklist_pdf(checklist_rows, get_setting("congregation", ""),
+                                    years_n),
+            file_name=f"talk_checklist_{years_n}yr.pdf", mime="application/pdf")
+
+    if weekend_only:
+        return
 
     # ---- the other two things a month produces -------------------------------
     st.divider()

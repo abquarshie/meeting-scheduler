@@ -132,7 +132,7 @@ def _sheet_styles(regular, bold, compact=False, scale=None):
     }
 
 
-def _clean(value):
+def clean_value(value):
     """'' for None, NaN and blanks. NaN is truthy, so `or` alone is not enough."""
     if value is None or value != value:
         return ""
@@ -148,7 +148,7 @@ def _people(person, assistant):
     A blank cell reads as a fault in the sheet rather than as a part still to
     be filled, and these go up on a noticeboard.
     """
-    person, assistant = _clean(person), _clean(assistant)
+    person, assistant = clean_value(person), clean_value(assistant)
     if person and assistant:
         return f"{person} & {assistant}"
     return person or UNFILLED
@@ -167,7 +167,7 @@ def midweek_widths(width):
 def _song_text(value, words):
     """"Song 74" is stored from an English workbook and "Lala 74" from a Ga one;
     print whichever word matches the sheet."""
-    text = _clean(value)
+    text = clean_value(value)
     if not text:
         return ""
     found = re.search(r"\d+", text)
@@ -175,7 +175,7 @@ def _song_text(value, words):
 
 
 def _part_text(part_name, minutes):
-    title = _clean(part_name)
+    title = clean_value(part_name)
     try:
         mins = int(float(minutes))
     except (TypeError, ValueError):
@@ -248,13 +248,13 @@ def _midweek_block(rows, meta, lang, st_, width, section_titles, hall_names,
     if meta.get("opening_song") or open_prayer is not None:
         row(_song_text(meta.get("opening_song"), words),
             role_labels.get("Prayer", ""),
-            (_clean(open_prayer.person) or UNFILLED)
+            (clean_value(open_prayer.person) or UNFILLED)
             if open_prayer is not None else "",
             colour=song_colour)
     for r in opening:
         # the counselor belongs with the classroom's own section below
         if r.role not in ("Prayer", "Aux Classroom Counselor"):
-            row("", role_labels.get(r.role, ""), _clean(r.person) or UNFILLED)
+            row("", role_labels.get(r.role, ""), clean_value(r.person) or UNFILLED)
 
     # the classroom's parts are gathered up front so its section can sit with
     # the field ministry, where those parts belong, rather than at the very end
@@ -263,14 +263,14 @@ def _midweek_block(rows, meta, lang, st_, width, section_titles, hall_names,
 
     def classroom_section():
         title = hall_names.get(AUX_HALL, "")
-        group = _clean(meta.get("aux_group"))
+        group = clean_value(meta.get("aux_group"))
         if group:
             title = f"{title} \u2013 {words['group']} {group}"
         colour = SECTION_COLORS.get("Ministry", "#8A94A0")
         section(title, colour)
         if counselor is not None:
             row("", role_labels.get("Aux Classroom Counselor", ""),
-                _clean(counselor.person) or UNFILLED)
+                clean_value(counselor.person) or UNFILLED)
         for r in classroom:
             row(_part_text(r.part_name, r.minutes), "",
                 _people(r.person, r.assistant), colour=colour)
@@ -297,13 +297,13 @@ def _midweek_block(rows, meta, lang, st_, width, section_titles, hall_names,
     if meta.get("closing_song") or close_prayer is not None:
         row(_song_text(meta.get("closing_song"), words),
             role_labels.get("Prayer", ""),
-            (_clean(close_prayer.person) or UNFILLED)
+            (clean_value(close_prayer.person) or UNFILLED)
             if close_prayer is not None else "",
             colour=song_colour)
 
     if counselor is not None and not classroom:
         row("", role_labels.get("Aux Classroom Counselor", ""),
-            _clean(counselor.person) or UNFILLED)
+            clean_value(counselor.person) or UNFILLED)
     elif classroom and not shown:          # no ministry section on this week
         classroom_section()
 
@@ -342,7 +342,7 @@ def _weekend_block(rows, meta, lang, st_, width, section_titles, role_labels, wo
                       ("LINEBELOW", (0, i), (-1, i), 0, colors.white)])
 
     def closing(r):
-        return r.role == "Prayer" and _clean(r.part_name).lower().startswith("closing")
+        return r.role == "Prayer" and clean_value(r.part_name).lower().startswith("closing")
 
     def rank(r):
         if r.role == "Weekend Chairman":
@@ -365,7 +365,7 @@ def _weekend_block(rows, meta, lang, st_, width, section_titles, role_labels, wo
             return words["watchtower"]
         if r.role == "Watchtower Reader":
             return ""                          # sits under the study, labelled
-        return _clean(r.part_name)
+        return clean_value(r.part_name)
 
     listed = sorted(rows.itertuples(),
                     key=lambda r: (rank(r), int(r.sort_order or 0)))
@@ -378,10 +378,10 @@ def _weekend_block(rows, meta, lang, st_, width, section_titles, role_labels, wo
         # visitor is just their name
         row(printed_title(r), label, _people(r.person, r.assistant),
             guest=(r.role == "Public Talk"
-                   and bool(_clean(getattr(r, "visitor", "")))))
+                   and bool(clean_value(getattr(r, "visitor", "")))))
         if r.role == "Public Talk":
-            theme = _clean(meta.get("talk_title"))
-            number = _clean(meta.get("talk_number"))
+            theme = clean_value(meta.get("talk_title"))
+            number = clean_value(meta.get("talk_number"))
             if theme or number:
                 bits = f"No. {number}" if number else ""
                 note(f"{words['theme']}: " + " — ".join(b for b in (bits, theme) if b))
@@ -486,7 +486,7 @@ def generate_schedule_pdf(meetings, schedules_df, lang=None, compact=False):
             if meeting_name != banner_shown:
                 block.append(_banner(meeting_name, congregation, width, st_))
                 banner_shown = meeting_name
-            heading = _clean(meta.get("book")) or _clean(meta.get("heading"))
+            heading = clean_value(meta.get("book")) or clean_value(meta.get("heading"))
             when = fmt_date(meeting_date)
             block.append(Paragraph(
                 xml_escape(when) + (f"&nbsp;&nbsp;|&nbsp;&nbsp;{xml_escape(heading)}"
@@ -569,7 +569,7 @@ def build_s140_data(meetings, schedules_df, congregation, group_label):
             skipped.append(meeting_date)
             continue
         week["aux"] = bool(aux_week)
-        week["aux_group"] = _clean(meta.get("aux_group"))
+        week["aux_group"] = clean_value(meta.get("aux_group"))
         weeks.append(week)
     any_aux = any(w["aux"] for w in weeks)
     data = {"congregation": congregation, "group_label": group_label, "weeks": weeks,
@@ -579,5 +579,154 @@ def build_s140_data(meetings, schedules_df, congregation, group_label):
         data["clear_asa2"] = False
         data["asa2_shift"] = 0
     return data, skipped
+
+
+# =============================================================================
+# SPEAKER REMINDERS, GUEST LETTERS, ANNUAL TALK CHECKLIST
+# (View Schedules, both roles — see view.py)
+# =============================================================================
+def upcoming_talk_reminders(schedules_df, min_days=7):
+    """Public Talk speakers whose meeting is at least `min_days` away.
+
+    Each entry: meeting_date, person (display name), talk_number, talk_title,
+    is_guest (True when the name was typed in for that meeting rather than
+    picked from the participants list — the `visitor` column is filled).
+    """
+    today = date.today()
+    talk_rows = schedules_df[(schedules_df["role"] == "Public Talk")
+                             & schedules_df["person"].notna()]
+    out = []
+    for r in talk_rows.itertuples():
+        try:
+            meeting = datetime.strptime(str(r.meeting_date), "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if (meeting - today).days < min_days:
+            continue
+        meta = get_meeting_meta(r.meeting_date, WEEKEND)
+        out.append({
+            "meeting_date": r.meeting_date,
+            "person": r.person,
+            "talk_number": clean_value(meta.get("talk_number")),
+            "talk_title": clean_value(meta.get("talk_title")),
+            "is_guest": bool(clean_value(getattr(r, "visitor", ""))),
+        })
+    return sorted(out, key=lambda c: c["meeting_date"])
+
+
+def whatsapp_reminder_text(candidate):
+    """The reminder text, exactly as agreed — copy-paste only, nothing sent
+    on the app's behalf."""
+    return (f'Hello Brother {candidate["person"]}! This is a reminder that '
+           f'you have the Public Talk "{candidate.get("talk_title") or ""}" '
+           f'(No. {candidate.get("talk_number") or ""}) on '
+           f'{fmt_date(candidate["meeting_date"])}.')
+
+
+def _letter_date(iso):
+    """'September 26, 2026' — the letter's own convention, distinct from the
+    app's day-first fmt_date() used everywhere else."""
+    try:
+        d = datetime.strptime(str(iso), "%Y-%m-%d").date()
+    except ValueError:
+        return str(iso)
+    return f"{d:%B} {d.day}, {d.year}"
+
+
+def guest_letter_pdf(candidate, congregation, hall_address, meeting_time, signoff):
+    """A one-page reminder letter for a visiting (guest) speaker."""
+    regular, _, _ = register_fonts()
+    person = candidate.get("person") or ""
+    surname = person.strip().split()[-1] if person.strip() else ""
+    title = candidate.get("talk_title") or ""
+    number = candidate.get("talk_number") or ""
+    talk_bit = f'"{title}" (#{number})' if number else f'"{title}"'
+
+    def esc(value):
+        return xml_escape(str(value or ""))
+
+    body = (
+        f"Dear Brother {esc(surname)},<br/><br/>"
+        f"We are pleased that you will be visiting our congregation on "
+        f"{esc(_letter_date(candidate['meeting_date']))} to deliver the "
+        f"talk, {esc(talk_bit)}. Our Public Meeting time is "
+        f"{esc(meeting_time)}. The Kingdom Hall address is: "
+        f"{esc(hall_address)}. We look forward to your talk.<br/><br/>"
+        f"Your brother,<br/>"
+        f"{esc(signoff)}, Talk Coordinator, {esc(congregation)}."
+    )
+    style = ParagraphStyle("letter", fontName=regular, fontSize=11, leading=16)
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=54, leftMargin=54,
+                            topMargin=72, bottomMargin=54)
+    doc.build([Paragraph(body, style)])
+    return buffer.getvalue()
+
+
+def talk_checklist_rows(schedules_df, years=1):
+    """Every weekend Public Talk in the last `years` year(s), oldest first.
+    Reads existing schedule history only — nothing is ever deleted."""
+    cutoff = (date.today() - timedelta(days=365 * years)).isoformat()
+    talk_rows = schedules_df[(schedules_df["role"] == "Public Talk")
+                             & schedules_df["person"].notna()
+                             & (schedules_df["meeting_date"] >= cutoff)]
+    out, seen = [], set()
+    for r in talk_rows.itertuples():
+        key = (r.meeting_date, r.meeting_type)
+        if key in seen:                 # one Public Talk per weekend meeting
+            continue
+        seen.add(key)
+        meta = get_meeting_meta(r.meeting_date, WEEKEND)
+        out.append({
+            "meeting_date": r.meeting_date,
+            "talk_number": clean_value(meta.get("talk_number")),
+            "talk_title": clean_value(meta.get("talk_title")),
+            "speaker": r.person,
+        })
+    return sorted(out, key=lambda row: row["meeting_date"])
+
+
+def talk_checklist_pdf(rows, congregation, years):
+    """A printable table of every talk given in the period."""
+    regular, bold, _ = register_fonts()
+    title_style = ParagraphStyle("title", fontName=bold, fontSize=14, leading=18)
+    sub_style = ParagraphStyle("sub", fontName=regular, fontSize=9, leading=12,
+                               textColor=MUTED)
+    cell_style = ParagraphStyle("cell", fontName=regular, fontSize=9, leading=12)
+
+    period = "the last year" if years == 1 else f"the last {years} years"
+    story = [
+        Paragraph(xml_escape(f"{congregation} — Public Talk Checklist"), title_style),
+        Paragraph(xml_escape(f"Talks given in {period}"), sub_style),
+        Spacer(1, 12),
+    ]
+    data = [["Date", "No.", "Title", "Speaker"]]
+    for r in rows:
+        data.append([
+            fmt_date(r["meeting_date"]),
+            r["talk_number"] or "",
+            Paragraph(xml_escape(r["talk_title"] or ""), cell_style),
+            Paragraph(xml_escape(r["speaker"] or ""), cell_style),
+        ])
+    table = Table(data, colWidths=[75, 30, 230, 145], repeatRows=1)
+    table.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, 0), bold),
+        ("FONTNAME", (0, 1), (-1, -1), regular),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("BACKGROUND", (0, 0), (-1, 0), ACCENT),
+        ("GRID", (0, 0), (-1, -1), 0.5, RULE),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F5F7F9")]),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(table)
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=36, leftMargin=36,
+                            topMargin=36, bottomMargin=36)
+    doc.build(story)
+    return buffer.getvalue()
 
 

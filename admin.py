@@ -132,6 +132,27 @@ def render(students_df, t, selected_lang, aux_default):
             log_change("Meeting days changed", f"midweek {mid}, weekend {wkd}")
             st.success("Saved.")
 
+        st.subheader("Weekend meeting")
+        st.caption("Used on the guest speaker letter, printed from View "
+                   "Schedules by the Talk Coordinator.")
+        c1, c2 = st.columns(2)
+        meeting_time = c1.text_input(
+            "Public meeting time", get_setting("meeting_time", ""),
+            placeholder="e.g. 6:30pm")
+        hall_address = c2.text_input(
+            "Kingdom Hall address", get_setting("hall_address", ""),
+            placeholder="e.g. Hansen Road Near Palledium")
+        signoff = st.text_input(
+            "Talk Coordinator sign-off name",
+            get_setting("talk_coordinator_signoff", "Bernard Mensah"),
+            help="Signs every guest speaker letter. Update this here whenever "
+                 "the Talk Coordinator changes — only the Overseer can.")
+        if st.button("Save weekend meeting details"):
+            set_setting("meeting_time", meeting_time)
+            set_setting("hall_address", hall_address)
+            set_setting("talk_coordinator_signoff", signoff)
+            st.success("Saved.")
+
         st.subheader("Rotation")
         gap_days = st.number_input(
             "Days before someone may take the same part again", min_value=1,

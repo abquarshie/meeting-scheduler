@@ -318,7 +318,7 @@ def render(students_df, t, selected_lang, aux_default):
                               "available — choose someone else.")
         label = person_label_factory(students_df, last_dates, away, role_dates,
                                      suspended=suspended, details=last_details,
-                                     meeting_date=meeting_date)
+                                     meeting_date=meeting_date, role=slot["role"])
         pick_left, pick_right = (st.columns(2) if needs_assistant
                                  else (st.container(), None))
         sid = pick_left.selectbox(

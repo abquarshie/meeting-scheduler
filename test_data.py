@@ -533,3 +533,95 @@ def test_talks_import_in_bulk(core):
     # replacing swaps the whole list
     total, _ = core.import_talks([("1", "Only one")], replace=True)
     assert total == 1 and len(core.get_talks()) == 1
+
+
+def test_upcoming_talk_reminders_filters_by_notice_and_flags_guests(core, people):
+    """Only talks at least a week away show up; a typed-in name is flagged as
+    a guest, a participant's own talk is not."""
+    from datetime import date, timedelta
+
+    slots = core.default_weekend_slots()
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    far = (date.today() + timedelta(days=14)).isoformat()
+    soon = (date.today() + timedelta(days=3)).isoformat()   # under a week: excluded
+
+    # a guest speaker, far enough out
+    core.save_schedule(far, core.WEEKEND, slots, {2 + 10000: "Brother Laryea"},
+                       {"talk_number": "199", "talk_title": "How Can the Bible Help You?"},
+                       names)
+    # a congregation member, only 3 days out — excluded by the notice window
+    core.save_schedule(soon, core.WEEKEND, slots,
+                       {2: (people["Nii Tetteh"], None)},
+                       {"talk_number": "5", "talk_title": "A Different Talk"}, names)
+
+    reminders = core.upcoming_talk_reminders(core.get_schedules(), min_days=7)
+
+    assert [r["meeting_date"] for r in reminders] == [far]
+    assert reminders[0]["person"] == "Brother Laryea"
+    assert reminders[0]["is_guest"] is True
+    assert reminders[0]["talk_number"] == "199"
+
+
+def test_whatsapp_reminder_text_matches_agreed_wording(core):
+    candidate = {"person": "Laryea", "talk_title": "How Can the Bible Help You?",
+                "talk_number": "199", "meeting_date": "2026-09-26"}
+    assert core.whatsapp_reminder_text(candidate) == (
+        'Hello Brother Laryea! This is a reminder that you have the Public '
+        'Talk "How Can the Bible Help You?" (No. 199) on 26 September 2026.')
+
+
+def test_talk_checklist_windows_by_year_without_deleting_anything(core, people):
+    """The checklist only *shows* the chosen window; nothing is removed from
+    the database, so a wider window still finds the older talk."""
+    from datetime import date, timedelta
+
+    slots = core.default_weekend_slots()
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    recent = date.today().isoformat()
+    old = (date.today() - timedelta(days=400)).isoformat()   # over a year ago
+
+    core.save_schedule(recent, core.WEEKEND, slots, {2 + 10000: "Guest Speaker"},
+                       {"talk_number": "1", "talk_title": "Recent Talk"}, names)
+    core.save_schedule(old, core.WEEKEND, slots, {2 + 10000: "Old Guest"},
+                       {"talk_number": "2", "talk_title": "Old Talk"}, names)
+
+    schedules_df = core.get_schedules()
+    one_year = core.talk_checklist_rows(schedules_df, years=1)
+    two_year = core.talk_checklist_rows(schedules_df, years=2)
+
+    assert [r["meeting_date"] for r in one_year] == [recent]
+    assert [r["meeting_date"] for r in two_year] == [old, recent]
+    # the old talk is still in the database — the "1 year" view just hides it
+    assert old in schedules_df["meeting_date"].values
+
+
+def test_watchtower_conductor_has_no_recency_marker_and_ignores_rest_period(core, people):
+    """Only one or two people ever take this part, so a rotation colour would
+    misread as a warning, and 'held it last week' should not push Suggest to
+    look for someone else."""
+    from datetime import date, timedelta
+
+    slots = core.default_weekend_slots()
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    last_week = (date.today() - timedelta(days=7)).isoformat()
+    today = date.today().isoformat()
+
+    core.save_schedule(last_week, core.WEEKEND, slots,
+                       {3: (people["Nii Tetteh"], None)}, {}, names)
+
+    role_dates = core.last_role_dates("Watchtower Conductor")
+    assert core.held_recently(role_dates, people["Nii Tetteh"], today)
+
+    students = core.get_students()
+    label = core.person_label_factory(students, {}, role_dates=role_dates,
+                                      meeting_date=today, role="Watchtower Conductor")
+    assert label(people["Nii Tetteh"]) == "Nii Tetteh"   # no marker, no wording
+
+    # an ordinary role still gets the marker, for comparison
+    normal_label = core.person_label_factory(students, {}, role_dates=role_dates,
+                                              meeting_date=today, role="Chairman")
+    assert normal_label(people["Nii Tetteh"]).startswith(("🔴", "🟢", "⭐"))
+
+    # Suggest keeps proposing him even though he "held it last week"
+    picks = core.suggest_assignments(slots, students, set(), today)
+    assert picks[3][0] == people["Nii Tetteh"]

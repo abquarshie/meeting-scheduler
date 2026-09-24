@@ -35,30 +35,28 @@ def ordered_options(ids, last_dates, keep=None):
 
 def person_label_factory(students, last_dates, away=frozenset(), role_dates=None,
                         family_of=None, suspended=frozenset(), details=None,
-                        meeting_date=None):
+                        meeting_date=None, role=None):
     """Labels for the people dropdowns.
 
     Each reads "🟢 Kofi Mensah — 3 weeks ago, Bible Reading": a colour for how
     long they have waited, then what they last did. The colour leads because
     the list is ordered by it, so the eye only has to go as far as the first
     green.
+
+    `role` lets the Watchtower Conductor skip the recency marker entirely:
+    only one or two people ever take that part, so a rotation colour would
+    misread as a warning where none is intended.
     """
     names = dict(zip(students["id"], students["name"]))
     inactive = set(students[students["active"] != 1]["id"])
     tags = dict(zip(students["id"], students["group_list"]))
     fam = dict(zip(students["id"], students["family"]))
     details = details or {}
+    no_recency = role == "Watchtower Conductor"
 
     def label(pid):
         if pid is None:
             return "— Unassigned —"
-        role_last = (role_dates or {}).get(pid)
-        marker, wording = recency(role_last or last_dates.get(pid), meeting_date)
-        if role_last:
-            what = f"{wording}, this same part"
-        else:
-            entry = details.get(pid)
-            what = f"{wording}, {entry[1]}" if entry and entry[1] else wording
         flags = ""
         if pid in inactive:
             flags += " · inactive"
@@ -70,6 +68,15 @@ def person_label_factory(students, last_dates, away=frozenset(), role_dates=None
             flags += f" · {GROUP_TAGS[g]}"
         if family_of is not None and same_family(fam, pid, family_of):
             flags += " · family"
+        if no_recency:
+            return f"{names.get(pid, '?')}{flags}"
+        role_last = (role_dates or {}).get(pid)
+        marker, wording = recency(role_last or last_dates.get(pid), meeting_date)
+        if role_last:
+            what = f"{wording}, this same part"
+        else:
+            entry = details.get(pid)
+            what = f"{wording}, {entry[1]}" if entry and entry[1] else wording
         return f"{marker} {names.get(pid, '?')} — {what}{flags}"
 
     return label
@@ -153,13 +160,18 @@ def suggest_assignments(slots, students, away, meeting_date, skip=None):
         role_dates = last_role_dates(slot["role"])
         ids = [p for p in eligible_ids(slot["role"], students, away)
                if p not in used]
-        if slot["student_part"]:
+        if slot["role"] == "Watchtower Conductor":
+            # only one or two people ever take this part — "held it last
+            # week" isn't a reason to look elsewhere for this one.
+            pass
+        elif slot["student_part"]:
             rested = [p for p in ids
                       if not recent_student_part(student_parts, p, meeting_date)]
+            ids = rested or ids           # fall back rather than leave it empty
         else:
             rested = [p for p in ids
                       if not held_recently(role_dates, p, meeting_date)]
-        ids = rested or ids           # fall back rather than leave it empty
+            ids = rested or ids           # fall back rather than leave it empty
         if not ids:
             picks[i] = (None, None)
             continue
