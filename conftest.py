@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Shared fixtures: a fresh database per test, sample workbooks and a fake Google Sheet."""
+"""Shared fixtures: a fresh database per test and sample workbooks."""
 import os
 import sys
 import uuid

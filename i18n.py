@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Interface wording. English is built in; Ga wording is typed in on the Admin page."""
+"""Interface wording. Ga appears only on printed slips, the schedule and the S-140."""
 from auth import *  # noqa: F401,F403
 
 UI_TEXT = {
@@ -26,7 +26,7 @@ UI_TEXT = {
     "h_reports": "Reports",
     "sub_reports": "How often each person had a part, to spot anyone left out.",
     "h_admin": "Admin",
-    "sub_admin": "Backups, Google Sheets, meeting days, wording and the change log.",
+    "sub_admin": "Backups, meeting days, public talks and the change log.",
     "save_schedule": "Save schedule",
     "suggest": "Suggest",
     "slip_language": "Slip language",

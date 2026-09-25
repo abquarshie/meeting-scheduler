@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Full backup and restore of every table (used by the Admin page and Google sync)."""
+"""Full backup and restore of every table (used by the Admin page)."""
 import json
 
 from db import *  # noqa: F401,F403
@@ -37,7 +37,7 @@ def backup_bytes():
 
 
 def _clean(value):
-    # Google Sheets hands everything back as text; blanks mean "no value".
+    # A restored backup may hold blank strings for missing values.
     if value == "":
         return None
     return value

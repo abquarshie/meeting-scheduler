@@ -111,7 +111,5 @@ def render(students_df, t, selected_lang, aux_default):
                    new_meeting_date=datetime.strptime(md, "%Y-%m-%d").date())
 
     st.divider()
-
-    st.divider()
     if st.button("Print this month", icon=":material/print:"):
         go("View Schedules", print_scope="A whole month", print_month=month)

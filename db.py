@@ -173,8 +173,6 @@ def get_conn():
             pool.putconn(raw)
         except Exception:
             pass
-    if conn.total_changes:
-        mark_dirty()
 
 
 def read_df(sql, params=()):
@@ -183,14 +181,6 @@ def read_df(sql, params=()):
         cur = conn.execute(sql, params)
         cols = [c.name for c in cur.description]
         return pd.DataFrame(cur.fetchall(), columns=cols)
-
-
-def mark_dirty():
-    """Remember that data changed so it can be copied to Google Sheets."""
-    try:
-        st.session_state["_db_dirty"] = True
-    except Exception:  # outside a Streamlit session (tests, scripts)
-        pass
 
 
 def current_user():

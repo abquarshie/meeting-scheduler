@@ -104,8 +104,7 @@ if selected_lang != "English" and not FONT_SUPPORTS_GA:
     )
 
 kind, text = status_text()
-icons = {"warning": ":material/cloud_off:", "error": ":material/sync_problem:",
-         "info": ":material/cloud:", "success": ":material/cloud_done:"}
+icons = {"error": ":material/sync_problem:", "success": ":material/cloud_done:"}
 st.sidebar.caption(f"{icons[kind]} {text}")
 logout_button()
 

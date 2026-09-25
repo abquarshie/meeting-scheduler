@@ -32,14 +32,15 @@ inactive, given away periods, or suspended (open-ended or until a date).
 
 ## Admin page
 
-- **Data & backup:** a full backup file you can download and restore, and the
-  blank S-89 and S-140 forms the app prints on.
+- **Data & backup:** upload the fillable blank S-89 and the blank S-140
+  (.docx) once per language, so slips and the export use the real forms; also
+  a full backup file you can download and restore.
 - **Settings:** congregation name, printing language, the auxiliary classroom
-  default, and which weekday each meeting falls on.
-- **Official S-89 blank:** upload the fillable blank once per language; slips
-  are printed on it.
-- **Interface wording:** type Ga wording for the buttons and headings, then
-  choose **Ga** under ⚙️ Settings in the sidebar.
+  default, which weekday each meeting falls on, the weekend meeting's time
+  and address, and the rotation rest period.
+- **Public talks:** the outlines your congregation uses, typed in or
+  imported from a CSV, so creating a weekend schedule is picking one from
+  the list.
 - **Change log:** who changed what and when.
 
 ## One-time setup
@@ -132,6 +133,6 @@ streamlit run app.py
 MEETING_DSN="postgresql://…" pytest -q
 ```
 
-Each test gets its own throwaway Postgres schema and a fake Google Sheet, so
+Each test gets its own throwaway Postgres schema, so
 they never touch real data. Point `MEETING_DSN` at a scratch database, not the
 congregation's.

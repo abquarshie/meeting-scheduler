@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Admin: Google Sheets sync, backup and restore, settings, wording, change log."""
+"""Admin: backup and restore, settings, public talks, change log."""
 from core import *  # noqa: F401,F403
 from month import WEEKDAYS
 
