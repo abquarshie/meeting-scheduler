@@ -4,7 +4,7 @@ import json
 
 from db import *  # noqa: F401,F403
 from db import (_forget_schedules, _forget_settings,  # underscored: not in *
-                _forget_templates)
+                _forget_students, _forget_templates)
 
 TABLES = [
     "students", "schedules", "meetings", "settings",
@@ -71,6 +71,7 @@ def import_all(data, log=True):
     resync_identities()  # rows came back with their own ids
     _forget_schedules()
     _forget_settings()
+    _forget_students()
     _forget_templates()
     if log:
         log_change("Data restored",

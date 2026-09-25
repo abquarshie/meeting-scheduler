@@ -28,6 +28,8 @@ def fresh_db(monkeypatch):
     db._pool.clear()                      # the pool is bound to the schema
     db._schema_ready.clear()
     db._all_settings.clear()
+    db._students.clear()
+    db._schedules.clear()
     db._role_dates.clear()
     db._student_part_dates.clear()
     db._talks.clear()

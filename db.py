@@ -414,12 +414,11 @@ def same_role_gap_days():
         return SAME_ROLE_GAP_DAYS
 
 
-def get_students(active_only=False):
-    query = ("SELECT id, name, gender, privileges, active, family, groups, "
-             "suspended, suspended_until FROM students")
-    if active_only:
-        query += " WHERE active = 1"
-    df = read_df(query + " ORDER BY lower(name)")
+@st.cache_data(show_spinner=False)
+def _students(schema_name):
+    df = read_df(
+        "SELECT id, name, gender, privileges, active, family, groups, "
+        "suspended, suspended_until FROM students ORDER BY lower(name)")
     def text(v):
         return v if isinstance(v, str) else ""
 
@@ -429,6 +428,17 @@ def get_students(active_only=False):
     df["family"] = pd.Series([nfc(text(v)) or None for v in df["family"]],
                              index=df.index, dtype=object)
     return df
+
+
+def get_students(active_only=False):
+    """Every page opens with this, so it is fetched once per change rather
+    than once per rerun — cleared by _forget_students() on every write."""
+    df = _students(schema())
+    return df[df["active"] == 1] if active_only else df
+
+
+def _forget_students():
+    _students.clear()
 
 
 def family_names(students):
@@ -459,6 +469,7 @@ def add_student(name, gender, privileges, family=None, groups=()):
             (apply_ga_substitutes(nfc(name)), gender, ", ".join(privileges),
              family, ", ".join(groups)),
         )
+    _forget_students()
     log_change("Participant added", nfc(name))
 
 
@@ -475,6 +486,8 @@ def update_student(student_id, name, gender, privileges, active, family=None, gr
                      (apply_ga_substitutes(nfc(name)), student_id))
         conn.execute("UPDATE schedules SET assistant_name = ? WHERE assistant_id = ?",
                      (apply_ga_substitutes(nfc(name)), student_id))
+    _forget_students()
+    _forget_schedules()
     log_change("Participant edited", f"{nfc(name)} (active={bool(active)})")
 
 
@@ -489,10 +502,12 @@ def student_usage_count(student_id):
 def delete_student(student_id):
     with get_conn() as conn:
         conn.execute("DELETE FROM students WHERE id = ?", (student_id,))
+    _forget_students()
     log_change("Participant deleted", f"id {student_id}")
 
 
-def get_schedules():
+@st.cache_data(show_spinner=False)
+def _schedules(schema_name):
     df = read_df(
             """
             SELECT sc.id, sc.meeting_date, sc.meeting_type, sc.part_no, sc.part_name,
@@ -510,6 +525,12 @@ def get_schedules():
     for col in ("person", "assistant"):
         df[col] = df[col].astype(object).where(df[col].notna(), None)
     return df
+
+
+def get_schedules():
+    """Every page that shows a meeting opens with this join, so it is run once
+    per change rather than once per rerun — cleared by _forget_schedules()."""
+    return _schedules(schema())
 
 
 @st.cache_data(show_spinner=False)
@@ -976,6 +997,7 @@ def _role_dates(schema_name):
 
 def _forget_schedules():
     """Call after anything that changes the schedules table."""
+    _schedules.clear()
     _role_dates.clear()
     _student_part_dates.clear()
 
@@ -1056,6 +1078,7 @@ def set_suspension(student_id, suspended, until=None):
             "UPDATE students SET suspended = ?, suspended_until = ? WHERE id = ?",
             (int(suspended), until if suspended else None, student_id),
         )
+    _forget_students()
     log_change("Suspension " + ("set" if suspended else "lifted"),
                f"id {student_id}" + (f" until {until}" if until else ""))
 
