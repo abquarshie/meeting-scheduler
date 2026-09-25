@@ -570,15 +570,17 @@ def test_whatsapp_reminder_text_matches_agreed_wording(core):
         'Talk "How Can the Bible Help You?" (No. 199) on 26 September 2026.')
 
 
-def test_talk_checklist_windows_by_year_without_deleting_anything(core, people):
-    """The checklist only *shows* the chosen window; nothing is removed from
-    the database, so a wider window still finds the older talk."""
+def test_talk_matrix_shows_one_row_per_talk_by_year(core, people):
+    """One row per talk number; a year with nothing given prints blank rather
+    than being hidden — that's what flags a talk as overdue. Nothing is ever
+    removed from the database, so a wider window still finds the older talk."""
     from datetime import date, timedelta
 
     slots = core.default_weekend_slots()
     names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
     recent = date.today().isoformat()
-    old = (date.today() - timedelta(days=400)).isoformat()   # over a year ago
+    old_date = date.today() - timedelta(days=400)   # always at least a year back
+    old = old_date.isoformat()
 
     core.save_schedule(recent, core.WEEKEND, slots, {2 + 10000: "Guest Speaker"},
                        {"talk_number": "1", "talk_title": "Recent Talk"}, names)
@@ -586,12 +588,15 @@ def test_talk_checklist_windows_by_year_without_deleting_anything(core, people):
                        {"talk_number": "2", "talk_title": "Old Talk"}, names)
 
     schedules_df = core.get_schedules()
-    one_year = core.talk_checklist_rows(schedules_df, years=1)
-    two_year = core.talk_checklist_rows(schedules_df, years=2)
+    years = sorted({date.today().year, old_date.year})
+    rows = core.talk_matrix_rows(schedules_df, years)
+    by_number = {r["number"]: r for r in rows}
 
-    assert [r["meeting_date"] for r in one_year] == [recent]
-    assert [r["meeting_date"] for r in two_year] == [old, recent]
-    # the old talk is still in the database — the "1 year" view just hides it
+    assert by_number["1"]["years"].get(date.today().year)
+    assert not by_number["1"]["years"].get(old_date.year)
+    assert by_number["2"]["years"].get(old_date.year)
+    assert not by_number["2"]["years"].get(date.today().year)
+    # the old talk is still in the database — the matrix just windows by year
     assert old in schedules_df["meeting_date"].values
 
 

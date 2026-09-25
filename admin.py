@@ -130,7 +130,7 @@ def render(students_df, t, selected_lang, aux_default):
             st.success("Saved.")
 
         st.subheader("Weekend meeting")
-        st.caption("Used on the guest speaker letter, printed from View "
+        st.caption("Used on the invitation letter, printed from View "
                    "Schedules by the Talk Coordinator.")
         c1, c2 = st.columns(2)
         meeting_time = c1.text_input(
@@ -142,12 +142,23 @@ def render(students_df, t, selected_lang, aux_default):
         signoff = st.text_input(
             "Talk Coordinator sign-off name",
             get_setting("talk_coordinator_signoff", "Bernard Mensah"),
-            help="Signs every guest speaker letter. Update this here whenever "
+            help="Signs every invitation letter. Update this here whenever "
                  "the Talk Coordinator changes.")
+        c3, c4 = st.columns(2)
+        phone = c3.text_input(
+            "Talk Coordinator phone", get_setting("talk_coordinator_phone", ""),
+            placeholder="e.g. 055 307 8753",
+            help="Printed on the invitation letter, for the other "
+                 "congregation to reach out with questions.")
+        email = c4.text_input(
+            "Talk Coordinator email", get_setting("talk_coordinator_email", ""),
+            placeholder="e.g. niio@jwpub.org")
         if st.button("Save weekend meeting details"):
             set_setting("meeting_time", meeting_time)
             set_setting("hall_address", hall_address)
             set_setting("talk_coordinator_signoff", signoff)
+            set_setting("talk_coordinator_phone", phone)
+            set_setting("talk_coordinator_email", email)
             st.success("Saved.")
 
         st.subheader("Rotation")

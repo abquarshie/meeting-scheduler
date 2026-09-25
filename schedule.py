@@ -26,7 +26,7 @@ def render(students_df, t, selected_lang, aux_default):
                                     key="new_meeting_type")
         meeting_date = c2.date_input("Meeting date", key="new_meeting_date").isoformat()
 
-    saved_slots, saved_picks, saved_visitors = load_schedule(
+    saved_slots, saved_picks, saved_visitors, saved_visitor_congs = load_schedule(
         meeting_date, meeting_type, schedules_df)
     meta = get_meeting_meta(meeting_date, meeting_type)
     if saved_slots and mode == "Create new":
@@ -247,17 +247,30 @@ def render(students_df, t, selected_lang, aux_default):
         if slot.get("allow_visitor"):
             vkey = f"{wkey}|visitor"
             saved_visitor = saved_visitors.get(slot_match_key(slot), "")
-            label = ("Visiting speaker (another congregation)"
-                     if slot["role"] == "Public Talk"
+            is_talk = slot["role"] == "Public Talk"
+            label = ("Visiting speaker (another congregation)" if is_talk
                      else "Said by a visitor (another congregation)")
             is_visitor = st.checkbox(label, value=bool(saved_visitor),
                                      key=f"{wkey}|isvis")
             if is_visitor:
-                vis = st.text_input(text, saved_visitor, key=vkey,
-                                    placeholder="Name — Congregation")
+                if is_talk:
+                    # kept apart from the name so the invitation letter can
+                    # address the speaker's own congregation correctly
+                    saved_cong = saved_visitor_congs.get(slot_match_key(slot), "")
+                    v1, v2 = st.columns([3, 2])
+                    vis = v1.text_input("Speaker's name", saved_visitor, key=vkey,
+                                        placeholder="e.g. Jonathan Adjei")
+                    cong = v2.text_input(
+                        "His congregation", saved_cong, key=f"{vkey}|cong",
+                        placeholder="e.g. Dansoman Beach Ga",
+                        help="Used to address the invitation letter below.")
+                    picks[i + 20000] = apply_ga_substitutes(nfc(cong))
+                else:
+                    vis = st.text_input(text, saved_visitor, key=vkey,
+                                        placeholder="Name — Congregation")
                 picks[i] = (None, None)
                 picks[i + 10000] = apply_ga_substitutes(nfc(vis))
-                if slot["role"] == "Public Talk":
+                if is_talk:
                     talk_inputs()      # the talk fields belong to the talk only
                 return
 
@@ -415,7 +428,7 @@ def render(students_df, t, selected_lang, aux_default):
             warnings.append(f"{names[pid]} is suspended but still assigned: "
                             f"{', '.join(usage[pid])}.")
         other_type = WEEKEND if meeting_type == MIDWEEK else MIDWEEK
-        _, other_picks, _ = load_schedule(meeting_date, other_type, schedules_df)
+        _, other_picks, _, _ = load_schedule(meeting_date, other_type, schedules_df)
         other_people = {p for pair in other_picks.values() for p in pair if p}
         for pid in set(usage) & other_people:
             warnings.append(f"{names[pid]} also has a part in the {other_type} on this date.")

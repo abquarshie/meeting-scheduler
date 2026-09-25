@@ -5,14 +5,15 @@ import re
 from xml.sax.saxutils import escape as xml_escape
 
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_RIGHT
+from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.fonts import addMapping
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
-    KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
+    HRFlowable, KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer,
+    Table, TableStyle,
 )
 
 from workbook import *  # noqa: F401,F403
@@ -633,86 +634,177 @@ def _letter_date(iso):
     return f"{d:%B} {d.day}, {d.year}"
 
 
-def guest_letter_pdf(candidate, congregation, hall_address, meeting_time, signoff):
-    """A one-page reminder letter for a visiting (guest) speaker."""
-    regular, _, _ = register_fonts()
+def invitation_letter_pdf(candidate, congregation, hall_address, meeting_time,
+                          signoff, phone="", email=""):
+    """A formal request letter to a guest speaker's own congregation, asking
+    them to release him for the visit — addressed to his congregation, not to
+    him, matching the wording congregations exchange these requests in."""
+    regular, bold, _ = register_fonts()
     person = candidate.get("person") or ""
-    surname = person.strip().split()[-1] if person.strip() else ""
+    guest_congregation = candidate.get("congregation") or ""
     title = candidate.get("talk_title") or ""
     number = candidate.get("talk_number") or ""
-    talk_bit = f'"{title}" (#{number})' if number else f'"{title}"'
+    theme = f"No. {number} {title}".strip() if number else title
 
     def esc(value):
         return xml_escape(str(value or ""))
 
-    body = (
-        f"Dear Brother {esc(surname)},<br/><br/>"
-        f"We are pleased that you will be visiting our congregation on "
-        f"{esc(_letter_date(candidate['meeting_date']))} to deliver the "
-        f"talk, {esc(talk_bit)}. Our Public Meeting time is "
-        f"{esc(meeting_time)}. The Kingdom Hall address is: "
-        f"{esc(hall_address)}. We look forward to your talk.<br/><br/>"
-        f"Your brother,<br/>"
-        f"{esc(signoff)}, Talk Coordinator, {esc(congregation)}."
-    )
-    style = ParagraphStyle("letter", fontName=regular, fontSize=11, leading=16)
+    name_style = ParagraphStyle("inv_name", fontName=bold, fontSize=18, leading=22,
+                                alignment=TA_CENTER, textColor=ACCENT)
+    org_style = ParagraphStyle("inv_org", fontName=bold, fontSize=13, leading=17,
+                               alignment=TA_CENTER)
+    addr_style = ParagraphStyle("inv_addr", fontName=regular, fontSize=8.5,
+                                leading=11, alignment=TA_CENTER, textColor=MUTED)
+    body_style = ParagraphStyle("inv_body", fontName=regular, fontSize=10.5,
+                                leading=16)
+    heading_style = ParagraphStyle("inv_heading", fontName=bold, fontSize=11,
+                                   leading=15, alignment=TA_CENTER)
+    sign_style = ParagraphStyle("inv_sign", fontName=regular, fontSize=10.5,
+                                leading=15)
+
+    contact = f"Talk Coordinator - {esc(signoff)}"
+    if phone:
+        contact += f"  {esc(phone)}"
+    if email:
+        contact += f", {esc(email)}"
+
+    story = [
+        Paragraph(esc(congregation).upper(), name_style),
+        Paragraph("CONGREGATION OF JEHOVAH’S WITNESSES", org_style),
+    ]
+    if hall_address:
+        story.append(Paragraph(esc(hall_address), addr_style))
+    story += [
+        Spacer(1, 22),
+        Paragraph(esc(_letter_date(date.today().isoformat())), body_style),
+        Spacer(1, 20),
+        Paragraph(esc(guest_congregation), body_style),
+        Spacer(1, 16),
+        Paragraph("Dear Brothers,", body_style),
+        Spacer(1, 6),
+        Paragraph("<u>REQUEST FOR PUBLIC SPEAKER</u>", heading_style),
+        Spacer(1, 10),
+        Paragraph("We are writing to request that the brother mentioned below "
+                  "visit our congregation to give a public talk.", body_style),
+        Spacer(1, 12),
+        Paragraph(f"Name: {esc(person)}<br/>"
+                 f"Theme: {esc(theme)}<br/>"
+                 f"Date: {esc(_letter_date(candidate['meeting_date']))}<br/>"
+                 f"Time: {esc(meeting_time)}", body_style),
+        Spacer(1, 12),
+        Paragraph("We are hopeful that you will take into account and approve "
+                  "our request. If you need more information or clarification, "
+                  f"please feel free to call or send an email.<br/>{contact}",
+                  body_style),
+        Spacer(1, 12),
+        Paragraph("Please accept a warm expression of our Christian love.",
+                  body_style),
+        Spacer(1, 50),
+        Paragraph(f"<i>Your Brothers,</i><br/>"
+                 f"{esc(congregation)} Congregation of Jehovah's Witnesses",
+                 sign_style),
+        Spacer(1, 10),
+        HRFlowable(width="50%", thickness=1, color=ACCENT, hAlign="LEFT"),
+        Spacer(1, 4),
+        Paragraph(f"Talk Coordinator - {esc(signoff)}", sign_style),
+    ]
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=54, leftMargin=54,
-                            topMargin=72, bottomMargin=54)
-    doc.build([Paragraph(body, style)])
+                            topMargin=60, bottomMargin=54)
+    doc.build(story)
     return buffer.getvalue()
 
 
-def talk_checklist_rows(schedules_df, years=1):
-    """Every weekend Public Talk in the last `years` year(s), oldest first.
-    Reads existing schedule history only — nothing is ever deleted."""
-    cutoff = (date.today() - timedelta(days=365 * years)).isoformat()
+def talk_matrix_rows(schedules_df, years):
+    """One row per public talk, showing when it was given in each of `years`.
+
+    Every talk in the congregation's list appears, even one never given in
+    this window — a blank row is exactly what flags a talk that's overdue,
+    and that's the point of the checklist. Reads existing schedule history
+    only; nothing is ever deleted.
+    """
     talk_rows = schedules_df[(schedules_df["role"] == "Public Talk")
-                             & schedules_df["person"].notna()
-                             & (schedules_df["meeting_date"] >= cutoff)]
-    out, seen = [], set()
+                             & schedules_df["person"].notna()]
+    given, titles, seen_meetings = {}, {}, set()
     for r in talk_rows.itertuples():
         key = (r.meeting_date, r.meeting_type)
-        if key in seen:                 # one Public Talk per weekend meeting
+        if key in seen_meetings:            # one Public Talk per weekend meeting
             continue
-        seen.add(key)
+        seen_meetings.add(key)
         meta = get_meeting_meta(r.meeting_date, WEEKEND)
-        out.append({
-            "meeting_date": r.meeting_date,
-            "talk_number": clean_value(meta.get("talk_number")),
-            "talk_title": clean_value(meta.get("talk_title")),
-            "speaker": r.person,
-        })
-    return sorted(out, key=lambda row: row["meeting_date"])
+        number = clean_value(meta.get("talk_number"))
+        if not number:
+            continue
+        title = clean_value(meta.get("talk_title"))
+        if title:
+            titles[number] = title
+        try:
+            year = int(str(r.meeting_date)[:4])
+        except ValueError:
+            continue
+        if year in years:
+            given.setdefault(number, {}).setdefault(year, []).append(
+                (r.meeting_date, r.person))
+
+    talk_titles = dict(get_talks())
+    numbers = set(given) | set(talk_titles)
+
+    def sort_key(n):
+        try:
+            return (0, int(n))
+        except ValueError:
+            return (1, n)
+
+    rows = []
+    for number in sorted(numbers, key=sort_key):
+        title = talk_titles.get(number) or titles.get(number, "")
+        cells = {year: sorted(given.get(number, {}).get(year, [])) for year in years}
+        rows.append({"number": number, "title": title, "years": cells})
+    return rows
 
 
 def talk_checklist_pdf(rows, congregation, years):
-    """A printable table of every talk given in the period."""
+    """A printable talk-by-year matrix: a blank cell is a talk that hasn't
+    been given that year, so it's safe to assign again."""
     regular, bold, _ = register_fonts()
     title_style = ParagraphStyle("title", fontName=bold, fontSize=14, leading=18)
     sub_style = ParagraphStyle("sub", fontName=regular, fontSize=9, leading=12,
                                textColor=MUTED)
-    cell_style = ParagraphStyle("cell", fontName=regular, fontSize=9, leading=12)
+    cell_style = ParagraphStyle("cell", fontName=regular, fontSize=8.5, leading=11)
+    empty_style = ParagraphStyle("empty", fontName=regular, fontSize=8.5,
+                                 leading=11, textColor=MUTED, alignment=TA_CENTER)
 
-    period = "the last year" if years == 1 else f"the last {years} years"
+    span = str(years[0]) if len(years) == 1 else f"{years[0]}–{years[-1]}"
     story = [
         Paragraph(xml_escape(f"{congregation} — Public Talk Checklist"), title_style),
-        Paragraph(xml_escape(f"Talks given in {period}"), sub_style),
+        Paragraph(xml_escape(f"Talks given, {span}"), sub_style),
         Spacer(1, 12),
     ]
-    data = [["Date", "No.", "Title", "Speaker"]]
+    data = [["No.", "Title"] + [str(y) for y in years]]
     for r in rows:
+        cells = []
+        for year in years:
+            entries = r["years"].get(year) or []
+            if entries:
+                text = "<br/>".join(f"{fmt_date(d, short=True)} — {xml_escape(who)}"
+                                    for d, who in entries)
+                cells.append(Paragraph(text, cell_style))
+            else:
+                cells.append(Paragraph("—", empty_style))
         data.append([
-            fmt_date(r["meeting_date"]),
-            r["talk_number"] or "",
-            Paragraph(xml_escape(r["talk_title"] or ""), cell_style),
-            Paragraph(xml_escape(r["speaker"] or ""), cell_style),
-        ])
-    table = Table(data, colWidths=[75, 30, 230, 145], repeatRows=1)
+            r["number"] or "",
+            Paragraph(xml_escape(r["title"] or ""), cell_style),
+        ] + cells)
+
+    usable = 523                             # A4 minus the 36pt side margins
+    fixed = [36, 175]
+    year_w = (usable - sum(fixed)) / max(len(years), 1)
+    table = Table(data, colWidths=fixed + [year_w] * len(years), repeatRows=1)
     table.setStyle(TableStyle([
         ("FONTNAME", (0, 0), (-1, 0), bold),
         ("FONTNAME", (0, 1), (-1, -1), regular),
         ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("ALIGN", (2, 0), (-1, 0), "CENTER"),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("BACKGROUND", (0, 0), (-1, 0), ACCENT),
         ("GRID", (0, 0), (-1, -1), 0.5, RULE),

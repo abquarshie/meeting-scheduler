@@ -176,8 +176,8 @@ def test_visitor_may_say_the_closing_prayer(core, people):
                        {talk + 10000: "Bro. Addo — Osu",
                         closing + 10000: "Bro. Tetteh — Osu"}, {}, names)
 
-    reopened, _, visitors = core.load_schedule("2026-09-27", core.WEEKEND,
-                                               core.get_schedules())
+    reopened, _, visitors, _ = core.load_schedule("2026-09-27", core.WEEKEND,
+                                                  core.get_schedules())
     flags = {(s["role"], s["title"]): s["allow_visitor"] for s in reopened}
     assert flags[("Prayer", "Closing Prayer")]        # still offered on re-edit
     assert flags[("Public Talk", "Public Talk Speaker")]

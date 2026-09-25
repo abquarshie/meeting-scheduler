@@ -326,6 +326,7 @@ def init_db():
             "sort_order": "INTEGER DEFAULT 0",
             "hall": "TEXT DEFAULT 'main_hall'",
             "visitor": "TEXT",
+            "visitor_congregation": "TEXT",
         })
         _add_missing_columns(conn, "meetings", {
             "aux": "INTEGER",
@@ -504,6 +505,7 @@ def _schedules(schema_name):
                    sc.minutes, sc.section, sc.role, sc.student_part, sc.needs_assistant,
                    sc.student_id, sc.assistant_id, sc.sort_order,
                    COALESCE(sc.hall, 'main_hall') AS hall, sc.visitor,
+                   sc.visitor_congregation,
                    COALESCE(sc.visitor, s.name, sc.assigned_person) AS person,
                    COALESCE(a.name, sc.assistant_name) AS assistant
               FROM schedules sc
@@ -706,7 +708,7 @@ def meeting_label(pair):
 def load_schedule(meeting_date, meeting_type, schedules_df=None):
     df = get_schedules() if schedules_df is None else schedules_df
     rows = df[(df["meeting_date"] == str(meeting_date)) & (df["meeting_type"] == meeting_type)]
-    slots, picks, visitors = [], {}, {}
+    slots, picks, visitors, visitor_congregations = [], {}, {}, {}
     for _, r in rows.iterrows():
         role = r["role"] or infer_role(r["part_name"])
         part_no = int(r["part_no"]) if pd.notna(r["part_no"]) else None
@@ -721,7 +723,9 @@ def load_schedule(meeting_date, meeting_type, schedules_df=None):
         picks[slot_match_key(slot)] = (sid, aid)
         if pd.notna(r.get("visitor")) and r.get("visitor"):
             visitors[slot_match_key(slot)] = r["visitor"]
-    return slots, picks, visitors
+        if pd.notna(r.get("visitor_congregation")) and r.get("visitor_congregation"):
+            visitor_congregations[slot_match_key(slot)] = r["visitor_congregation"]
+    return slots, picks, visitors, visitor_congregations
 
 
 def get_meeting_meta(meeting_date, meeting_type):
@@ -852,6 +856,7 @@ def save_schedule(meeting_date, meeting_type, slots, picks, meta, names):
             int(slot["student_part"]), int(slot["needs_assistant"]),
             sid, names.get(sid), aid, names.get(aid), order,
             slot.get("hall") or MAIN_HALL, picks.get(order + 10000) or None,
+            picks.get(order + 20000) or None,
         ))
     with get_conn() as conn:
         _take_snapshot(conn, meeting_date, meeting_type, "before save")
@@ -860,8 +865,9 @@ def save_schedule(meeting_date, meeting_type, slots, picks, meta, names):
         conn.executemany(
             """INSERT INTO schedules (meeting_date, meeting_type, part_no, part_name,
                    minutes, section, role, student_part, needs_assistant, student_id,
-                   assigned_person, assistant_id, assistant_name, sort_order, hall, visitor)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   assigned_person, assistant_id, assistant_name, sort_order, hall,
+                   visitor, visitor_congregation)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             rows,
         )
         conn.execute(

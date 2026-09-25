@@ -118,7 +118,7 @@ def render(students_df, t, selected_lang, aux_default):
                 st.code(whatsapp_reminder_text(cand), language=None)
 
     st.divider()
-    st.subheader("Guest speaker letter")
+    st.subheader("Invitation letter")
     if scope != "One meeting" or chosen[0][1] != WEEKEND:
         st.caption("Select a single weekend meeting above to print its letter.")
     else:
@@ -132,14 +132,18 @@ def render(students_df, t, selected_lang, aux_default):
             talk_row = talk_rows.iloc[0]
             meeting_date = chosen[0][0]
             meta = get_meeting_meta(meeting_date, WEEKEND)
+            guest_congregation = clean_value(getattr(talk_row, "visitor_congregation", ""))
             candidate = {
                 "meeting_date": meeting_date, "person": talk_row["person"],
+                "congregation": guest_congregation,
                 "talk_number": clean_value(meta.get("talk_number")),
                 "talk_title": clean_value(meta.get("talk_title")),
             }
             meeting_time = get_setting("meeting_time", "")
             hall_address = get_setting("hall_address", "")
             signoff = get_setting("talk_coordinator_signoff", "Bernard Mensah")
+            phone = get_setting("talk_coordinator_phone", "")
+            email = get_setting("talk_coordinator_email", "")
             missing = [label for label, val in
                       (("public meeting time", meeting_time),
                        ("Kingdom Hall address", hall_address),
@@ -147,37 +151,48 @@ def render(students_df, t, selected_lang, aux_default):
             if missing:
                 st.warning("Set the " + ", ".join(missing) + " under Admin → "
                            "Settings → Weekend meeting first.")
+            elif not guest_congregation:
+                st.warning("This speaker's congregation isn't recorded yet — "
+                           "open this schedule and fill in \"His congregation\" "
+                           "next to the visiting speaker's name.")
             else:
-                letter = guest_letter_pdf(candidate, get_setting("congregation", ""),
-                                          hall_address, meeting_time, signoff)
+                letter = invitation_letter_pdf(candidate, get_setting("congregation", ""),
+                                               hall_address, meeting_time, signoff,
+                                               phone, email)
                 st.download_button(
-                    f"Letter for {talk_row['person']}", data=letter,
+                    f"Letter to {guest_congregation}", data=letter,
                     icon=":material/mail:",
-                    file_name=(f"letter_{talk_row['person'].replace(' ', '_')}"
+                    file_name=(f"invitation_{guest_congregation.replace(' ', '_')}"
                               f"_{meeting_date}.pdf"),
                     mime="application/pdf")
 
     st.divider()
     st.subheader("Annual talk checklist")
-    st.caption("Which talk was given when, so a repeat is easy to spot before "
-               "the next one is scheduled. Nothing here is ever deleted.")
-    period = st.radio("Period", ["Last 1 year", "Last 2 years"], horizontal=True,
-                      key="checklist_years")
-    years_n = 1 if period == "Last 1 year" else 2
-    checklist_rows = talk_checklist_rows(schedules_df, years_n)
-    if not checklist_rows:
-        st.info("No talks recorded in this period yet.")
+    st.caption("Every talk, one row per number, with a column per year — a "
+               "blank cell means it hasn't been given that year, so it's "
+               "safe to assign again. Nothing here is ever deleted.")
+    n_years = st.number_input("Years to show", min_value=1, max_value=6, value=3,
+                              step=1, key="checklist_years")
+    years = list(range(date.today().year - int(n_years) + 1, date.today().year + 1))
+    matrix_rows = talk_matrix_rows(schedules_df, years)
+    if not matrix_rows:
+        st.info("No talks in the list yet — add them under Admin → Public talks.")
     else:
-        st.dataframe(pd.DataFrame([
-            {"Date": fmt_date(r["meeting_date"]), "No.": r["talk_number"],
-             "Title": r["talk_title"], "Speaker": r["speaker"]}
-            for r in checklist_rows
-        ]), width="stretch", hide_index=True)
+        def cell_text(entries):
+            return "; ".join(f"{fmt_date(d, short=True)} — {who}" for d, who in entries)
+
+        table = pd.DataFrame([
+            {"No.": r["number"], "Title": r["title"],
+             **{str(y): cell_text(r["years"].get(y) or []) for y in years}}
+            for r in matrix_rows
+        ])
+        st.dataframe(table, width="stretch", hide_index=True)
+        span = str(years[0]) if len(years) == 1 else f"{years[0]}–{years[-1]}"
         st.download_button(
-            f"Download checklist ({period})", icon=":material/checklist:",
-            data=talk_checklist_pdf(checklist_rows, get_setting("congregation", ""),
-                                    years_n),
-            file_name=f"talk_checklist_{years_n}yr.pdf", mime="application/pdf")
+            f"Download checklist ({span})", icon=":material/checklist:",
+            data=talk_checklist_pdf(matrix_rows, get_setting("congregation", ""), years),
+            file_name=f"talk_checklist_{years[0]}_{years[-1]}.pdf",
+            mime="application/pdf")
 
     # ---- the other two things a month produces -------------------------------
     st.divider()
