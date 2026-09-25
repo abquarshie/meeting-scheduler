@@ -167,6 +167,32 @@ def render(students_df, t, selected_lang, aux_default):
                     mime="application/pdf")
 
     st.divider()
+    st.subheader("Outgoing speakers list")
+    st.caption("A letter for another congregation, listing our approved "
+               "outgoing speakers and the talks they have ready.")
+    approved = get_outgoing_speakers()
+    if not approved:
+        st.info("No approved outgoing speakers yet — add them under "
+                "Manage Participants → Outgoing Speakers.")
+    else:
+        all_names = dict(zip(students_df["id"], students_df["name"]))
+        talk_titles = dict(get_talks())
+        speakers = sorted(
+            ((all_names[sid], [(n, talk_titles.get(n, "")) for n in numbers])
+             for sid, numbers in approved.items() if sid in all_names),
+            key=lambda s: s[0].lower())
+        letter = outgoing_speakers_letter_pdf(
+            get_setting("congregation", ""), get_setting("hall_address", ""),
+            speakers, get_setting("talk_coordinator_signoff", "Bernard Mensah"),
+            get_setting("talk_coordinator_phone", ""),
+            get_setting("talk_coordinator_email", ""))
+        st.download_button(
+            "Download outgoing speakers letter", data=letter,
+            icon=":material/mail:",
+            file_name=f"outgoing_speakers_{date.today().isoformat()}.pdf",
+            mime="application/pdf")
+
+    st.divider()
     st.subheader("Annual talk checklist")
     st.caption("Every talk, one row per number, with a column per year — a "
                "blank cell means it hasn't been given that year, so it's "

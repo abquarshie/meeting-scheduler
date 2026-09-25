@@ -4,12 +4,13 @@ import json
 
 from db import *  # noqa: F401,F403
 from db import (_forget_schedules, _forget_settings,  # underscored: not in *
-                _forget_students, _forget_templates)
+                _forget_students, _forget_templates, _forget_no_meeting,
+                _forget_outgoing_speakers, _forget_outgoing_engagements)
 
 TABLES = [
     "students", "schedules", "meetings", "settings",
     "unavailable", "workbook_weeks", "audit_log", "snapshots", "templates",
-    "talks",
+    "talks", "no_meeting_periods", "outgoing_speakers", "outgoing_engagements",
 ]
 BACKUP_VERSION = 1
 
@@ -73,6 +74,9 @@ def import_all(data, log=True):
     _forget_settings()
     _forget_students()
     _forget_templates()
+    _forget_no_meeting()
+    _forget_outgoing_speakers()
+    _forget_outgoing_engagements()
     if log:
         log_change("Data restored",
                    f"{counts.get('students', 0)} participants, "

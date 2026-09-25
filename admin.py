@@ -174,6 +174,32 @@ def render(students_df, t, selected_lang, aux_default):
             log_change("Rotation rest period changed", f"{int(gap_days)} day(s)")
             st.success("Saved.")
 
+        st.subheader("Assemblies & conventions")
+        st.caption("Weeks with no meeting at all. Once recorded here, they stop "
+                   "showing up as a schedule still to create, on the Dashboard "
+                   "and in Month overview.")
+        periods = get_no_meeting_periods()
+        if periods:
+            for pid, start, end, note in periods:
+                c1, c2 = st.columns([4, 1])
+                span = fmt_date(start) if start == end else \
+                    f"{fmt_date(start, short=True)} – {fmt_date(end)}"
+                c1.write(span + (f" — {note}" if note else ""))
+                if c2.button("Remove", key=f"rm_nomeeting_{pid}", width="stretch"):
+                    delete_no_meeting_period(pid)
+                    st.rerun()
+        else:
+            st.caption("None recorded.")
+        with st.form("add_no_meeting", clear_on_submit=True):
+            d1, d2 = st.columns(2)
+            start = d1.date_input("First day with no meeting")
+            end = d2.date_input("Last day with no meeting", start)
+            note = st.text_input("Note", placeholder="e.g. Circuit Assembly")
+            if st.form_submit_button("Add"):
+                add_no_meeting_period(start, end, note)
+                st.success("Saved.")
+                st.rerun()
+
     with tab_talks:
         st.caption("The outlines your congregation uses. Once they are here, "
                    "creating a weekend schedule is picking one from the list.")

@@ -35,7 +35,7 @@ def ordered_options(ids, last_dates, keep=None):
 
 def person_label_factory(students, last_dates, away=frozenset(), role_dates=None,
                         family_of=None, suspended=frozenset(), details=None,
-                        meeting_date=None, role=None):
+                        meeting_date=None, role=None, outgoing=frozenset()):
     """Labels for the people dropdowns.
 
     Each reads "🟢 Kofi Mensah — 3 weeks ago, Bible Reading": a colour for how
@@ -62,6 +62,8 @@ def person_label_factory(students, last_dates, away=frozenset(), role_dates=None
             flags += " · inactive"
         if pid in away:
             flags += " · away"
+        if pid in outgoing:
+            flags += " · going out"
         if pid in suspended:
             flags += " · suspended"
         for g in tags.get(pid, []):
@@ -202,7 +204,8 @@ def create_week(meeting_date, label, week, students, aux_on, group=""):
     the part that actually needs a person.
     """
     slots = apply_aux(build_midweek_slots(week["parts"]), aux_on)
-    away = get_unavailable(meeting_date) | get_suspended(students, meeting_date)
+    away = (get_unavailable(meeting_date) | get_suspended(students, meeting_date)
+            | get_outgoing_on(meeting_date))
     picks = suggest_assignments(slots, students, away, meeting_date)
     songs = week.get("songs") or []
     meta = {

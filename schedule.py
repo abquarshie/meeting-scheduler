@@ -133,22 +133,24 @@ def render(students_df, t, selected_lang, aux_default):
     last_dates = last_assignment_dates(meeting_date)
     last_details = last_assignment_details(meeting_date)
     away = get_unavailable(meeting_date)
+    outgoing = get_outgoing_on(meeting_date)
     suspended = get_suspended(students_df, meeting_date)
-    blocked = away | suspended  # never offered for new picks
+    away_all = away | outgoing            # excluded from every list, like away
+    blocked = away_all | suspended        # never offered for new picks
     categories = dict(zip(students_df["id"], students_df["gender"]))
     families = dict(zip(students_df["id"], students_df["family"]))
     names = dict(zip(students_df["id"], students_df["name"]))
     # People who cannot take a part are kept out of every list rather than
     # listed and flagged. Who they are is still one click away.
-    unavailable = sorted({names[p] for p in (away | suspended) if p in names}
+    unavailable = sorted({names[p] for p in blocked if p in names}
                          | {r["name"] for r in students_df.to_dict("records")
                             if r["active"] != 1})
     if unavailable:
         with st.expander(f"{len(unavailable)} not available this week",
                          icon=":material/person_off:"):
             st.write(", ".join(unavailable))
-            st.caption("Away, suspended or inactive. They are left out of the "
-                       "lists below.")
+            st.caption("Away, going out to speak elsewhere, suspended or "
+                       "inactive. They are left out of the lists below.")
 
     ns = f"{meeting_date}|{meeting_type}|{source}"
     sugg_key = f"suggest|{meeting_date}|{meeting_type}|{source}"
@@ -275,7 +277,7 @@ def render(students_df, t, selected_lang, aux_default):
                 return
 
         role_dates = last_role_dates(slot["role"])
-        eligible = eligible_ids(slot["role"], students_df, away, suspended)
+        eligible = eligible_ids(slot["role"], students_df, away_all, suspended)
 
         # A field-ministry part goes to a sister or to a brother, and the app
         # cannot know which until it is decided — so the list used to hold both.
@@ -320,7 +322,8 @@ def render(students_df, t, selected_lang, aux_default):
                               "available — choose someone else.")
         label = person_label_factory(students_df, last_dates, away, role_dates,
                                      suspended=suspended, details=last_details,
-                                     meeting_date=meeting_date, role=slot["role"])
+                                     meeting_date=meeting_date, role=slot["role"],
+                                     outgoing=outgoing)
         pick_left, pick_right = (st.columns(2) if needs_assistant
                                  else (st.container(), None))
         sid = pick_left.selectbox(
@@ -339,7 +342,8 @@ def render(students_df, t, selected_lang, aux_default):
             a_label = person_label_factory(students_df, last_dates, away,
                                            family_of=sid, suspended=suspended,
                                            details=last_details,
-                                           meeting_date=meeting_date)
+                                           meeting_date=meeting_date,
+                                           outgoing=outgoing)
             aid = pick_right.selectbox(
                 "Assistant", a_options, index=a_options.index(pre_aid),
                 format_func=a_label, key=f"{wkey}|assistant",

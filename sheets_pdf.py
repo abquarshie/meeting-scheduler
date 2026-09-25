@@ -715,6 +715,105 @@ def invitation_letter_pdf(candidate, congregation, hall_address, meeting_time,
     return buffer.getvalue()
 
 
+def outgoing_speakers_letter_pdf(congregation, hall_address, speakers, signoff,
+                                 phone="", email=""):
+    """A letter for other congregations listing our approved outgoing
+    speakers and the talks each has ready, so they can pick when inviting one.
+
+    speakers: [(name, [(talk_number, talk_title), ...]), ...]. Shares its
+    letterhead with invitation_letter_pdf so the two look like one set.
+    """
+    regular, bold, _ = register_fonts()
+
+    def esc(value):
+        return xml_escape(str(value or ""))
+
+    name_style = ParagraphStyle("out_name", fontName=bold, fontSize=18, leading=22,
+                                alignment=TA_CENTER, textColor=ACCENT)
+    org_style = ParagraphStyle("out_org", fontName=bold, fontSize=13, leading=17,
+                               alignment=TA_CENTER)
+    addr_style = ParagraphStyle("out_addr", fontName=regular, fontSize=8.5,
+                                leading=11, alignment=TA_CENTER, textColor=MUTED)
+    body_style = ParagraphStyle("out_body", fontName=regular, fontSize=10.5,
+                                leading=16)
+    heading_style = ParagraphStyle("out_heading", fontName=bold, fontSize=11,
+                                   leading=15, alignment=TA_CENTER)
+    sign_style = ParagraphStyle("out_sign", fontName=regular, fontSize=10.5,
+                                leading=15)
+    cell_style = ParagraphStyle("out_cell", fontName=regular, fontSize=9.5, leading=13)
+    head_cell_style = ParagraphStyle("out_head_cell", fontName=bold, fontSize=9.5,
+                                     leading=13, textColor=colors.white)
+
+    contact = f"Talk Coordinator - {esc(signoff)}"
+    if phone:
+        contact += f"  {esc(phone)}"
+    if email:
+        contact += f", {esc(email)}"
+
+    story = [
+        Paragraph(esc(congregation).upper(), name_style),
+        Paragraph("CONGREGATION OF JEHOVAH’S WITNESSES", org_style),
+    ]
+    if hall_address:
+        story.append(Paragraph(esc(hall_address), addr_style))
+    story += [
+        Spacer(1, 22),
+        Paragraph(esc(_letter_date(date.today().isoformat())), body_style),
+        Spacer(1, 20),
+        Paragraph("<u>APPROVED OUTGOING SPEAKERS</u>", heading_style),
+        Spacer(1, 12),
+        Paragraph("Below are the approved outgoing speakers for our "
+                  "congregation, and the talks they have prepared. Any "
+                  "request should go through the Talk Coordinator before "
+                  "the brother is contacted.", body_style),
+        Spacer(1, 14),
+    ]
+
+    data = [[Paragraph("Speaker", head_cell_style),
+             Paragraph("Talks prepared", head_cell_style)]]
+    for name, talks in speakers:
+        talk_text = "<br/>".join(
+            esc(talk_label(number, title)) for number, title in talks
+        ) or "—"
+        data.append([Paragraph(esc(name), cell_style), Paragraph(talk_text, cell_style)])
+
+    usable = 487                             # A4 minus the letter's 54pt margins
+    table = Table(data, colWidths=[usable * 0.36, usable * 0.64])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), ACCENT),
+        ("GRID", (0, 0), (-1, -1), 0.5, RULE),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F5F7F9")]),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    story.append(table)
+
+    story += [
+        Spacer(1, 22),
+        Paragraph("If you need more information or clarification, please "
+                  f"feel free to call or send an email.<br/>{contact}", body_style),
+        Spacer(1, 12),
+        Paragraph("Please accept a warm expression of our Christian love.",
+                  body_style),
+        Spacer(1, 50),
+        Paragraph(f"<i>Your Brothers,</i><br/>"
+                 f"{esc(congregation)} Congregation of Jehovah's Witnesses",
+                 sign_style),
+        Spacer(1, 10),
+        HRFlowable(width="50%", thickness=1, color=ACCENT, hAlign="LEFT"),
+        Spacer(1, 4),
+        Paragraph(f"Talk Coordinator - {esc(signoff)}", sign_style),
+    ]
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=54, leftMargin=54,
+                            topMargin=60, bottomMargin=54)
+    doc.build(story)
+    return buffer.getvalue()
+
+
 def talk_matrix_rows(schedules_df, years):
     """One row per public talk, showing when it was given in each of `years`.
 

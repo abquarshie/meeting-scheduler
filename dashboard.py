@@ -41,6 +41,8 @@ def unscheduled_weeks(schedules_df, within_days=None):
         meeting = start + timedelta(days=meeting_day(MIDWEEK))
         if meeting < today or (cutoff and meeting > cutoff):
             continue
+        if is_no_meeting(meeting.isoformat()):
+            continue
         out.append((label, meeting))
     return sorted(out, key=lambda pair: pair[1])
 

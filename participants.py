@@ -5,7 +5,8 @@ from core import *  # noqa: F401,F403
 
 def render(students_df, t, selected_lang, aux_default):
     page_header(tr("h_participants"), tr("sub_participants"))
-    tab_add, tab_edit, tab_list = st.tabs(["Add", "Edit / deactivate", "List"])
+    tab_add, tab_edit, tab_list, tab_outgoing = st.tabs(
+        ["Add", "Edit / deactivate", "List", "Outgoing Speakers"])
 
     with tab_add:
         existing_families = family_names(students_df)
@@ -169,3 +170,108 @@ def render(students_df, t, selected_lang, aux_default):
             else:
                 st.caption(f"{len(view)} participant(s)")
                 st.dataframe(view[cols], width="stretch", hide_index=True)
+
+    with tab_outgoing:
+        st.caption("Brothers approved to give public talks at other "
+                   "congregations, and the talks they have ready. Marking a "
+                   "date one is going out keeps the local schedule from "
+                   "giving him a part that day.")
+        brothers = students_df[(students_df["active"] == 1)
+                               & (students_df["gender"] == "Brother")]
+        if brothers.empty:
+            st.info("No active brothers yet.")
+        else:
+            names = dict(zip(brothers["id"], brothers["name"]))
+            approved = get_outgoing_speakers()
+            talks = get_talks()
+            talk_titles = dict(talks)
+
+            st.subheader("Approved speakers")
+            if not approved:
+                st.info("Nobody is marked as an approved outgoing speaker yet.")
+            for sid, numbers in approved.items():
+                if sid not in names:
+                    continue
+                with st.container(border=True):
+                    c1, c2 = st.columns([4, 1])
+                    talk_line = ", ".join(
+                        talk_label(n, talk_titles.get(n, "")) for n in numbers
+                    ) or "No talks listed yet."
+                    c1.markdown(f"**{names[sid]}**")
+                    c1.caption(talk_line)
+                    if c2.button("Remove", key=f"rm_outgoing_{sid}", width="stretch"):
+                        remove_outgoing_speaker(sid)
+                        st.rerun()
+
+                    with st.expander("Edit prepared talks"):
+                        if talks:
+                            current = [n for n in numbers if n in talk_titles]
+                            new_numbers = st.multiselect(
+                                "Talks he has prepared", [n for n, _ in talks],
+                                default=current,
+                                format_func=lambda n: talk_label(n, talk_titles.get(n, "")),
+                                key=f"outgoing_edit_talks_{sid}")
+                            if st.button("Save talks", key=f"save_outgoing_talks_{sid}"):
+                                set_outgoing_speaker(sid, new_numbers)
+                                st.success("Saved.")
+                                st.rerun()
+                        else:
+                            st.caption("No talks in the list yet — add them "
+                                      "under Admin → Public talks.")
+
+                    engagements = outgoing_engagements(sid)
+                    with st.expander(f"Going-out dates ({len(engagements)})"):
+                        for eid, d, cong, no in engagements:
+                            e1, e2 = st.columns([4, 1])
+                            text = fmt_date(d)
+                            if cong:
+                                text += f" — {cong}"
+                            if no:
+                                text += f" ({talk_label(no, talk_titles.get(no, ''))})"
+                            e1.write(text)
+                            if e2.button("Remove", key=f"rm_engagement_{eid}",
+                                        width="stretch"):
+                                delete_outgoing_engagement(eid)
+                                st.rerun()
+                        if not engagements:
+                            st.caption("None recorded.")
+                        st.markdown("**Add a date**")
+                        a1, a2, a3 = st.columns([2, 2, 2])
+                        go_date = a1.date_input("Date", date.today(),
+                                                key=f"outgoing_date_{sid}")
+                        go_cong = a2.text_input("Congregation",
+                                                key=f"outgoing_cong_{sid}",
+                                                placeholder="e.g. Dansoman Beach Ga")
+                        talk_choices = ["—"] + numbers
+                        go_talk = a3.selectbox(
+                            "Talk", talk_choices, key=f"outgoing_talk_{sid}",
+                            format_func=lambda n: "Not specified" if n == "—"
+                            else talk_label(n, talk_titles.get(n, "")))
+                        if st.button("Add date", key=f"add_outgoing_{sid}"):
+                            add_outgoing_engagement(
+                                sid, go_date, go_cong,
+                                "" if go_talk == "—" else go_talk)
+                            st.success("Added.")
+                            st.rerun()
+
+            st.divider()
+            st.subheader("Approve a speaker")
+            candidates = [sid for sid in brothers["id"].tolist() if sid not in approved]
+            if not candidates:
+                st.caption("Every active brother is already listed above.")
+            else:
+                pick = st.selectbox("Brother", candidates, format_func=lambda i: names[i],
+                                    key="outgoing_new_pick")
+                if talks:
+                    chosen_numbers = st.multiselect(
+                        "Talks he has prepared", [n for n, _ in talks],
+                        format_func=lambda n: talk_label(n, talk_titles.get(n, "")),
+                        key="outgoing_new_talks")
+                else:
+                    st.caption("No talks in the list yet — add them under "
+                              "Admin → Public talks, then come back to attach them.")
+                    chosen_numbers = []
+                if st.button("Approve as outgoing speaker", type="primary"):
+                    set_outgoing_speaker(pick, chosen_numbers)
+                    st.success(f"{names[pick]} added.")
+                    st.rerun()
