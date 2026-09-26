@@ -778,7 +778,7 @@ def outgoing_speakers_letter_pdf(congregation, hall_address, speakers, signoff,
         data.append([Paragraph(esc(name), cell_style), Paragraph(talk_text, cell_style)])
 
     usable = 487                             # A4 minus the letter's 54pt margins
-    table = Table(data, colWidths=[usable * 0.36, usable * 0.64])
+    table = Table(data, colWidths=[usable * 0.24, usable * 0.76])
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), ACCENT),
         ("GRID", (0, 0), (-1, -1), 0.5, RULE),
