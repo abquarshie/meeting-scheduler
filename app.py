@@ -60,6 +60,19 @@ except ModuleNotFoundError as exc:
     with st.expander("Files the app can see"):
         st.code("\n".join(found), language=None)
     st.stop()
+except ImportError as exc:
+    # the file is there but is an older version that lacks a name the rest of
+    # the app now needs — usually one file missed in an upload, or the app
+    # still holding the old copy in memory
+    st.error(f"The app can't start: **{exc.name}.py** is out of date.")
+    st.markdown(
+        f"Python found `{exc.name}.py` but not everything the other files expect "
+        f"in it ({exc}).\n\n"
+        f"1. On GitHub, check that `{exc.name}.py` is the latest version and "
+        "upload it again if not.\n"
+        "2. Then click **Manage app** (lower right) → **⋮ → Reboot app**, so "
+        "the app stops using the copy it loaded earlier.")
+    st.stop()
 
 # --- sign-in --------------------------------------------------------------
 inject_css()
