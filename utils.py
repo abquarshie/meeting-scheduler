@@ -163,7 +163,7 @@ def recency(last_date, meeting_date=None):
         return NEVER_BAND
     days = (now - then).days
     if days < 0:
-        return CONFLICT
+        return CONFLICT[0], conflict_wording(-days, then)
     if days < 7:
         return THIS_WEEK
     weeks = days // 7
@@ -171,6 +171,21 @@ def recency(last_date, meeting_date=None):
         if weeks <= limit:
             return marker, wording
     return LONG_AGO
+
+
+def conflict_wording(ahead, when):
+    """How far after this meeting the other assignment falls, with its date.
+
+    Orange on its own only says "later"; whether that is this weekend or a
+    month away changes whether it matters, so the wording spells it out.
+    """
+    if ahead < 7:
+        span = "later this week"
+    elif ahead < 14:
+        span = "next week"
+    else:
+        span = f"in {ahead // 7} weeks"
+    return f"{CONFLICT[1]} {span} ({when.day} {when:%b})"
 
 
 def slot_label(slot, hall_names=None):

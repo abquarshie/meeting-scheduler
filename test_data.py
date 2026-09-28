@@ -493,7 +493,12 @@ def test_recency_is_measured_from_the_meeting_not_today(core):
     assert core.recency("2026-10-07", "2026-11-11")[0] == "🟢"
     # already assigned to something after this meeting is a conflict, not a
     # rotation cooldown, so it gets its own colour rather than sharing red
-    assert core.recency("2026-10-21", meeting) == core.CONFLICT
+    assert core.recency("2026-10-18", meeting) == (
+        "🟠", "already scheduled later this week (18 Oct)")
+    assert core.recency("2026-10-21", meeting) == (
+        "🟠", "already scheduled next week (21 Oct)")
+    assert core.recency("2026-11-04", meeting) == (
+        "🟠", "already scheduled in 3 weeks (4 Nov)")
 
 
 def test_setup_checklist_clears_as_things_are_done(core, people):
