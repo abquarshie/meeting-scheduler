@@ -666,3 +666,26 @@ def test_month_whatsapp_text_lists_parts_and_assisting(core):
 
     empty = core.whatsapp_month_text("Esi Mensah", "Sister", "2026-10", [])
     assert empty.startswith("Hello Sister Esi Mensah!") and "no meeting" in empty
+
+
+def test_save_converts_numbers_that_arrive_as_text(core, people):
+    """Postgres refuses text in a number column and Streamlit hides which
+    value it was. Numbers-as-text are saved as numbers; anything else is
+    refused with the part named, before the database sees it."""
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    kofi = people["Kofi Mensah"]
+    slots = core.build_midweek_slots(core.default_midweek_parts())
+    tt = next(i for i, s in enumerate(slots) if s["role"] == "Treasures Talk")
+    slots[tt] = {**slots[tt], "part_no": "1", "minutes": "10.0"}
+    core.save_schedule("2026-10-07", core.MIDWEEK, slots,
+                       {0: (str(kofi), None), tt: (float(kofi), None)}, {}, names)
+    rows = core.get_schedules()
+    rows = rows[rows["meeting_date"] == "2026-10-07"].sort_values("sort_order")
+    assert rows.iloc[0]["person"] == "Kofi Mensah"
+    assert int(rows.iloc[tt]["part_no"]) == 1 and int(rows.iloc[tt]["minutes"]) == 10
+
+    slots[tt] = {**slots[tt], "minutes": "ten"}
+    import pytest
+    with pytest.raises(ValueError, match="Treasures Talk.*minutes.*'ten'"):
+        core.save_schedule("2026-10-14", core.MIDWEEK, slots, {}, {}, names)
+    assert core.get_schedules()["meeting_date"].eq("2026-10-14").sum() == 0

@@ -868,14 +868,46 @@ def undo_last(meeting_date, meeting_type):
     return restored
 
 
+def _whole_number(value, what, part):
+    """A value bound for an INTEGER column, as an int or None.
+
+    Postgres refuses text there, and Streamlit then hides the message that
+    says which value it was. A number that arrived as text ("4", "4.0") or as
+    a float is converted; anything else stops the save with the part named.
+    """
+    if value is None or isinstance(value, bool):
+        return None if value is None else int(value)
+    try:
+        if value != value:                      # NaN
+            return None
+    except (TypeError, ValueError):
+        pass
+    text = str(value).strip()
+    if text == "":
+        return None
+    try:
+        number = float(text)
+    except ValueError:
+        number = None
+    if number is None or number != int(number):
+        raise ValueError(f"'{part}': the {what} should be a whole number, "
+                         f"but it is {value!r}.")
+    return int(number)
+
+
 def save_schedule(meeting_date, meeting_type, slots, picks, meta, names):
     """Replace everything stored for this date + meeting type."""
     rows = []
     for order, slot in enumerate(slots):
         sid, aid = picks.get(order, (None, None))
+        part = slot_label(slot)
+        part_no = _whole_number(slot["part_no"], "part number", part)
+        minutes = _whole_number(slot.get("minutes"), "minutes", part)
+        sid = _whole_number(sid, "person's id", part)
+        aid = _whole_number(aid, "assistant's id", part)
         rows.append((
-            str(meeting_date), meeting_type, slot["part_no"], slot["title"],
-            slot.get("minutes"), slot["section"], slot["role"],
+            str(meeting_date), meeting_type, part_no, slot["title"],
+            minutes, slot["section"], slot["role"],
             int(slot["student_part"]), int(slot["needs_assistant"]),
             sid, names.get(sid), aid, names.get(aid), order,
             slot.get("hall") or MAIN_HALL, picks.get(order + 10000) or None,

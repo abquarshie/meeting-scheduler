@@ -442,10 +442,16 @@ def render(students_df, t, selected_lang, aux_default):
                 st.error(e, icon=":material/error:")
         else:
             meta_in.update(talk_in)
-            save_schedule(meeting_date, meeting_type, slots, picks, meta_in, names)
-            st.success(f"Saved {meeting_type} for {fmt_date(meeting_date)}.")
-            for w in warnings:
-                st.warning(f"Check: {w}")
+            try:
+                save_schedule(meeting_date, meeting_type, slots, picks, meta_in, names)
+            except ValueError as exc:
+                st.error(f"Not saved — {exc} Correct that part (or the week "
+                         "on the Workbook PDF page) and save again.",
+                         icon=":material/error:")
+            else:
+                st.success(f"Saved {meeting_type} for {fmt_date(meeting_date)}.")
+                for w in warnings:
+                    st.warning(f"Check: {w}")
 
     snap = last_snapshot(meeting_date, meeting_type)
     if snap:
