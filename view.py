@@ -118,6 +118,36 @@ def render(students_df, t, selected_lang, aux_default):
                 st.code(whatsapp_reminder_text(cand), language=None)
 
     st.divider()
+    st.subheader("Monthly assignments by WhatsApp")
+    st.caption("Everything one person has in a month, parts and assisting, "
+               "in one message — copy it and send it yourself.")
+    all_months = sorted({d[:7] for d, _ in meetings}, reverse=True)
+    default_month = label_for_file if scope != "One meeting" else chosen[0][0][:7]
+    wa_month = st.selectbox(
+        "Month", all_months,
+        index=all_months.index(default_month) if default_month in all_months else 0,
+        key="wa_month",
+        format_func=lambda ym: datetime.strptime(ym, "%Y-%m").strftime("%B %Y"))
+    in_month = schedules_df[schedules_df["meeting_date"].str.startswith(wa_month)]
+    counts = pd.concat([in_month["student_id"], in_month["assistant_id"]]) \
+        .dropna().astype(int).value_counts()
+    people_in_month = students_df[students_df["id"].isin(counts.index)] \
+        .sort_values("name")
+    if people_in_month.empty:
+        st.info("Nobody from the participants list has an assignment that month.")
+    else:
+        wa_names = dict(zip(people_in_month["id"], people_in_month["name"]))
+        wa_pick = st.selectbox(
+            "Participant", list(wa_names), key="wa_person",
+            format_func=lambda i: f"{wa_names[i]} ({counts[i]})")
+        person = people_in_month[people_in_month["id"] == wa_pick].iloc[0]
+        st.code(whatsapp_month_text(
+            person["name"], person["gender"], wa_month,
+            month_assignments_for(schedules_df, wa_pick, wa_month)),
+            language=None, wrap_lines=True)
+        st.caption("The copy button is at the top right of the box.")
+
+    st.divider()
     st.subheader("Invitation letter")
     if scope != "One meeting" or chosen[0][1] != WEEKEND:
         st.caption("Select a single weekend meeting above to print its letter.")

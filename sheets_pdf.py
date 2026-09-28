@@ -624,6 +624,82 @@ def whatsapp_reminder_text(candidate):
            f'{fmt_date(candidate["meeting_date"])}.')
 
 
+def month_assignments_for(schedules_df, student_id, month):
+    """One person's parts in a month ("YYYY-MM"), in meeting order.
+
+    Matched on the participant's id, not the printed name, so two people
+    with the same name are never merged. Parts where they assist count too:
+    the assistant needs to prepare as much as the student.
+    """
+    rows = schedules_df[schedules_df["meeting_date"].astype(str).str.startswith(month)
+                        & ((schedules_df["student_id"] == student_id)
+                           | (schedules_df["assistant_id"] == student_id))]
+    rows = rows.sort_values(["meeting_date", "meeting_type", "sort_order"])
+    out = []
+    for r in rows.itertuples():
+        as_assistant = r.assistant_id == student_id and r.student_id != student_id
+        title = clean_value(r.part_name) or clean_value(r.role)
+        minutes = int(r.minutes) if pd.notna(r.minutes) else None
+        if minutes and "min" not in title.lower():
+            title += f" ({minutes} min)"
+        if pd.notna(r.part_no):
+            title = f"{int(r.part_no)}. {title}"
+        talk = ""
+        if r.role == "Public Talk":
+            talk = talk_text(get_meeting_meta(r.meeting_date, r.meeting_type))
+        hall = r.hall if isinstance(r.hall, str) else MAIN_HALL
+        out.append({
+            "meeting_date": str(r.meeting_date),
+            "meeting_type": r.meeting_type,
+            "part": title,
+            "hall": hall,
+            "as_assistant": as_assistant,
+            "partner": clean_value(r.person if as_assistant else r.assistant),
+            "talk": talk,
+        })
+    return out
+
+
+def whatsapp_month_text(person, gender, month, items):
+    """A month of one person's assignments as a WhatsApp message.
+
+    WhatsApp shows *text* as bold, so dates and the month stand out without
+    anything that could come through as stray symbols. Copy-paste only —
+    nothing is sent on the app's behalf.
+    """
+    month_name = datetime.strptime(month, "%Y-%m").strftime("%B %Y")
+    title = "Sister" if gender == "Sister" else "Brother"
+    if not items:
+        return (f"Hello {title} {person}! You have no meeting assignments "
+                f"in {month_name}.")
+    lines = [f"Hello {title} {person}! Here are your meeting assignments "
+             f"for *{month_name}*:"]
+    current = None
+    for item in items:
+        key = (item["meeting_date"], item["meeting_type"])
+        if key != current:
+            current = key
+            d = datetime.strptime(item["meeting_date"], "%Y-%m-%d").date()
+            kind = "Midweek" if item["meeting_type"] == MIDWEEK else "Weekend"
+            lines += ["", f"📅 *{d:%A} {d.day} {d:%B}* · {kind} meeting"]
+        line = f"• {item['part']}"
+        if item["talk"]:
+            line += f" — {item['talk']}"
+        if item["hall"] != MAIN_HALL:
+            line += f" · {HALL_NAMES.get(item['hall'], item['hall'])}"
+        if item["as_assistant"]:
+            line += (f" — assisting {item['partner']}" if item["partner"]
+                     else " — as assistant")
+        elif item["partner"]:
+            line += f" — with {item['partner']} assisting"
+        lines.append(line)
+    count = len(items)
+    lines += ["", f"That is {count} assignment{'s' if count != 1 else ''}. "
+              "Please let me know as soon as possible if you can't take "
+              "any of them. Thank you!"]
+    return "\n".join(lines)
+
+
 def _letter_date(iso):
     """'September 26, 2026' — the letter's own convention, distinct from the
     app's day-first fmt_date() used everywhere else."""
@@ -778,7 +854,7 @@ def outgoing_speakers_letter_pdf(congregation, hall_address, speakers, signoff,
         data.append([Paragraph(esc(name), cell_style), Paragraph(talk_text, cell_style)])
 
     usable = 487                             # A4 minus the letter's 54pt margins
-    table = Table(data, colWidths=[usable * 0.24, usable * 0.76])
+    table = Table(data, colWidths=[usable * 0.36, usable * 0.64])
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), ACCENT),
         ("GRID", (0, 0), (-1, -1), 0.5, RULE),

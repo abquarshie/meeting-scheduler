@@ -635,3 +635,34 @@ def test_watchtower_conductor_has_no_recency_marker_and_ignores_rest_period(core
     # Suggest keeps proposing him even though he "held it last week"
     picks = core.suggest_assignments(slots, students, set(), today)
     assert picks[3][0] == people["Nii Tetteh"]
+
+
+def test_month_whatsapp_text_lists_parts_and_assisting(core):
+    """One message per person per month: their own parts and the ones they
+    assist on, grouped by meeting, other months and other people left out."""
+    import pandas as pd
+    cols = ["meeting_date", "meeting_type", "part_no", "part_name", "minutes",
+            "role", "student_id", "assistant_id", "sort_order", "hall",
+            "person", "assistant"]
+    df = pd.DataFrame([
+        ("2026-10-07", core.MIDWEEK, None, "Chairman", None, "Chairman",
+         1, None, 0, "main_hall", "Kofi Mensah", None),
+        ("2026-10-07", core.MIDWEEK, 5, "Making Disciples", 4, "Making Disciples",
+         2, 1, 5, "aux_1", "Ama Owusu", "Kofi Mensah"),
+        ("2026-10-14", core.MIDWEEK, 3, "Bible Reading", 4, "Bible Reading",
+         3, None, 3, "main_hall", "Kojo Mensah", None),       # someone else
+        ("2026-11-04", core.MIDWEEK, None, "Chairman", None, "Chairman",
+         1, None, 0, "main_hall", "Kofi Mensah", None),        # next month
+    ], columns=cols)
+    items = core.month_assignments_for(df, 1, "2026-10")
+    assert [i["part"] for i in items] == ["Chairman", "5. Making Disciples (4 min)"]
+    text = core.whatsapp_month_text("Kofi Mensah", "Brother", "2026-10", items)
+    assert text.startswith("Hello Brother Kofi Mensah!")
+    assert "*October 2026*" in text
+    assert "*Wednesday 7 October*" in text and text.count("📅") == 1
+    assert "Auxiliary classroom 1 — assisting Ama Owusu" in text
+    assert "Bible Reading" not in text and "November" not in text
+    assert "2 assignments" in text
+
+    empty = core.whatsapp_month_text("Esi Mensah", "Sister", "2026-10", [])
+    assert empty.startswith("Hello Sister Esi Mensah!") and "no meeting" in empty
