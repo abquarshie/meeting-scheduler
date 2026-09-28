@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
-"""View Schedules page."""
+"""Slips and printing: slips, schedule sheets, the S-140, the CSV and messages.
+
+Public-talk documents (reminders, letters, the checklist) are on the Public
+talks page.
+"""
 from core import *  # noqa: F401,F403
 
 
@@ -11,7 +15,7 @@ def render(students_df, t, selected_lang, aux_default):
         st.info("No schedules have been created yet.")
         st.stop()
 
-    # one page for printing, whichever scope you want
+    # what to print: one meeting or a whole month, shared by every tab
     scope = st.radio("Print", ["One meeting", "A whole month"], horizontal=True,
                      key="print_scope")
     if scope == "One meeting":
@@ -21,6 +25,7 @@ def render(students_df, t, selected_lang, aux_default):
                                 key="view_meeting")
         chosen = [selected]
         label_for_file = selected[0]
+        month = selected[0][:7]
     else:
         months = sorted({d[:7] for d, _ in meetings}, reverse=True)
         month = st.selectbox(
@@ -30,33 +35,53 @@ def render(students_df, t, selected_lang, aux_default):
         label_for_file = month
         st.caption(", ".join(meeting_label(m) for m in sorted(chosen)))
 
-    rows = schedules_df[schedules_df.apply(
-        lambda r: (r["meeting_date"], r["meeting_type"]) in set(chosen), axis=1)]
+    chosen_set = set(chosen)
+    in_scope = pd.Series(
+        [(d, k) in chosen_set for d, k in zip(schedules_df["meeting_date"],
+                                              schedules_df["meeting_type"])],
+        index=schedules_df.index, dtype=bool)
+    rows = schedules_df[in_scope]
 
     if scope == "One meeting":
-        meeting_date, meeting_type = chosen[0]
-        meta = get_meeting_meta(meeting_date, meeting_type)
-        if meta.get("heading"):
-            st.caption(meta["heading"])
-        if meeting_type == WEEKEND:
-            st.markdown(f"**Public talk:** {talk_text(meta) or '— title not entered —'}")
-        table = pd.DataFrame({
-            "Part": [slot_label(make_slot(r.part_name, r.role or "", r.section,
-                                          int(r.part_no) if pd.notna(r.part_no) else None,
-                                          int(r.minutes) if pd.notna(r.minutes) else None,
-                                          r.hall))
-                     for r in rows.itertuples()],
-            "Assigned to": rows["person"].fillna("— unassigned —").tolist(),
-            "Assistant": [
-                (r.assistant or "— needed —") if r.needs_assistant == 1 else ""
-                for r in rows.itertuples()
-            ],
-        })
-        st.dataframe(table, width="stretch", hide_index=True)
-        if st.button("Edit this schedule", icon=":material/edit:"):
-            go("Schedule", schedule_mode="Edit saved", edit_meeting=chosen[0])
+        meeting_summary(chosen[0], rows)
 
-    st.divider()
+    tab_print, tab_export, tab_messages = st.tabs(
+        ["Slips & sheets", "S-140 & CSV", "Messages"])
+    with tab_print:
+        slips_and_sheets(chosen, rows, schedules_df, t, selected_lang,
+                         label_for_file)
+    with tab_export:
+        s140_and_csv(meetings, schedules_df, t, selected_lang, month)
+    with tab_messages:
+        monthly_messages(meetings, schedules_df, students_df, month)
+
+
+def meeting_summary(meeting, rows):
+    meeting_date, meeting_type = meeting
+    meta = get_meeting_meta(meeting_date, meeting_type)
+    if meta.get("heading"):
+        st.caption(meta["heading"])
+    if meeting_type == WEEKEND:
+        st.markdown(f"**Public talk:** {talk_text(meta) or '— title not entered —'}")
+    table = pd.DataFrame({
+        "Part": [slot_label(make_slot(r.part_name, r.role or "", r.section,
+                                      int(r.part_no) if pd.notna(r.part_no) else None,
+                                      int(r.minutes) if pd.notna(r.minutes) else None,
+                                      r.hall))
+                 for r in rows.itertuples()],
+        "Assigned to": rows["person"].fillna("— unassigned —").tolist(),
+        "Assistant": [
+            (r.assistant or "— needed —") if r.needs_assistant == 1 else ""
+            for r in rows.itertuples()
+        ],
+    })
+    st.dataframe(table, width="stretch", hide_index=True)
+    if st.button("Edit this schedule", icon=":material/edit:"):
+        go("Schedule", schedule_mode="Edit saved", edit_meeting=meeting)
+
+
+# ------------------------------------------------------------ slips & sheets
+def slips_and_sheets(chosen, rows, schedules_df, t, selected_lang, label_for_file):
     st.subheader("S-89 assignment slips")
     slip_rows = slip_rows_for(rows)
     if not slip_rows:
@@ -77,6 +102,7 @@ def render(students_df, t, selected_lang, aux_default):
                 file_name=f"S89_slips_{label_for_file}_{selected_lang}.pdf",
                 mime="application/pdf",
             )
+
     st.divider()
     st.subheader("Printable schedule")
     midweek, weekend = split_by_type(chosen)
@@ -102,30 +128,78 @@ def render(students_df, t, selected_lang, aux_default):
             mime="application/pdf", width="stretch", key=f"dl_{kind}",
         )
 
-    # ---- speaker reminders, guest letter, annual checklist -----------------
-    st.divider()
-    st.subheader("Speaker reminders")
-    st.caption("A WhatsApp message for anyone with a Public Talk at least a "
-               "week away — copy it and send it yourself.")
-    reminders = upcoming_talk_reminders(schedules_df, min_days=7)
-    if not reminders:
-        st.info("Nobody has a Public Talk at least a week away yet.")
+
+# --------------------------------------------------------------- S-140 & CSV
+def s140_and_csv(meetings, schedules_df, t, selected_lang, month):
+    st.subheader("S-140")
+    midweek_months = sorted({m[0][:7] for m in meetings if m[1] == MIDWEEK},
+                            reverse=True)
+    if not midweek_months:
+        st.info("Save a midweek schedule to fill the S-140.")
     else:
-        for cand in reminders:
-            with st.container(border=True):
-                st.markdown(f"**{cand['person']}** — {fmt_date(cand['meeting_date'])}"
-                            + (" · guest speaker" if cand["is_guest"] else ""))
-                st.code(whatsapp_reminder_text(cand), language=None)
+        s140_month = st.selectbox(
+            "Month", midweek_months, key="s140_month",
+            index=midweek_months.index(month) if month in midweek_months else 0,
+            format_func=lambda ym: datetime.strptime(ym, "%Y-%m").strftime("%B %Y"))
+        template, _ = load_template(f"s140_{selected_lang}")
+        if not template:
+            st.warning(f"No {selected_lang} S-140 template. Upload the blank "
+                       ".docx under Admin.", icon=":material/upload_file:")
+        else:
+            s140_download(meetings, schedules_df, t, template, s140_month)
 
     st.divider()
+    st.subheader("Spreadsheet")
+    talks = {}
+    for md, mt in meetings:
+        if mt == WEEKEND:
+            talks[(md, mt)] = talk_text(get_meeting_meta(md, mt))
+    csv_df = schedules_df.assign(talk=[
+        talks.get((r.meeting_date, r.meeting_type), "") if r.role == "Public Talk"
+        else "" for r in schedules_df.itertuples()])[
+        ["meeting_date", "meeting_type", "part_no", "part_name", "talk",
+         "minutes", "section", "role", "hall", "person", "assistant"]]
+    st.download_button(
+        "All schedules as CSV", icon=":material/table_view:",
+        data=csv_df.to_csv(index=False).encode("utf-8-sig"),  # BOM keeps ɛ/ɔ right
+        file_name="meeting_schedule.csv", mime="text/csv")
+
+
+def s140_download(meetings, schedules_df, t, template, s140_month):
+    month_meetings = sorted(m for m in meetings
+                            if m[1] == MIDWEEK and m[0].startswith(s140_month))
+    data, skipped = build_s140_data(month_meetings, schedules_df,
+                                    get_setting("congregation"), "")
+    data["meeting_name"] = t.get("midweek_meeting", "Midweek Meeting")
+    if skipped:
+        st.warning("Skipped (need 3 Treasures parts and a Bible Study): "
+                   + ", ".join(fmt_date(d) for d in skipped))
+    if not data["weeks"]:
+        st.info("Nothing to fill for that month.")
+        return
+    try:
+        docx_bytes = fill_s140(template, data, widen=True)
+    except (S140Error, KeyError, IndexError) as exc:
+        st.error(f"Couldn't fill the template: {exc}")
+        return
+    month_name = datetime.strptime(s140_month, "%Y-%m").strftime("%B %Y")
+    st.download_button(
+        f"S-140 for {month_name}", data=docx_bytes,
+        icon=":material/description:", file_name=f"{month_name}.docx",
+        mime="application/vnd.openxmlformats-officedocument."
+             "wordprocessingml.document")
+
+
+# ------------------------------------------------------------------ messages
+def monthly_messages(meetings, schedules_df, students_df, month):
     st.subheader("Monthly assignments by WhatsApp")
     st.caption("Everything one person has in a month, parts and assisting, "
-               "in one message — copy it and send it yourself.")
+               "in one message — copy it and send it yourself. Public Talk "
+               "reminders are on the Public talks page.")
     all_months = sorted({d[:7] for d, _ in meetings}, reverse=True)
-    default_month = label_for_file if scope != "One meeting" else chosen[0][0][:7]
     wa_month = st.selectbox(
         "Month", all_months,
-        index=all_months.index(default_month) if default_month in all_months else 0,
+        index=all_months.index(month) if month in all_months else 0,
         key="wa_month",
         format_func=lambda ym: datetime.strptime(ym, "%Y-%m").strftime("%B %Y"))
     in_month = schedules_df[schedules_df["meeting_date"].str.startswith(wa_month)]
@@ -135,174 +209,14 @@ def render(students_df, t, selected_lang, aux_default):
         .sort_values("name")
     if people_in_month.empty:
         st.info("Nobody from the participants list has an assignment that month.")
-    else:
-        wa_names = dict(zip(people_in_month["id"], people_in_month["name"]))
-        wa_pick = st.selectbox(
-            "Participant", list(wa_names), key="wa_person",
-            format_func=lambda i: f"{wa_names[i]} ({counts[i]})")
-        person = people_in_month[people_in_month["id"] == wa_pick].iloc[0]
-        st.code(whatsapp_month_text(
-            person["name"], person["gender"], wa_month,
-            month_assignments_for(schedules_df, wa_pick, wa_month)),
-            language=None, wrap_lines=True)
-        st.caption("The copy button is at the top right of the box.")
-
-    st.divider()
-    st.subheader("Invitation letter")
-    if scope != "One meeting" or chosen[0][1] != WEEKEND:
-        st.caption("Select a single weekend meeting above to print its letter.")
-    else:
-        talk_rows = rows[(rows["role"] == "Public Talk") & rows["person"].notna()]
-        if talk_rows.empty:
-            st.info("No Public Talk speaker assigned to this meeting yet.")
-        elif not clean_value(getattr(talk_rows.iloc[0], "visitor", "")):
-            st.caption("This meeting's speaker is a congregation participant, "
-                       "not a guest — no letter needed.")
-        else:
-            talk_row = talk_rows.iloc[0]
-            meeting_date = chosen[0][0]
-            meta = get_meeting_meta(meeting_date, WEEKEND)
-            guest_congregation = clean_value(getattr(talk_row, "visitor_congregation", ""))
-            candidate = {
-                "meeting_date": meeting_date, "person": talk_row["person"],
-                "congregation": guest_congregation,
-                "talk_number": clean_value(meta.get("talk_number")),
-                "talk_title": clean_value(meta.get("talk_title")),
-            }
-            meeting_time = get_setting("meeting_time", "")
-            hall_address = get_setting("hall_address", "")
-            signoff = get_setting("talk_coordinator_signoff", "Bernard Mensah")
-            phone = get_setting("talk_coordinator_phone", "")
-            email = get_setting("talk_coordinator_email", "")
-            missing = [label for label, val in
-                      (("public meeting time", meeting_time),
-                       ("Kingdom Hall address", hall_address),
-                       ("Talk Coordinator sign-off name", signoff)) if not val]
-            if missing:
-                st.warning("Set the " + ", ".join(missing) + " under Admin → "
-                           "Settings → Weekend meeting first.")
-            elif not guest_congregation:
-                st.warning("This speaker's congregation isn't recorded yet — "
-                           "open this schedule and fill in \"His congregation\" "
-                           "next to the visiting speaker's name.")
-            else:
-                letter = invitation_letter_pdf(candidate, get_setting("congregation", ""),
-                                               hall_address, meeting_time, signoff,
-                                               phone, email)
-                st.download_button(
-                    f"Letter to {guest_congregation}", data=letter,
-                    icon=":material/mail:",
-                    file_name=(f"invitation_{guest_congregation.replace(' ', '_')}"
-                              f"_{meeting_date}.pdf"),
-                    mime="application/pdf")
-
-    st.divider()
-    st.subheader("Outgoing speakers list")
-    st.caption("A letter for another congregation, listing our approved "
-               "outgoing speakers and the talks they have ready.")
-    approved = get_outgoing_speakers()
-    if not approved:
-        st.info("No approved outgoing speakers yet — add them under "
-                "Manage Participants → Outgoing Speakers.")
-    else:
-        all_names = dict(zip(students_df["id"], students_df["name"]))
-        talk_titles = dict(get_talks())
-        speakers = sorted(
-            ((all_names[sid], [(n, talk_titles.get(n, "")) for n in numbers])
-             for sid, numbers in approved.items() if sid in all_names),
-            key=lambda s: s[0].lower())
-        letter = outgoing_speakers_letter_pdf(
-            get_setting("congregation", ""), get_setting("hall_address", ""),
-            speakers, get_setting("talk_coordinator_signoff", "Bernard Mensah"),
-            get_setting("talk_coordinator_phone", ""),
-            get_setting("talk_coordinator_email", ""))
-        st.download_button(
-            "Download outgoing speakers letter", data=letter,
-            icon=":material/mail:",
-            file_name=f"outgoing_speakers_{date.today().isoformat()}.pdf",
-            mime="application/pdf")
-
-    st.divider()
-    st.subheader("Annual talk checklist")
-    st.caption("Every talk, one row per number, with a column per year — a "
-               "blank cell means it hasn't been given that year, so it's "
-               "safe to assign again. Nothing here is ever deleted.")
-    n_years = st.number_input("Years to show", min_value=1, max_value=6, value=3,
-                              step=1, key="checklist_years")
-    years = list(range(date.today().year - int(n_years) + 1, date.today().year + 1))
-    matrix_rows = talk_matrix_rows(schedules_df, years)
-    if not matrix_rows:
-        st.info("No talks in the list yet — add them under Admin → Public talks.")
-    else:
-        def cell_text(entries):
-            return "; ".join(f"{fmt_date(d, short=True)} — {who}" for d, who in entries)
-
-        table = pd.DataFrame([
-            {"No.": r["number"], "Title": r["title"],
-             **{str(y): cell_text(r["years"].get(y) or []) for y in years}}
-            for r in matrix_rows
-        ])
-        st.dataframe(table, width="stretch", hide_index=True)
-        span = str(years[0]) if len(years) == 1 else f"{years[0]}–{years[-1]}"
-        st.download_button(
-            f"Download checklist ({span})", icon=":material/checklist:",
-            data=talk_checklist_pdf(matrix_rows, get_setting("congregation", ""), years),
-            file_name=f"talk_checklist_{years[0]}_{years[-1]}.pdf",
-            mime="application/pdf")
-
-    # ---- the other two things a month produces -------------------------------
-    st.divider()
-    st.subheader("Other documents")
-    c1, c2 = st.columns(2)
-
-    talks = {}
-    for md, mt in saved_meetings(schedules_df):
-        if mt == WEEKEND:
-            talks[(md, mt)] = talk_text(get_meeting_meta(md, mt))
-    csv_df = schedules_df.assign(talk=[
-        talks.get((r.meeting_date, r.meeting_type), "") if r.role == "Public Talk"
-        else "" for r in schedules_df.itertuples()])[
-        ["meeting_date", "meeting_type", "part_no", "part_name", "talk",
-         "minutes", "section", "role", "hall", "person", "assistant"]]
-    c1.download_button(
-        "All schedules as CSV", icon=":material/table_view:",
-        data=csv_df.to_csv(index=False).encode("utf-8-sig"),  # BOM keeps ɛ/ɔ right
-        file_name="meeting_schedule.csv", mime="text/csv", width="stretch")
-
-    midweek_months = sorted({m[0][:7] for m in meetings if m[1] == MIDWEEK},
-                            reverse=True)
-    if not midweek_months:
-        c2.info("Save a midweek schedule to fill the S-140.")
         return
-    with c2:
-        s140_month = st.selectbox(
-            "S-140 month", midweek_months, key="s140_month",
-            format_func=lambda ym: datetime.strptime(ym, "%Y-%m").strftime("%B %Y"))
-        template, template_name = load_template(f"s140_{selected_lang}")
-        if not template:
-            st.warning(f"No {selected_lang} S-140 template. Upload the blank "
-                       ".docx under Admin.", icon=":material/upload_file:")
-            return
-        month_meetings = sorted(m for m in meetings
-                                if m[1] == MIDWEEK and m[0].startswith(s140_month))
-        data, skipped = build_s140_data(month_meetings, schedules_df,
-                                        get_setting("congregation"), "")
-        data["meeting_name"] = t.get("midweek_meeting", "Midweek Meeting")
-        if skipped:
-            st.warning("Skipped (need 3 Treasures parts and a Bible Study): "
-                       + ", ".join(fmt_date(d) for d in skipped))
-        if not data["weeks"]:
-            st.info("Nothing to fill for that month.")
-            return
-        try:
-            docx_bytes = fill_s140(template, data, widen=True)
-        except (S140Error, KeyError, IndexError) as exc:
-            st.error(f"Couldn't fill the template: {exc}")
-        else:
-            month_name = datetime.strptime(s140_month, "%Y-%m").strftime("%B %Y")
-            st.download_button(
-                f"S-140 for {month_name}", data=docx_bytes,
-                icon=":material/description:", file_name=f"{month_name}.docx",
-                width="stretch",
-                mime="application/vnd.openxmlformats-officedocument."
-                     "wordprocessingml.document")
+    wa_names = dict(zip(people_in_month["id"], people_in_month["name"]))
+    wa_pick = st.selectbox(
+        "Participant", list(wa_names), key="wa_person",
+        format_func=lambda i: f"{wa_names[i]} ({counts[i]})")
+    person = people_in_month[people_in_month["id"] == wa_pick].iloc[0]
+    st.code(whatsapp_month_text(
+        person["name"], person["gender"], wa_month,
+        month_assignments_for(schedules_df, wa_pick, wa_month)),
+        language=None, wrap_lines=True)
+    st.caption("The copy button is at the top right of the box.")

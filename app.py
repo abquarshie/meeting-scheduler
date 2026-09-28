@@ -30,12 +30,12 @@ REQUIRED_FILES = [
     "picking.py", "backup.py", "auth.py", "i18n.py", "core.py",
 ] + [f"{p}.py" for p in (
     "admin", "dashboard", "month", "participants",
-    "reports", "schedule", "view", "workbook_page")]
+    "reports", "schedule", "talks", "view", "workbook_page")]
 
 try:
     from core import *  # noqa: E402,F401,F403
     import admin, dashboard, month, participants  # noqa: E402
-    import reports, schedule, view, workbook_page  # noqa: E402
+    import reports, schedule, talks, view, workbook_page  # noqa: E402
 except ModuleNotFoundError as exc:
     here = Path(__file__).resolve().parent
     missing = [f for f in REQUIRED_FILES if not (here / f).is_file()]
@@ -114,6 +114,7 @@ PAGES = {
     "Manage Participants": participants.render,
     "Schedule": schedule.render,
     "View Schedules": view.render,
+    "Public Talks": talks.render,
     "Upload PDF Brochure": workbook_page.render,
     "Month": month.render,
     "Reports": reports.render,

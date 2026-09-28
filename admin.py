@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Admin: backup and restore, settings, public talks, change log."""
+"""Admin: backup and restore, settings, change log."""
 from core import *  # noqa: F401,F403
 from month import WEEKDAYS
 
 
 def render(students_df, t, selected_lang, aux_default):
     page_header(tr("h_admin"), tr("sub_admin"))
-    tab_data, tab_settings, tab_talks, tab_log = st.tabs(
-        ["Data & backup", "Settings", "Public talks", "Change log"])
+    tab_data, tab_settings, tab_log = st.tabs(
+        ["Data & backup", "Settings", "Change log"])
 
     with tab_data:
         st.subheader("Official S-89 blank")
@@ -129,38 +129,6 @@ def render(students_df, t, selected_lang, aux_default):
             log_change("Meeting days changed", f"midweek {mid}, weekend {wkd}")
             st.success("Saved.")
 
-        st.subheader("Weekend meeting")
-        st.caption("Used on the invitation letter, printed from View "
-                   "Schedules by the Talk Coordinator.")
-        c1, c2 = st.columns(2)
-        meeting_time = c1.text_input(
-            "Public meeting time", get_setting("meeting_time", ""),
-            placeholder="e.g. 6:30pm")
-        hall_address = c2.text_input(
-            "Kingdom Hall address", get_setting("hall_address", ""),
-            placeholder="e.g. Hansen Road Near Palledium")
-        signoff = st.text_input(
-            "Talk Coordinator sign-off name",
-            get_setting("talk_coordinator_signoff", "Bernard Mensah"),
-            help="Signs every invitation letter. Update this here whenever "
-                 "the Talk Coordinator changes.")
-        c3, c4 = st.columns(2)
-        phone = c3.text_input(
-            "Talk Coordinator phone", get_setting("talk_coordinator_phone", ""),
-            placeholder="e.g. 055 307 8753",
-            help="Printed on the invitation letter, for the other "
-                 "congregation to reach out with questions.")
-        email = c4.text_input(
-            "Talk Coordinator email", get_setting("talk_coordinator_email", ""),
-            placeholder="e.g. niio@jwpub.org")
-        if st.button("Save weekend meeting details"):
-            set_setting("meeting_time", meeting_time)
-            set_setting("hall_address", hall_address)
-            set_setting("talk_coordinator_signoff", signoff)
-            set_setting("talk_coordinator_phone", phone)
-            set_setting("talk_coordinator_email", email)
-            st.success("Saved.")
-
         st.subheader("Rotation")
         gap_days = st.number_input(
             "Days before someone may take the same part again", min_value=1,
@@ -199,68 +167,6 @@ def render(students_df, t, selected_lang, aux_default):
                 add_no_meeting_period(start, end, note)
                 st.success("Saved.")
                 st.rerun()
-
-    with tab_talks:
-        st.caption("The outlines your congregation uses. Once they are here, "
-                   "creating a weekend schedule is picking one from the list.")
-        talks = get_talks()
-        table = st.data_editor(
-            pd.DataFrame(talks or [], columns=["number", "title"]),
-            num_rows="dynamic", width="stretch", hide_index=True,
-            key="talks_editor",
-            column_config={
-                "number": st.column_config.TextColumn("No.", required=True,
-                                                      width="small"),
-                "title": st.column_config.TextColumn("Title", width="large"),
-            },
-        )
-        if st.button("Save talks", type="primary"):
-            kept, seen = [], set()
-            for row in table.to_dict("records"):
-                number = nfc(str(row.get("number") or ""))
-                if not number or number in seen:
-                    continue
-                seen.add(number)
-                save_talk(number, row.get("title") or "")
-                kept.append(number)
-            for number, _ in talks:
-                if number not in seen:
-                    delete_talk(number)
-            st.success(f"Saved {len(kept)} talk(s).")
-            st.rerun()
-        st.caption("Add a row with the + at the bottom; clear a row's number "
-                   "to remove that talk.")
-
-        st.divider()
-        st.markdown("**Load a list**")
-        st.caption("A CSV with a `number` and a `title` column. Re-importing the "
-                   "same numbers updates their titles, so corrections are one "
-                   "upload rather than a hunt through the table.")
-        csv_file = st.file_uploader("Talks CSV", type=["csv"], key="talks_csv")
-        replace = st.checkbox("Replace the whole list", key="talks_replace",
-                              help="Otherwise the file is merged into what is "
-                                   "already there.")
-        if csv_file is not None and st.button("Import talks", type="primary"):
-            try:
-                frame = pd.read_csv(csv_file, dtype=str).fillna("")
-                columns = {c.strip().lower(): c for c in frame.columns}
-                if "number" not in columns or "title" not in columns:
-                    raise ValueError("needs a 'number' and a 'title' column")
-                pairs = list(zip(frame[columns["number"]], frame[columns["title"]]))
-            except Exception as exc:
-                st.error(f"Couldn't read that CSV: {str(exc)[:160]}")
-            else:
-                total, added = import_talks(pairs, replace=replace)
-                st.success(f"Imported {total} talk(s), {added} new.")
-                st.rerun()
-
-        if talks:
-            st.download_button(
-                "Download the list as CSV",
-                data=pd.DataFrame(talks, columns=["number", "title"]).to_csv(
-                    index=False).encode("utf-8-sig"),
-                file_name="public_talks.csv", mime="text/csv",
-                icon=":material/download:")
 
     with tab_log:
         log = get_log()

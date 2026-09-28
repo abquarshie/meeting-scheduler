@@ -584,7 +584,7 @@ def build_s140_data(meetings, schedules_df, congregation, group_label):
 
 # =============================================================================
 # SPEAKER REMINDERS, GUEST LETTERS, ANNUAL TALK CHECKLIST
-# (View Schedules, both roles — see view.py)
+# (the Public talks page — see talks.py)
 # =============================================================================
 def upcoming_talk_reminders(schedules_df, min_days=7):
     """Public Talk speakers whose meeting is at least `min_days` away.

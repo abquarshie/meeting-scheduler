@@ -14,6 +14,7 @@ NAV = [
     ("Month", "nav_month", ":material/calendar_month:"),
     ("Schedule", "nav_schedule", ":material/edit_calendar:"),
     ("View Schedules", "nav_view", ":material/print:"),
+    ("Public Talks", "nav_talks", ":material/record_voice_over:"),
     ("Manage Participants", "nav_participants", ":material/group:"),
     ("Upload PDF Brochure", "nav_workbook", ":material/menu_book:"),
     ("Reports", "nav_reports", ":material/bar_chart:"),

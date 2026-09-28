@@ -202,7 +202,7 @@ def render(students_df, t, selected_lang, aux_default):
         """Pick the talk from the congregation's list, or type one in.
 
         Typing the number and title by hand every weekend was the old way; the
-        list lives under Admin → Public talks.
+        list lives under Public talks → Talk list.
         """
         talks = get_talks()
         with st.container(border=True):
@@ -224,7 +224,7 @@ def render(students_df, t, selected_lang, aux_default):
                     return
             else:
                 st.caption("No talks stored yet — add them under "
-                           "Admin → Public talks and they appear here.")
+                           "Public talks → Talk list and they appear here.")
             t1, t2 = st.columns([1, 4])
             talk_in["talk_number"] = nfc(t1.text_input(
                 "Talk no.", talk_in["talk_number"], key=f"{ns}|talkno",

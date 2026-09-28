@@ -26,7 +26,8 @@ def slot_key(ns, hall, role, no, title, kind="student"):
 def test_every_page_opens(people):
     at = app()
     for page in ["Manage Participants", "Schedule", "View Schedules",
-                 "Upload PDF Brochure", "Month", "Reports", "Admin", "Dashboard"]:
+                 "Upload PDF Brochure", "Month", "Reports", "Admin", "Dashboard",
+                 "Public Talks"]:
         at.session_state["menu"] = page
         run(at)
 
