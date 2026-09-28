@@ -6,16 +6,18 @@ slips, families, suspensions and away dates, and stores everything in Postgres.
 
 ## Monthly workflow
 
-1. **Upload Workbook PDF.** Weeks are found from the part numbering, so English
+1. **Workbook PDF.** Weeks are found from the part numbering, so English
    and Ga workbooks both work. Check the first week's date under **Week dates**
    and look over the **Weeks found** table for missing part numbers.
-2. **Month Overview.** See every meeting in the month and its open slots.
+2. **Month overview.** See every meeting in the month and its open slots.
    Workbook weeks without a schedule can be created one at a time, or all at
    once with **Create all weeks**, which fills each from the rotation.
-3. **Create Schedule.** The workbook week is picked from the date, and a
+3. **Create or edit.** The workbook week is picked from the date, and a
    **Cross-check** panel shows the workbook text. Dropdowns list only eligible
    people, longest-waiting first for that part. **✨ Suggest** fills empty slots.
-4. **Slips and printing.** Choose one meeting or a whole month. Three tabs:
+4. **Slips and printing.** Pick the slip language in the sidebar (English or
+   Ga; it is remembered for next time), then choose one meeting or a whole
+   month. Three tabs:
    **Slips & sheets** (S-89 slips on the official blank, uploaded once under
    **Admin**, and the midweek and weekend schedule sheets), **S-140 & CSV**
    (the S-140 for a month, filled from the blank stored under **Admin**, and a
@@ -40,7 +42,7 @@ inactive, given away periods, or suspended (open-ended or until a date).
 - **Data & backup:** upload the fillable blank S-89 and the blank S-140
   (.docx) once per language, so slips and the export use the real forms; also
   a full backup file you can download and restore.
-- **Settings:** congregation name, printing language, the auxiliary classroom
+- **Settings:** congregation name, the auxiliary classroom
   default, which weekday each meeting falls on, the rotation rest period and
   assembly/convention weeks.
 - **Change log:** who changed what and when.
@@ -108,9 +110,8 @@ slips.py                S-89 slips, filled on the official blank
 picking.py              eligibility, rotation, Suggest
 backup.py               full backup / restore
 auth.py                 sign-in (everyone has full access)
-i18n.py                 interface wording
 ui.py                   look and feel: sidebar, headers, section colours
-core.py                 one import for the pages
+core.py                 every module in one import, for tests and a Python shell
 dashboard.py, participants.py, schedule.py, view.py, talks.py, month.py,
 workbook_page.py, reports.py, admin.py      one file per page
 conftest.py, test_*.py  automated tests (pytest)

@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
 """Printable schedule sheets and the data the S-140 filler needs."""
+from datetime import date, datetime
 import io
+from pathlib import Path
 import re
 from xml.sax.saxutils import escape as xml_escape
 
+import pandas as pd
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.fonts import addMapping
@@ -12,12 +15,37 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
-    HRFlowable, KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer,
-    Table, TableStyle,
+    HRFlowable,
+    KeepTogether,
+    PageBreak,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
 )
+import streamlit as st
 
-from workbook import *  # noqa: F401,F403
-
+from constants import (
+    APP_DIR,
+    AUX_HALL,
+    EN_WORDS,
+    GA_CHARS,
+    GA_WORDS,
+    HALL_NAMES,
+    HALLS,
+    MAIN_HALL,
+    MIDWEEK,
+    ROLE_LABELS,
+    ROLE_LABELS_GA,
+    SECTION_COLORS,
+    SECTION_TITLES,
+    STUDENT_ROLES,
+    TRANSLATIONS,
+    WEEKEND,
+)
+from db import get_meeting_meta, get_setting, get_talks, talk_label, talk_text
+from utils import fmt_date
 
 # =============================================================================
 # PDF OUTPUT
@@ -511,7 +539,7 @@ def generate_schedule_pdf(meetings, schedules_df, lang=None, compact=False):
     return buffer.getvalue()
 
 
-def build_s140_data(meetings, schedules_df, congregation, group_label):
+def build_s140_data(meetings, schedules_df, congregation):
     """Shape saved midweek meetings like the S-140 filler's data.json."""
     weeks, skipped = [], []
     for meeting_date, meeting_type in sorted(meetings):
@@ -573,13 +601,8 @@ def build_s140_data(meetings, schedules_df, congregation, group_label):
         week["aux_group"] = clean_value(meta.get("aux_group"))
         weeks.append(week)
     any_aux = any(w["aux"] for w in weeks)
-    data = {"congregation": congregation, "group_label": group_label, "weeks": weeks,
-            "aux": any_aux}
-    if any_aux:
-        # keep the Asa 2 caption and its column width for the auxiliary classroom
-        data["clear_asa2"] = False
-        data["asa2_shift"] = 0
-    return data, skipped
+    # "aux" keeps the auxiliary-classroom column (its caption and width)
+    return {"congregation": congregation, "weeks": weeks, "aux": any_aux}, skipped
 
 
 # =============================================================================

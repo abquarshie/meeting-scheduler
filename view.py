@@ -4,11 +4,37 @@
 Public-talk documents (reminders, letters, the checklist) are on the Public
 talks page.
 """
-from core import *  # noqa: F401,F403
+from datetime import datetime
+
+import pandas as pd
+import streamlit as st
+
+from constants import MAIN_HALL, MIDWEEK, WEEKEND
+from db import (
+    get_meeting_meta,
+    get_schedules,
+    get_setting,
+    load_template,
+    meeting_label,
+    saved_meetings,
+    talk_text,
+)
+from s140 import S140Error, fill_s140
+from sheets_pdf import (
+    build_s140_data,
+    generate_schedule_pdf,
+    month_assignments_for,
+    split_by_type,
+    whatsapp_month_text,
+)
+from slips import S89Error, slip_rows_for, slips_pdf
+from ui import go, page_header
+from utils import fmt_date, make_slot, slot_label
 
 
 def render(students_df, t, selected_lang, aux_default):
-    page_header(tr("h_view"), tr("sub_view"))
+    page_header("Slips and printing",
+                "Slips, schedule sheets, the S-140, the CSV and monthly messages — for one meeting or a whole month.")
     schedules_df = get_schedules()
     meetings = saved_meetings(schedules_df)
     if not meetings:
@@ -77,7 +103,7 @@ def meeting_summary(meeting, rows):
     })
     st.dataframe(table, width="stretch", hide_index=True)
     if st.button("Edit this schedule", icon=":material/edit:"):
-        go("Schedule", schedule_mode="Edit saved", edit_meeting=meeting)
+        go("Create or edit", schedule_mode="Edit saved", edit_meeting=meeting)
 
 
 # ------------------------------------------------------------ slips & sheets
@@ -169,7 +195,7 @@ def s140_download(meetings, schedules_df, t, template, s140_month):
     month_meetings = sorted(m for m in meetings
                             if m[1] == MIDWEEK and m[0].startswith(s140_month))
     data, skipped = build_s140_data(month_meetings, schedules_df,
-                                    get_setting("congregation"), "")
+                                    get_setting("congregation"))
     data["meeting_name"] = t.get("midweek_meeting", "Midweek Meeting")
     if skipped:
         st.warning("Skipped (need 3 Treasures parts and a Bible Study): "
@@ -178,7 +204,7 @@ def s140_download(meetings, schedules_df, t, template, s140_month):
         st.info("Nothing to fill for that month.")
         return
     try:
-        docx_bytes = fill_s140(template, data, widen=True)
+        docx_bytes = fill_s140(template, data)
     except (S140Error, KeyError, IndexError) as exc:
         st.error(f"Couldn't fill the template: {exc}")
         return

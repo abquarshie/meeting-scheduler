@@ -6,7 +6,12 @@ under Admin and filled here, so the printed wording is always the real thing.
 """
 from pathlib import Path
 
-from sheets_pdf import *  # noqa: F401,F403
+import pandas as pd
+
+from constants import HALLS, MAIN_HALL
+from db import load_template
+from sheets_pdf import FONT_CANDIDATES, register_fonts
+from utils import fmt_date
 
 
 class S89Error(Exception):

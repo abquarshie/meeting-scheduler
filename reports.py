@@ -1,6 +1,14 @@
 # -*- coding: utf-8 -*-
 """How often each person has had parts, to spot anyone left out or overused."""
-from core import *  # noqa: F401,F403
+from datetime import date, timedelta
+
+import pandas as pd
+import streamlit as st
+
+from constants import CATEGORIES, HALL_NAMES, MAIN_HALL, ROLES
+from db import get_schedules, role_history, suspension_text
+from ui import page_header
+from utils import fmt_date
 
 
 def build_report(students_df, schedules_df, start, end):
@@ -29,7 +37,7 @@ def build_report(students_df, schedules_df, start, end):
     report = pd.DataFrame(records)
     if report.empty:
         return report
-    role_cols = [c for c in report.columns if c in ROLE_RULES]
+    role_cols = [c for c in report.columns if c in ROLES]
     report[role_cols] = report[role_cols].fillna(0).astype(int)
     order = ["Name", "Category", "Group", "Status", "Parts", "Assisting",
              "Total", "Last"] + [r for r in ROLES if r in role_cols]
@@ -37,7 +45,8 @@ def build_report(students_df, schedules_df, start, end):
 
 
 def render(students_df, t, selected_lang, aux_default):
-    page_header(tr("h_reports"), tr("sub_reports"))
+    page_header("Reports",
+                "How often each person had a part, to spot anyone left out.")
     schedules_df = get_schedules()
     if students_df.empty:
         st.info("No participants yet.")

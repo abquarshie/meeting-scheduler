@@ -3,13 +3,47 @@
 
 The talk list, guest speakers coming to us, our own speakers going out, the
 letters for both and the annual checklist used to be spread over Admin,
-Manage Participants and the printing page.
+Participants and Slips and printing.
 """
-from core import *  # noqa: F401,F403
+from datetime import date
+
+import pandas as pd
+import streamlit as st
+
+from constants import WEEKEND
+from db import (
+    add_outgoing_engagement,
+    delete_outgoing_engagement,
+    delete_talk,
+    get_meeting_meta,
+    get_outgoing_speakers,
+    get_schedules,
+    get_setting,
+    get_talks,
+    import_talks,
+    outgoing_engagements,
+    remove_outgoing_speaker,
+    save_talk,
+    set_outgoing_speaker,
+    set_setting,
+    talk_label,
+)
+from sheets_pdf import (
+    clean_value,
+    invitation_letter_pdf,
+    outgoing_speakers_letter_pdf,
+    talk_checklist_pdf,
+    talk_matrix_rows,
+    upcoming_talk_reminders,
+    whatsapp_reminder_text,
+)
+from ui import go, page_header
+from utils import fmt_date, nfc
 
 
 def render(students_df, t, selected_lang, aux_default):
-    page_header(tr("h_talks"), tr("sub_talks"))
+    page_header("Public talks",
+                "Guest speakers, our outgoing speakers, their letters, the talk list and the annual checklist.")
     schedules_df = get_schedules()
     tab_coming, tab_outgoing, tab_checklist, tab_list, tab_details = st.tabs(
         ["Coming up", "Outgoing speakers", "Annual checklist", "Talk list",
@@ -83,7 +117,7 @@ def coming_up(schedules_df):
         st.warning("This speaker's congregation isn't recorded yet — fill in "
                    "\"His congregation\" next to his name on the schedule.")
         if st.button("Open this schedule", icon=":material/edit:"):
-            go("Schedule", schedule_mode="Edit saved", edit_meeting=(pick, WEEKEND))
+            go("Create or edit", schedule_mode="Edit saved", edit_meeting=(pick, WEEKEND))
     else:
         candidate = {
             "meeting_date": pick, "person": talk_row["person"],

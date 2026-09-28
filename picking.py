@@ -1,6 +1,21 @@
 # -*- coding: utf-8 -*-
 """Who can take a part, rotation order and automatic suggestions."""
-from slips import *  # noqa: F401,F403
+from datetime import datetime
+
+from constants import GROUP_TAGS, MIDWEEK, ROLES, SISTER_ROLES
+from db import (
+    get_outgoing_on,
+    get_suspended,
+    get_unavailable,
+    last_assignment_dates,
+    last_role_dates,
+    last_student_part_dates,
+    same_family,
+    same_role_gap_days,
+    save_schedule,
+)
+from parts import build_midweek_slots
+from utils import apply_aux, recency
 
 
 # =============================================================================
@@ -15,11 +30,10 @@ def eligible_ids(role, students, away=frozenset(), suspended=frozenset()):
     """
     active = students[(students["active"] == 1) & ~students["id"].isin(suspended)]
     active = active[~active["id"].isin(away)]
-    if role not in ROLE_RULES:
+    if role not in ROLES:
         return active["id"].tolist()
-    privileges, brothers_only = ROLE_RULES[role]
-    mask = active["privilege_list"].apply(lambda p: bool(privileges & set(p)))
-    if brothers_only:
+    mask = active["privilege_list"].apply(lambda p: role in p)
+    if role not in SISTER_ROLES:
         mask &= active["gender"] == "Brother"
     return active[mask]["id"].tolist()
 

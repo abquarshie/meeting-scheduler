@@ -27,13 +27,18 @@ REQUIRED_FILES = [
     "s140.py", "requirements.txt",
     "constants.py", "utils.py", "db.py", "parts.py", "workbook.py",
     "sheets_pdf.py", "slips.py",
-    "picking.py", "backup.py", "auth.py", "i18n.py", "core.py",
+    "picking.py", "backup.py", "auth.py", "ui.py",
 ] + [f"{p}.py" for p in (
     "admin", "dashboard", "month", "participants",
     "reports", "schedule", "talks", "view", "workbook_page")]
 
 try:
-    from core import *  # noqa: E402,F401,F403
+    from constants import TRANSLATIONS  # noqa: E402
+    from db import (ensure_db, get_setting, get_students,  # noqa: E402
+                    set_setting, status_text)
+    from sheets_pdf import register_fonts  # noqa: E402
+    from auth import logout_button, require_login  # noqa: E402
+    from ui import PAGE_NAMES, inject_css, sidebar  # noqa: E402
     import admin, dashboard, month, participants  # noqa: E402
     import reports, schedule, talks, view, workbook_page  # noqa: E402
 except ModuleNotFoundError as exc:
@@ -72,19 +77,34 @@ require_login()
 FONT_REGULAR, FONT_BOLD, FONT_SUPPORTS_GA = register_fonts()
 
 if "menu" not in st.session_state:
-    st.session_state["menu"] = "Dashboard"
+    st.session_state["menu"] = "Home"
 
 # --- sidebar -------------------------------------------------------------------
+if st.session_state["menu"] not in PAGE_NAMES:   # a page renamed since last visit
+    st.session_state["menu"] = "Home"
 menu = st.session_state["menu"]
 sidebar(menu)
 
 # Settings are kept together on the Admin page; the sidebar holds the one
 # control that is changed while working, and a way out of a stuck form.
-st.session_state.setdefault("slip_lang",
-                            get_setting("slip_language", list(TRANSLATIONS)[0]))
+# The language lives only here: a change is saved at once and becomes the
+# default the next time anyone opens the app.
+if st.session_state.get("slip_lang") not in TRANSLATIONS:
+    saved_lang = get_setting("slip_language", "")
+    st.session_state["slip_lang"] = (saved_lang if saved_lang in TRANSLATIONS
+                                     else list(TRANSLATIONS)[0])
+
+
+def _remember_language():
+    set_setting("slip_language", st.session_state["slip_lang"])
+
+
 aux_default = get_setting("use_aux", "1") == "1"
-with st.sidebar.expander(tr("settings"), icon=":material/settings:"):
-    st.selectbox(tr("slip_language"), list(TRANSLATIONS), key="slip_lang")
+with st.sidebar.expander("Settings", icon=":material/settings:"):
+    st.selectbox("Slip language", list(TRANSLATIONS), key="slip_lang",
+                 on_change=_remember_language,
+                 help="For slips, schedule sheets and the S-140. Saved as the "
+                      "default for next time.")
     st.caption("Congregation name, meeting days and the rest are on the Admin page.")
     if st.button("Clear filters and unsaved picks", icon=":material/restart_alt:",
                  type="tertiary"):
@@ -110,15 +130,15 @@ logout_button()
 
 # --- page ------------------------------------------------------------------------
 PAGES = {
-    "Dashboard": dashboard.render,
-    "Manage Participants": participants.render,
-    "Schedule": schedule.render,
-    "View Schedules": view.render,
-    "Public Talks": talks.render,
-    "Upload PDF Brochure": workbook_page.render,
-    "Month": month.render,
+    "Home": dashboard.render,
+    "Participants": participants.render,
+    "Create or edit": schedule.render,
+    "Slips and printing": view.render,
+    "Public talks": talks.render,
+    "Workbook PDF": workbook_page.render,
+    "Month overview": month.render,
     "Reports": reports.render,
     "Admin": admin.render,
 }
 students_df = get_students()
-PAGES.get(menu, dashboard.render)(students_df, t, selected_lang, aux_default)
+PAGES[menu](students_df, t, selected_lang, aux_default)

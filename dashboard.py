@@ -1,7 +1,26 @@
 # -*- coding: utf-8 -*-
 """Home: the next meeting and what's still open, then what's coming up."""
-from core import *  # noqa: F401,F403
-from month import meeting_day
+from datetime import date, datetime, timedelta
+from html import escape as html_escape
+
+import pandas as pd
+import streamlit as st
+
+from constants import MIDWEEK, TRANSLATIONS
+from db import (
+    backup_overdue,
+    fill_counts,
+    get_meeting_meta,
+    get_schedules,
+    get_setting,
+    get_suspended,
+    get_unavailable_between,
+    load_template,
+    saved_meetings,
+    talk_text,
+)
+from ui import go, page_header, section_bars
+from workbook import load_workbook, midweek_workbook_weeks
 
 
 def greeting():
@@ -27,23 +46,12 @@ def unscheduled_weeks(schedules_df, within_days=None):
     The meeting day is what matters, not the week: on a Thursday, the current
     week's Wednesday meeting has already happened and must not be offered.
     """
-    workbook, _ = load_workbook()
-    saved = {d for d, t_ in saved_meetings(schedules_df) if t_ == MIDWEEK}
     today = date.today()
     cutoff = today + timedelta(days=within_days) if within_days else None
-    out = []
-    for label, w in workbook.items():
-        if not w.get("start"):
-            continue
-        if any(w["start"] <= d <= w["end"] for d in saved):
-            continue
-        start = datetime.strptime(w["start"], "%Y-%m-%d").date()
-        meeting = start + timedelta(days=meeting_day(MIDWEEK))
-        if meeting < today or (cutoff and meeting > cutoff):
-            continue
-        if is_no_meeting(meeting.isoformat()):
-            continue
-        out.append((label, meeting))
+    out = [(label, meeting)
+           for label, meeting, status in midweek_workbook_weeks(schedules_df)
+           if status == "to create" and meeting >= today
+           and not (cutoff and meeting > cutoff)]
     return sorted(out, key=lambda pair: pair[1])
 
 
@@ -60,14 +68,14 @@ def setup_gaps(students_df):
     """
     gaps = []
     if students_df.empty:
-        gaps.append(("Add your participants", "Manage Participants"))
+        gaps.append(("Add your participants", "Participants"))
     if not get_setting("congregation"):
         gaps.append(("Set the congregation name — it heads every schedule sheet",
                      "Admin"))
     workbook, _ = load_workbook()
     if not workbook:
         gaps.append(("Upload the meeting workbook so weeks get their real parts",
-                     "Upload PDF Brochure"))
+                     "Workbook PDF"))
     if not any(load_template(f"s89_{language}")[0] for language in TRANSLATIONS):
         gaps.append(("Upload the blank S-89 — slips are printed on it", "Admin"))
     if not any(load_template(f"s140_{language}")[0]
@@ -98,7 +106,7 @@ def render(students_df, t, selected_lang, aux_default):
             st.write("Schedules are filled from the people you add, with the parts "
                      "each one can take.")
             if st.button("Add participants", icon=":material/person_add:", type="primary"):
-                go("Manage Participants")
+                go("Participants")
         return
 
     schedules_df = get_schedules()
@@ -135,10 +143,10 @@ def render(students_df, t, selected_lang, aux_default):
                              width="stretch", key="home_fill",
                              help="Suggest fills only the empty ones; anyone "
                                   "already chosen stays." if open_n else None):
-                    go("Schedule", schedule_mode="Edit saved", edit_meeting=(md, mt))
+                    go("Create or edit", schedule_mode="Edit saved", edit_meeting=(md, mt))
                 if st.button("Print slips", icon=":material/print:", width="stretch",
                              key="home_print"):
-                    go("View Schedules", view_meeting=(md, mt))
+                    go("Slips and printing", view_meeting=(md, mt))
         elif gap:
             label, when = gap
             st.markdown('<div class="ms-hero-accent"></div>'
@@ -147,7 +155,7 @@ def render(students_df, t, selected_lang, aux_default):
                         unsafe_allow_html=True)
             if st.button("Create this week", icon=":material/add:", type="primary",
                          key="home_gap_first"):
-                go("Schedule", schedule_mode="Create new",
+                go("Create or edit", schedule_mode="Create new",
                    new_meeting_type=MIDWEEK, new_meeting_date=when)
         else:
             st.markdown('<div class="ms-hero-accent"></div>'
@@ -158,9 +166,9 @@ def render(students_df, t, selected_lang, aux_default):
             c1, c2, _ = st.columns([1, 1, 2])
             if c1.button("Create a schedule", icon=":material/add:", type="primary",
                          width="stretch"):
-                go("Schedule", schedule_mode="Create new")
+                go("Create or edit", schedule_mode="Create new")
             if c2.button("Upload workbook", icon=":material/upload_file:", width="stretch"):
-                go("Upload PDF Brochure")
+                go("Workbook PDF")
 
     if upcoming and gap:
         label, when = gap
@@ -168,7 +176,7 @@ def render(students_df, t, selected_lang, aux_default):
         c1.info(f"{label} ({long_date(when.isoformat())}) has no schedule yet.",
                 icon=":material/event_busy:")
         if c2.button("Create it", icon=":material/add:", width="stretch", key="home_gap"):
-            go("Schedule", schedule_mode="Create new",
+            go("Create or edit", schedule_mode="Create new",
                new_meeting_type=MIDWEEK, new_meeting_date=when)
 
     # ---- is there a second copy of the data anywhere? ------------------------------
@@ -248,5 +256,5 @@ def render(students_df, t, selected_lang, aux_default):
         st.caption("Select a row to open that schedule.")
         picked = getattr(getattr(event, "selection", None), "rows", None)
         if picked:
-            go("Schedule", schedule_mode="Edit saved", edit_meeting=df.iloc[picked[0]]["_key"])
+            go("Create or edit", schedule_mode="Edit saved", edit_meeting=df.iloc[picked[0]]["_key"])
 

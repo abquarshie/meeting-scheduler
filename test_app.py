@@ -25,15 +25,15 @@ def slot_key(ns, hall, role, no, title, kind="student"):
 
 def test_every_page_opens(people):
     at = app()
-    for page in ["Manage Participants", "Schedule", "View Schedules",
-                 "Upload PDF Brochure", "Month", "Reports", "Admin", "Dashboard",
-                 "Public Talks"]:
+    for page in ["Participants", "Create or edit", "Slips and printing",
+                 "Workbook PDF", "Month overview", "Reports", "Admin", "Home",
+                 "Public talks"]:
         at.session_state["menu"] = page
         run(at)
 
 
 def test_create_midweek_with_aux_and_family_assistant(people):
-    at = app("Schedule", schedule_mode="Create new")
+    at = app("Create or edit", schedule_mode="Create new")
     ns = f"{TODAY}|Midweek Meeting|default"
     kojo = slot_key(ns, "main_hall", "Initial Presentation", 4, "Initial Presentation")
     # a field-ministry part is filtered to one category, so choose it first —
@@ -62,7 +62,7 @@ def test_create_midweek_with_aux_and_family_assistant(people):
 def test_suspended_and_away_people_are_not_offered(people, core):
     core.set_suspension(people["Nii Tetteh"], True)
     core.set_unavailable(people["Kofi Mensah"], [TODAY])
-    at = app("Schedule", schedule_mode="Create new")
+    at = app("Create or edit", schedule_mode="Create new")
     chairman = next(s for s in at.selectbox if s.label == "Chairman")
     assert not any("Nii" in o or "Kofi" in o for o in chairman.options)
     button(at, "Suggest").click()
@@ -72,7 +72,7 @@ def test_suspended_and_away_people_are_not_offered(people, core):
 
 
 def test_weekend_chairman_visitor_and_talk(people):
-    at = app("Schedule", schedule_mode="Create new", new_meeting_type="Weekend Meeting")
+    at = app("Create or edit", schedule_mode="Create new", new_meeting_type="Weekend Meeting")
     chairman = next(s for s in at.selectbox if s.label == "Chairman")
     assert any("Yaw" in o for o in chairman.options)
     assert not any("Kofi" in o for o in chairman.options)   # midweek-only chairman
@@ -84,7 +84,7 @@ def test_weekend_chairman_visitor_and_talk(people):
     run(at)
     button(at, "Save schedule").click()
     run(at)
-    at.session_state["menu"] = "View Schedules"
+    at.session_state["menu"] = "Slips and printing"
     run(at)
     table = at.dataframe[0].value
     assert "Bro. Addo — Osu" in table["Assigned to"].tolist()
@@ -94,7 +94,7 @@ def test_weekend_chairman_visitor_and_talk(people):
 def test_workbook_week_follows_the_date(people, core, ga_workbook):
     weeks, _, _ = core.parse_brochure(ga_workbook)
     core.save_workbook(core.assign_dates(weeks, date(2026, 9, 7)), "ga.pdf")
-    at = app("Schedule", schedule_mode="Create new")
+    at = app("Create or edit", schedule_mode="Create new")
     seen = {}
     for d in (date(2026, 9, 10), date(2026, 9, 17), date(2026, 10, 1)):
         at.date_input(key="new_meeting_date").set_value(d)
@@ -113,7 +113,7 @@ def test_saved_schedule_mismatch_is_flagged(people, core, english_workbook):
     core.save_schedule("2026-09-16", core.MIDWEEK, slots, {}, {}, {})
     weeks, _, _ = core.parse_brochure(english_workbook)
     core.save_workbook(core.assign_dates(weeks, date(2026, 9, 14)), "en.pdf")
-    at = app("Schedule", schedule_mode="Edit saved")
+    at = app("Create or edit", schedule_mode="Edit saved")
     assert any("8 numbered part(s)" in w.value for w in at.warning)
     next(c for c in at.checkbox if c.label.startswith("Use parts")).check()
     run(at)
@@ -128,13 +128,13 @@ def test_month_view_create_button_and_downloads(people, core, english_workbook):
     ip = next(i for i, s in enumerate(slots) if s["role"] == "Initial Presentation")
     core.save_schedule("2026-09-16", core.MIDWEEK, slots,
                        {ip: (people["Ama Owusu"], people["Efua Osei"])}, {}, {})
-    at = app("Month", month_view_month="2026-09")
+    at = app("Month overview", month_view_month="2026-09")
     table = at.dataframe[0].value
     assert "not created yet" in " ".join(table["Heading"])
     assert any(b.label == "Print this month" for b in at.button)
     button(at, "Create 23 Sep").click()
     run(at)
-    assert at.session_state["menu"] == "Schedule"
+    assert at.session_state["menu"] == "Create or edit"
     assert at.date_input(key="new_meeting_date").value == date(2026, 9, 23)
 
 
@@ -187,7 +187,7 @@ def test_home_leads_with_the_next_meeting(people, core):
     assert "slots open" in page
     button(at, "Fill open slots").click()
     run(at)
-    assert at.session_state["menu"] == "Schedule"
+    assert at.session_state["menu"] == "Create or edit"
     assert at.selectbox(key="edit_meeting").value == (soon, core.MIDWEEK)
 
 
@@ -259,7 +259,7 @@ def test_schedules_download_as_two_separate_sheets(people, core):
     assert midweek == [("2026-09-16", c.MIDWEEK)]
     assert weekend == [("2026-09-20", c.WEEKEND)]
 
-    at = app("View Schedules", print_scope="A whole month", print_month="2026-09")
+    at = app("Slips and printing", print_scope="A whole month", print_month="2026-09")
     labels = [b.label for b in at.get("download_button")]
     assert any(l.startswith("Midweek schedule") for l in labels), labels
     assert any(l.startswith("Weekend schedule") for l in labels), labels
@@ -269,7 +269,7 @@ def test_schedules_download_as_two_separate_sheets(people, core):
 def test_ministry_lists_are_one_category_at_a_time(people, core):
     """A field-ministry part goes to a sister or to a brother. The list used to
     hold both; now a category is chosen first and only those names appear."""
-    at = app("Schedule", schedule_mode="Create new")
+    at = app("Create or edit", schedule_mode="Create new")
     ns = f"{TODAY}|Midweek Meeting|default"
     key = slot_key(ns, "main_hall", "Initial Presentation", 4, "Initial Presentation")
 
@@ -306,7 +306,7 @@ def test_dropdowns_show_how_long_ago_and_what_it_was(people, core):
     core.save_schedule(recent, c.MIDWEEK, slots,
                        {reading: (people["Nii Tetteh"], None)}, {}, names)
 
-    at = app("Schedule", schedule_mode="Create new")
+    at = app("Create or edit", schedule_mode="Create new")
     ns = f"{TODAY}|Midweek Meeting|default"
     key = slot_key(ns, "main_hall", "Bible Reading", 3, "Bible Reading")
     box = next(s for s in at.selectbox if s.key == key)
@@ -335,7 +335,7 @@ def test_create_all_weeks_at_once(people, core, english_workbook):
     c.set_setting("midweek_day", "Wednesday")
     assert core.get_schedules().empty
 
-    at = app("Month", month_view_month="2026-09")
+    at = app("Month overview", month_view_month="2026-09")
     assert any(b.label.startswith("Create all") for b in at.button)
     button(at, "Create all 2 weeks").click()
     run(at)
@@ -355,7 +355,7 @@ def test_part_and_assistant_line_up(people, core):
     """The category control used to sit in the left column, pushing the part's
     dropdown below its assistant's. Labels go on one row, dropdowns on the
     next, so the two always meet."""
-    at = app("Schedule", schedule_mode="Create new")
+    at = app("Create or edit", schedule_mode="Create new")
     ns = f"{TODAY}|Midweek Meeting|default"
     key = slot_key(ns, "main_hall", "Initial Presentation", 4, "Initial Presentation")
 
@@ -401,7 +401,7 @@ def test_printing_page_holds_every_document(people, core, s140_template=None):
     core.save_schedule("2026-10-07", c.MIDWEEK,
                        c.build_midweek_slots(c.default_midweek_parts()),
                        {0: (people["Kofi Mensah"], None)}, {}, names)
-    at = app("View Schedules")
+    at = app("Slips and printing")
     labels = [b.label for b in at.get("download_button")]
     assert any(l.startswith("Midweek schedule") for l in labels), labels
     assert any("CSV" in l for l in labels), labels

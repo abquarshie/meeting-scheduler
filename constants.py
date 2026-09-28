@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """Fixed lists, roles and slip wording."""
-import os
 from pathlib import Path
 import unicodedata
 
@@ -9,6 +8,8 @@ import unicodedata
 # =============================================================================
 APP_DIR = Path(__file__).resolve().parent
 # Storage is Postgres; see db.dsn() and db.schema() for how it is configured.
+
+WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 MIDWEEK = "Midweek Meeting"
 WEEKEND = "Weekend Meeting"
@@ -38,27 +39,10 @@ PRIVILEGES = [
     "Watchtower Conductor",
     "Watchtower Reader",
 ]
-# role -> (privileges that qualify, brothers only)
-ROLE_RULES = {
-    "Chairman": ({"Chairman"}, True),
-    "Prayer": ({"Prayer"}, True),
-    "Treasures Talk": ({"Treasures Talk"}, True),
-    "Spiritual Gems": ({"Spiritual Gems"}, True),
-    "Bible Reading": ({"Bible Reading"}, True),
-    "Initial Presentation": ({"Initial Presentation"}, False),
-    "Making Disciples": ({"Making Disciples"}, False),
-    "Explaining Beliefs": ({"Explaining Beliefs"}, False),
-    "Student Talk": ({"Student Talk"}, True),
-    "Living Part": ({"Living Part"}, True),
-    "Bible Study Conductor": ({"Bible Study Conductor"}, True),
-    "Reader": ({"Reader"}, True),
-    "Aux Classroom Counselor": ({"Aux Classroom Counselor"}, True),
-    "Weekend Chairman": ({"Weekend Chairman"}, True),
-    "Public Talk": ({"Public Talk"}, True),
-    "Watchtower Conductor": ({"Watchtower Conductor"}, True),
-    "Watchtower Reader": ({"Watchtower Reader"}, True),
-}
-ROLES = list(ROLE_RULES)
+# Each part (role) is taken by people holding the privilege of the same name,
+# so the two lists are one. Every part is for brothers only, apart from these.
+ROLES = PRIVILEGES
+SISTER_ROLES = {"Initial Presentation", "Making Disciples", "Explaining Beliefs"}
 STUDENT_ROLES = {
     "Bible Reading",
     "Initial Presentation",
@@ -150,30 +134,22 @@ ROLE_LABELS = {
 # period without touching code; see db.same_role_gap_days().
 SAME_ROLE_GAP_DAYS = 10
 
-# How long since someone last had a part, as a coloured band. Streamlit's
-# dropdowns take plain text, so the colour has to be a character.
-# (days since, marker, wording)
-# How recently someone had a part, counted in weeks back from the meeting being
-# scheduled — not from today, so reopening an old week reads as it did then.
+# How recently someone had a part, as a coloured marker (Streamlit's dropdowns
+# take plain text, so the colour has to be a character). Counted back from the
+# meeting being scheduled — not from today — so reopening an old week reads as
+# it did then; see utils.recency().
 #
 # Two states, because the rotation has exactly one threshold: a turn this week
-# means a break next week, and after that you are available again. Grading
-# "2 weeks" against "4 weeks" would invent a preference the rotation does not
-# have — and the exact distance is already spelt out beside the name. Red is a
-# nudge, not a rule; the fallback still fills a part rather than leave it empty.
-# (weeks before this one, marker, wording)
-RECENCY_BANDS = [
-    (1, "🔴", "last week"),
-    (2, "🟢", "2 weeks ago"),
-    (3, "🟢", "3 weeks ago"),
-    (4, "🟢", "4 weeks ago"),
-]
-LONG_AGO = ("🟢", "over a month ago")
+# or last week means a break, and after that you are available again. The
+# exact distance is spelt out in words beside the name. Red is a nudge, not a
+# rule; the fallback still fills a part rather than leave it empty.
+RESTING = "🔴"
+AVAILABLE = "🟢"
 # A distinct marker rather than plain green: green elsewhere means "available
 # and rested", but nobody has actually rested here — they've simply never
 # served. Worth its own look, especially for spotting newer participants.
 NEVER_BAND = ("⭐", "no parts yet")
-THIS_WEEK = ("🔴", "this week")
+THIS_WEEK = (RESTING, "this week")
 # A person already assigned to something *after* this meeting reads as a
 # scheduling conflict, not a rotation cooldown — a different problem from
 # "had this last week", so it gets its own colour rather than sharing red.

@@ -1,14 +1,17 @@
 # -*- coding: utf-8 -*-
 """Reading the meeting workbook PDF into weeks and parts."""
+from datetime import date, datetime, timedelta
 import io
 import json
 import re
 import unicodedata
 
 import pypdf
+import streamlit as st
 
-from parts import *  # noqa: F401,F403
-
+from constants import MIDWEEK, STUDENT_ROLES, WEEKDAYS
+from db import get_conn, get_setting, is_no_meeting, log_change, saved_meetings, schema
+from utils import infer_role, make_slot, nfc, role_matched
 
 # =============================================================================
 # BROCHURE PARSER
@@ -438,7 +441,8 @@ def assign_dates(weeks, first_start):
         if cur is None:
             cur = first_start
         else:
-            cur = cur + timedelta(days=7)
+            previous = cur
+            cur = previous + timedelta(days=7)
             day = w.get("day")
             if day:
                 for _ in range(6):
@@ -446,10 +450,11 @@ def assign_dates(weeks, first_start):
                         break
                     cur += timedelta(days=7)
                 else:
-                    cur = prev_cur + timedelta(days=7)
+                    # no match within six weeks: the day was misread, so
+                    # simply follow on from the previous week
+                    cur = previous + timedelta(days=7)
         w["start"] = cur.isoformat()
         w["end"] = (cur + timedelta(days=6)).isoformat()
-        prev_cur = cur
     return weeks
 
 
@@ -563,6 +568,39 @@ def save_workbook(weeks, file_name):
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (file_name,))
     _workbook.clear()
     log_change("Workbook saved", f"{file_name or '(removed)'}: {len(weeks)} week(s)")
+
+
+def meeting_day(meeting_type):
+    """Days after the Monday of its week that this meeting falls (Admin → Settings)."""
+    key = "midweek_day" if meeting_type == MIDWEEK else "weekend_day"
+    default = "Wednesday" if meeting_type == MIDWEEK else "Sunday"
+    name = get_setting(key, default)
+    return WEEKDAYS.index(name) if name in WEEKDAYS else WEEKDAYS.index(default)
+
+
+def midweek_workbook_weeks(schedules_df):
+    """[(label, meeting date, status)] for every dated workbook week.
+
+    status is "saved" (a schedule exists for that week), "no meeting" (an
+    assembly or convention) or "to create". Home and Month overview
+    both list the weeks still to create; this is the one place that decides.
+    """
+    workbook, _ = load_workbook()
+    saved = {d for d, t in saved_meetings(schedules_df) if t == MIDWEEK}
+    out = []
+    for label, w in workbook.items():
+        if not w.get("start"):
+            continue
+        start = datetime.strptime(w["start"], "%Y-%m-%d").date()
+        meeting = start + timedelta(days=meeting_day(MIDWEEK))
+        if any(w["start"] <= d <= w.get("end", w["start"]) for d in saved):
+            status = "saved"
+        elif is_no_meeting(meeting.isoformat()):
+            status = "no meeting"
+        else:
+            status = "to create"
+        out.append((label, meeting, status))
+    return out
 
 
 def parts_summary(parts):

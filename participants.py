@@ -1,10 +1,33 @@
 # -*- coding: utf-8 -*-
-"""Manage Participants page."""
-from core import *  # noqa: F401,F403
+"""Participants page."""
+from datetime import date, datetime, timedelta
+
+import streamlit as st
+
+from constants import CATEGORIES, GROUPS, PRIVILEGES
+from db import (
+    add_student,
+    away_summary,
+    delete_student,
+    family_names,
+    is_suspended,
+    last_assignment_dates,
+    pick_family,
+    set_suspension,
+    set_unavailable,
+    student_usage_count,
+    suspension_text,
+    unavailable_dates,
+    upcoming_assignments,
+    update_student,
+)
+from ui import page_header
+from utils import fmt_date, nfc
 
 
 def render(students_df, t, selected_lang, aux_default):
-    page_header(tr("h_participants"), tr("sub_participants"))
+    page_header("Participants",
+                "Who can take which parts, families, away dates and suspensions.")
     tab_add, tab_edit, tab_list = st.tabs(["Add", "Edit / deactivate", "List"])
 
     with tab_add:

@@ -1,10 +1,23 @@
 # -*- coding: utf-8 -*-
 """Small text, date and part-slot helpers."""
-from datetime import date, datetime, timedelta
-import re
+from datetime import date, datetime
 import unicodedata
 
-from constants import *  # noqa: F401,F403
+from constants import (
+    ASSISTANT_ROLES,
+    AUX_HALL,
+    AVAILABLE,
+    CONFLICT,
+    HALL_NAMES,
+    MAIN_HALL,
+    MIDWEEK,
+    NEVER_BAND,
+    PRIVILEGES,
+    RESTING,
+    STUDENT_ROLES,
+    THIS_WEEK,
+    WEEKEND,
+)
 
 
 # =============================================================================
@@ -167,10 +180,9 @@ def recency(last_date, meeting_date=None):
     if days < 7:
         return THIS_WEEK
     weeks = days // 7
-    for limit, marker, wording in RECENCY_BANDS:
-        if weeks <= limit:
-            return marker, wording
-    return LONG_AGO
+    if weeks == 1:
+        return RESTING, "last week"
+    return AVAILABLE, (f"{weeks} weeks ago" if weeks <= 4 else "over a month ago")
 
 
 def conflict_wording(ahead, when):

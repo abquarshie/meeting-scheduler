@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""SQLite storage: participants, schedules, settings."""
+"""Postgres storage: participants, schedules, settings."""
 from contextlib import contextmanager
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 import json
 import os
 import re
@@ -11,8 +11,18 @@ import pandas as pd
 import psycopg
 import streamlit as st
 
-from utils import *  # noqa: F401,F403
-
+from constants import GROUPS, MAIN_HALL, NO_FAMILY, SAME_ROLE_GAP_DAYS, STUDENT_ROLES
+from utils import (
+    default_section,
+    fmt_date,
+    infer_role,
+    make_slot,
+    nfc,
+    parse_privileges,
+    slot_label,
+    slot_match_key,
+    visitor_allowed,
+)
 
 # =============================================================================
 # DATABASE
@@ -78,6 +88,7 @@ POOL_TIMEOUT = 10       # seconds to wait for a free connection
 @st.cache_resource(show_spinner=False)
 def _pool(url, schema_name):
     from psycopg_pool import ConnectionPool
+
     # Connect once directly first. The pool retries in the background and only
     # ever reports "couldn't get a connection after N sec", which hides the
     # reason — a wrong password, an unknown host, a missing database. A plain

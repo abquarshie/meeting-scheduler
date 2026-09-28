@@ -1,11 +1,24 @@
 # -*- coding: utf-8 -*-
 """Full backup and restore of every table (used by the Admin page)."""
+from datetime import date, datetime
 import json
 
-from db import *  # noqa: F401,F403
-from db import (_forget_schedules, _forget_settings,  # underscored: not in *
-                _forget_students, _forget_templates, _forget_no_meeting,
-                _forget_outgoing_speakers, _forget_outgoing_engagements)
+from db import (  # underscored: not in *
+    _forget_no_meeting,
+    _forget_outgoing_engagements,
+    _forget_outgoing_speakers,
+    _forget_schedules,
+    _forget_settings,
+    _forget_students,
+    _forget_templates,
+    get_conn,
+    init_db,
+    log_change,
+    qcols,
+    resync_identities,
+    set_setting,
+    table_columns,
+)
 
 TABLES = [
     "students", "schedules", "meetings", "settings",

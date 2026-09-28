@@ -1,11 +1,34 @@
 # -*- coding: utf-8 -*-
 """Admin: backup and restore, settings, change log."""
-from core import *  # noqa: F401,F403
-from month import WEEKDAYS
+from datetime import date
+import json
+
+import streamlit as st
+
+from backup import backup_bytes, import_all
+from constants import TRANSLATIONS, WEEKDAYS
+from db import (
+    add_no_meeting_period,
+    delete_no_meeting_period,
+    delete_template,
+    get_log,
+    get_no_meeting_periods,
+    get_setting,
+    load_template,
+    log_change,
+    same_role_gap_days,
+    save_template,
+    set_setting,
+)
+from s140 import S140Error, check_s140_template
+from slips import S89Error, check_s89_template
+from ui import page_header
+from utils import fmt_date
 
 
 def render(students_df, t, selected_lang, aux_default):
-    page_header(tr("h_admin"), tr("sub_admin"))
+    page_header("Admin",
+                "Blank forms, backups, settings and the change log.")
     tab_data, tab_settings, tab_log = st.tabs(
         ["Data & backup", "Settings", "Change log"])
 
@@ -91,15 +114,11 @@ def render(students_df, t, selected_lang, aux_default):
 
     with tab_settings:
         st.subheader("Printing")
-        c1, c2 = st.columns(2)
-        congregation = c1.text_input(
+        congregation = st.text_input(
             "Congregation name", get_setting("congregation"),
             help="Printed at the top of every schedule sheet.")
-        lang = c2.selectbox("Slip and schedule language", list(TRANSLATIONS),
-                            index=list(TRANSLATIONS).index(
-                                get_setting("slip_language", list(TRANSLATIONS)[0])
-                                if get_setting("slip_language") in TRANSLATIONS else
-                                list(TRANSLATIONS)[0]))
+        st.caption("The slip and schedule language is chosen in the sidebar, "
+                   "under Settings.")
         aux_default = st.toggle(
             "Auxiliary classroom in use", value=get_setting("use_aux", "1") == "1",
             help="Default for new midweek schedules. Any week can still differ.")
@@ -109,10 +128,8 @@ def render(students_df, t, selected_lang, aux_default):
             help="Turn off if a name genuinely contains 3, ) or a capital N.")
         if st.button("Save printing settings"):
             set_setting("congregation", congregation)
-            set_setting("slip_language", lang)
             set_setting("use_aux", "1" if aux_default else "0")
             set_setting("ga_convert", "1" if ga_on else "0")
-            st.session_state["slip_lang"] = lang
             st.success("Saved.")
             st.rerun()
 
@@ -144,7 +161,7 @@ def render(students_df, t, selected_lang, aux_default):
 
         st.subheader("Assemblies & conventions")
         st.caption("Weeks with no meeting at all. Once recorded here, they stop "
-                   "showing up as a schedule still to create, on the Dashboard "
+                   "showing up as a schedule still to create, on Home "
                    "and in Month overview.")
         periods = get_no_meeting_periods()
         if periods:

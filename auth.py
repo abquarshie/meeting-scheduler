@@ -16,7 +16,10 @@ Secrets (Streamlit Cloud → Settings → Secrets, or .streamlit/secrets.toml):
 """
 import hmac
 
-from backup import *  # noqa: F401,F403
+import streamlit as st
+
+from db import log_change
+from utils import nfc
 
 
 def _auth_config():
@@ -55,10 +58,9 @@ def require_login():
     if st.session_state.get("auth_ok"):
         return True
 
-    from ui import inject_css, page_header  # imported here: ui builds on this module
-    from i18n import tr
+    from ui import APP_NAME, inject_css, page_header  # ui builds on this module
     inject_css()
-    page_header(tr("app_name"), "Sign in to manage assignments.")
+    page_header(APP_NAME, "Sign in to manage assignments.")
     with st.form("login"):
         name = st.text_input("Your name")
         password = st.text_input("Password", type="password")

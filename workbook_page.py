@@ -1,12 +1,32 @@
 # -*- coding: utf-8 -*-
-"""Upload PDF Brochure page."""
+"""Workbook PDF page."""
+from datetime import date, datetime
 import re
 
-from core import *  # noqa: F401,F403
+import pandas as pd
+import streamlit as st
+
+from constants import ROLES
+from db import get_setting, set_setting
+from ui import page_header
+from utils import make_slot, nfc
+from workbook import (
+    ENGLISH_MONTHS,
+    assign_dates,
+    drop_past_weeks,
+    guess_first_monday,
+    guessed_roles,
+    load_workbook,
+    parse_brochure,
+    save_workbook,
+    unreadable_parts,
+    week_dates_text,
+)
 
 
 def render(students_df, t, selected_lang, aux_default):
-    page_header(tr("h_workbook"), tr("sub_workbook"))
+    page_header("Workbook PDF",
+                "Upload the meeting workbook so each week gets its real parts.")
     st.write(
         "Upload the Life and Ministry Meeting Workbook PDF. Numbered parts with "
         "their minutes are read for each week, and you can correct them below."
@@ -172,7 +192,7 @@ def render(students_df, t, selected_lang, aux_default):
                 stored[week]["parts"] = parts
                 stored[week]["gaps"] = [n for n in range(1, top + 1) if n not in numbers]
                 save_workbook(stored, stored_file)
-                st.success("Saved. Use 'Create Schedule' to assign this week.")
+                st.success("Saved. Use Create or edit to assign this week.")
                 st.rerun()
         with right:
             st.text_area("Workbook text for this week", stored[week].get("text", ""),

@@ -1,21 +1,30 @@
 # -*- coding: utf-8 -*-
 """Month overview: every meeting in a month, open slots, and month-wide printing."""
 import calendar
+from datetime import date, datetime
 
-from core import *  # noqa: F401,F403
+import pandas as pd
+import streamlit as st
 
-WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-
-
-def meeting_day(meeting_type):
-    key = "midweek_day" if meeting_type == MIDWEEK else "weekend_day"
-    default = "Wednesday" if meeting_type == MIDWEEK else "Sunday"
-    name = get_setting(key, default)
-    return WEEKDAYS.index(name) if name in WEEKDAYS else WEEKDAYS.index(default)
+from constants import MAIN_HALL, MIDWEEK
+from db import (
+    add_no_meeting_period,
+    fill_counts,
+    get_meeting_meta,
+    get_no_meeting_periods,
+    get_schedules,
+    saved_meetings,
+    talk_text,
+)
+from picking import create_week
+from ui import go, page_header
+from utils import fmt_date, nfc
+from workbook import load_workbook, midweek_workbook_weeks
 
 
 def render(students_df, t, selected_lang, aux_default):
-    page_header(tr("h_month"), tr("sub_month"))
+    page_header("Month overview",
+                "Every meeting this month, what is still open, and month-wide printing.")
     schedules_df = get_schedules()
     workbook, _ = load_workbook()
 
@@ -44,23 +53,19 @@ def render(students_df, t, selected_lang, aux_default):
             "Heading": meta.get("heading") or talk_text(meta),
         })
 
-    saved_midweek = {md for md, mt in saved_meetings(schedules_df) if mt == MIDWEEK}
-    for label, w in workbook.items():
-        if not w.get("start"):
+    for label, meeting, status in midweek_workbook_weeks(schedules_df):
+        md = meeting.isoformat()
+        if not md.startswith(month) or status == "saved":
             continue
-        start = datetime.strptime(w["start"], "%Y-%m-%d").date()
-        md = (start + timedelta(days=meeting_day(MIDWEEK))).isoformat()
-        if md.startswith(month) and md not in saved_midweek and \
-                not any(w["start"] <= d <= w["end"] for d in saved_midweek):
-            if is_no_meeting(md):
-                rows.append({"Date": fmt_date(md), "Meeting": MIDWEEK, "Filled": None,
-                             "Open slots": None, "Aux. classroom": "",
-                             "Heading": f"{label} · no meeting (assembly/convention)"})
-                continue
-            to_create.append((md, label))
+        if status == "no meeting":
             rows.append({"Date": fmt_date(md), "Meeting": MIDWEEK, "Filled": None,
                          "Open slots": None, "Aux. classroom": "",
-                         "Heading": f"{label} · not created yet"})
+                         "Heading": f"{label} · no meeting (assembly/convention)"})
+            continue
+        to_create.append((md, label))
+        rows.append({"Date": fmt_date(md), "Meeting": MIDWEEK, "Filled": None,
+                     "Open slots": None, "Aux. classroom": "",
+                     "Heading": f"{label} · not created yet"})
 
     # assemblies/conventions that don't line up with any workbook week at all
     # (e.g. one recorded ahead of time, before that week's workbook is out)
@@ -130,7 +135,7 @@ def render(students_df, t, selected_lang, aux_default):
             if cols[i % len(cols)].button(f"Create {fmt_date(md, short=True)}",
                                           icon=":material/add:",
                                           key=f"create_{md}", width="stretch"):
-                go("Schedule", schedule_mode="Create new",
+                go("Create or edit", schedule_mode="Create new",
                    new_meeting_type=MIDWEEK,
                    new_meeting_date=datetime.strptime(md, "%Y-%m-%d").date())
 
@@ -151,4 +156,4 @@ def render(students_df, t, selected_lang, aux_default):
 
     st.divider()
     if st.button("Print this month", icon=":material/print:"):
-        go("View Schedules", print_scope="A whole month", print_month=month)
+        go("Slips and printing", print_scope="A whole month", print_month=month)

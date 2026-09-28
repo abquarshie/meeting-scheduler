@@ -5,7 +5,7 @@ Adapted from the midweek-meeting-schedule filler so the Streamlit app can call
 it directly. `data` uses the same shape as that script's data.json:
 
 {
-  "congregation": "...", "group_label": "GROUP",
+  "congregation": "...", "aux": true if any week uses the classroom,
   "weeks": [{
     "heading": "...", "chairman": "...", "opening_song": "...", "opening_prayer": "...",
     "treasures": [{"title", "min", "name"} x3],
@@ -165,9 +165,14 @@ def check_s140_template(template_bytes):
     return weeks
 
 
-def fill_s140(template_bytes, data, widen=True):
-    """Return the filled template as bytes."""
+def fill_s140(template_bytes, data):
+    """Return the filled template as bytes.
+
+    When no week in the month uses the auxiliary classroom, its column
+    caption is cleared and the column narrowed to give names more room.
+    """
     weeks = data["weeks"]
+    keep_aux_column = bool(data.get("aux"))
     doc = docx.Document(io.BytesIO(template_bytes))
     if not doc.tables:
         raise S140Error("The template has no table - is this the blank S-140?")
@@ -245,14 +250,14 @@ def fill_s140(template_bytes, data, widen=True):
             _S(blk["group"], 1, "")
             _S(blk["group"], 2, "")
         else:
-            _S(blk["group"], 0, data.get("group_label", "GROUP"))
+            _S(blk["group"], 0, "")
             _S(blk["group"], 1, "")
             _S(blk["group"], 2, "")
 
         _S(blk["opening_song"], 1, _song(w.get("opening_song"), ga))
         _S(blk["opening_song"], 3, w.get("opening_prayer", ""))
 
-        if data.get("clear_asa2", True):
+        if not keep_aux_column:
             for key in ("treasures_hdr", "ministry_hdr"):
                 _S(blk[key], 1, "")
 
@@ -323,28 +328,28 @@ def fill_s140(template_bytes, data, widen=True):
         if cs and re.fullmatch(r"\d{1,2}:\d{2}", _txt(cs[0]).strip() or "x"):
             _set_text(cs[0], "")
 
-    if widen:
-        grid = tbl.find(qn("w:tblGrid"))
-        cols = grid.findall(qn("w:gridCol"))
-        w_ = [int(c.get(qn("w:w"))) for c in cols]
-        shift = min(600, max(0, w_[0] - 20))
-        w_[0] -= shift
-        w_[2] += shift
-        shift2 = min(int(data.get("asa2_shift", 900)), max(0, w_[-2] - 1400))
-        w_[-2] -= shift2
-        w_[-1] += shift2
-        for c, v in zip(cols, w_):
-            c.set(qn("w:w"), str(v))
-        for tr in tbl.findall(qn("w:tr")):
-            start = 0
-            for tc in _cells(tr):
-                pr = tc.find(qn("w:tcPr"))
-                gs = pr.find(qn("w:gridSpan")) if pr is not None else None
-                span = int(gs.get(qn("w:val"))) if gs is not None else 1
-                tcw = pr.find(qn("w:tcW")) if pr is not None else None
-                if tcw is not None and tcw.get(qn("w:type")) == "dxa":
-                    tcw.set(qn("w:w"), str(sum(w_[start:start + span])))
-                start += span
+    # give the name columns room
+    grid = tbl.find(qn("w:tblGrid"))
+    cols = grid.findall(qn("w:gridCol"))
+    w_ = [int(c.get(qn("w:w"))) for c in cols]
+    shift = min(600, max(0, w_[0] - 20))
+    w_[0] -= shift
+    w_[2] += shift
+    shift2 = 0 if keep_aux_column else min(900, max(0, w_[-2] - 1400))
+    w_[-2] -= shift2
+    w_[-1] += shift2
+    for c, v in zip(cols, w_):
+        c.set(qn("w:w"), str(v))
+    for tr in tbl.findall(qn("w:tr")):
+        start = 0
+        for tc in _cells(tr):
+            pr = tc.find(qn("w:tcPr"))
+            gs = pr.find(qn("w:gridSpan")) if pr is not None else None
+            span = int(gs.get(qn("w:val"))) if gs is not None else 1
+            tcw = pr.find(qn("w:tcW")) if pr is not None else None
+            if tcw is not None and tcw.get(qn("w:type")) == "dxa":
+                tcw.set(qn("w:w"), str(sum(w_[start:start + span])))
+            start += span
 
     cur = tbl
     while cong:

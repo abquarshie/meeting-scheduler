@@ -73,8 +73,8 @@ def test_schedule_pdf_in_ga(core, people):
 def test_s140_fills_both_halls(core, people, s140_template):
     _full_week(core, people)
     data, skipped = core.build_s140_data([("2026-09-16", core.MIDWEEK)],
-                                         core.get_schedules(), "TEST CONG", "GROUP")
-    assert not skipped and data["aux"] and data["clear_asa2"] is False
+                                         core.get_schedules(), "TEST CONG")
+    assert not skipped and data["aux"]
     week = data["weeks"][0]
     assert week["treasures"][2]["name2"] == "Efua Osei"
     assert week["aux_counselor"] == "Kofi Mensah"
@@ -115,7 +115,7 @@ def test_a_second_auxiliary_classroom_flows_through(core):
 
     # and the S-140 pairing treats it as a classroom, not a duplicate main-hall part
     data, skipped = core.build_s140_data([("2026-09-16", core.MIDWEEK)], rows,
-                                         "TEST CONG", "GROUP")
+                                         "TEST CONG")
     assert not skipped and data["aux"]
     titles = [i["title"] for i in data["weeks"][0]["treasures"]]
     assert titles.count("Bible Reading") == 1      # not repeated once per classroom
@@ -506,8 +506,7 @@ def test_both_published_s140_blanks_fill(core, people):
                             "middle_song": "Song 142", "closing_song": "Song 134"},
                            names)
     data, skipped = core.build_s140_data([(d, core.MIDWEEK) for d in dates],
-                                         core.get_schedules(), "Teshie Asafo",
-                                         "GROUP")
+                                         core.get_schedules(), "Teshie Asafo")
     assert not skipped and len(data["weeks"]) == 3
 
     for path, ga in ((S140_EN, False), (S140_GA, True)):
@@ -564,8 +563,7 @@ def test_s140_fills_the_classroom_column(core, people):
                        {"heading": "SEPTEMBER 14-20", "aux": True, "aux_group": "1",
                         "opening_song": "Song 74"}, names)
     data, skipped = core.build_s140_data([("2026-09-16", core.MIDWEEK)],
-                                         core.get_schedules(), "Teshie Asafo",
-                                         "GROUP")
+                                         core.get_schedules(), "Teshie Asafo")
     assert not skipped and data["aux"]
 
     def txt(el):
@@ -612,7 +610,7 @@ def test_s140_top_line_and_group(core, people):
                        {"heading": "SEPTEMBER 14-20", "aux": True,
                         "aux_group": "1", "opening_song": "Song 74"}, names)
     data, _ = core.build_s140_data([("2026-09-16", core.MIDWEEK)],
-                                   core.get_schedules(), "Teshie Asafo", "GROUP")
+                                   core.get_schedules(), "Teshie Asafo")
     assert data["weeks"][0]["aux_group"] == "1"
     data["meeting_name"] = core.TRANSLATIONS["Ga"]["midweek_meeting"]
 

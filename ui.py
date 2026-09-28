@@ -6,20 +6,27 @@ and the ink blue marks actions. Everything else stays neutral.
 """
 from html import escape as html_escape
 
-from i18n import *  # noqa: F401,F403
+import streamlit as st
 
-# page key, wording key, Material icon
+from constants import SECTION_COLORS, SECTION_TITLES
+from db import fill_counts
+
+APP_NAME = "Meeting Scheduler"
+APP_TAGLINE = "Life and Ministry assignments"
+
+# One name per page: the sidebar label, the heading and what go() is given.
 NAV = [
-    ("Dashboard", "nav_home", ":material/space_dashboard:"),
-    ("Month", "nav_month", ":material/calendar_month:"),
-    ("Schedule", "nav_schedule", ":material/edit_calendar:"),
-    ("View Schedules", "nav_view", ":material/print:"),
-    ("Public Talks", "nav_talks", ":material/record_voice_over:"),
-    ("Manage Participants", "nav_participants", ":material/group:"),
-    ("Upload PDF Brochure", "nav_workbook", ":material/menu_book:"),
-    ("Reports", "nav_reports", ":material/bar_chart:"),
-    ("Admin", "nav_admin", ":material/admin_panel_settings:"),
+    ("Home", ":material/space_dashboard:"),
+    ("Month overview", ":material/calendar_month:"),
+    ("Create or edit", ":material/edit_calendar:"),
+    ("Slips and printing", ":material/print:"),
+    ("Public talks", ":material/record_voice_over:"),
+    ("Participants", ":material/group:"),
+    ("Workbook PDF", ":material/menu_book:"),
+    ("Reports", ":material/bar_chart:"),
+    ("Admin", ":material/admin_panel_settings:"),
 ]
+PAGE_NAMES = [name for name, _ in NAV]
 
 CSS = """
 <style>
@@ -117,15 +124,16 @@ def inject_css():
 def sidebar(current):
     """App name, then one row per page."""
     with st.sidebar:
-        st.markdown(f'<div class="ms-brand">{html_escape(tr("app_name"))}</div>'
-                    f'<div class="ms-brand-sub">{html_escape(tr("app_tagline"))}</div>',
+        st.markdown(f'<div class="ms-brand">{html_escape(APP_NAME)}</div>'
+                    f'<div class="ms-brand-sub">{html_escape(APP_TAGLINE)}</div>',
                     unsafe_allow_html=True)
-        for page, key, icon in NAV:
+        for page, icon in NAV:
             active = page == current
-            if st.button(tr(key), icon=icon, key=f"nav_{page.replace(' ', '_')}",
+            if st.button(page, icon=icon, key=f"nav_{page.replace(' ', '_')}",
                          type="primary" if active else "tertiary", width="stretch"):
                 if not active:
-                    state = {"schedule_mode": "Create new"} if page == "Schedule" else {}
+                    state = ({"schedule_mode": "Create new"}
+                             if page == "Create or edit" else {})
                     go(page, **state)
         st.divider()
 

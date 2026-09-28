@@ -1,10 +1,57 @@
 # -*- coding: utf-8 -*-
 """Schedule page."""
-from core import *  # noqa: F401,F403
+from datetime import date
+from html import escape as html_escape
+
+import pandas as pd
+import streamlit as st
+
+from constants import (
+    CATEGORIES,
+    MAIN_HALL,
+    MEETING_TYPES,
+    MIDWEEK,
+    SISTER_ROLES,
+    WEEKEND,
+)
+from db import (
+    apply_ga_substitutes,
+    delete_schedule,
+    get_meeting_meta,
+    get_outgoing_on,
+    get_schedules,
+    get_suspended,
+    get_talks,
+    get_unavailable,
+    last_assignment_dates,
+    last_assignment_details,
+    last_role_dates,
+    last_snapshot,
+    load_schedule,
+    meeting_label,
+    same_family,
+    save_schedule,
+    saved_meetings,
+    talk_label,
+    undo_last,
+)
+from parts import build_midweek_slots, default_midweek_parts, default_weekend_slots
+from picking import (
+    assistant_pool,
+    eligible_ids,
+    held_recently,
+    ordered_options,
+    person_label_factory,
+    suggest_assignments,
+)
+from ui import page_header, section_heading
+from utils import apply_aux, fmt_date, nfc, slot_label, slot_match_key
+from workbook import load_workbook, parts_summary, week_dates_text, week_for_date
 
 
 def render(students_df, t, selected_lang, aux_default):
-    page_header(tr("h_schedule"), tr("sub_schedule"))
+    page_header("Create or edit",
+                "Pick a date, then fill each part. Only eligible people are listed.")
     schedules_df = get_schedules()
     meetings = saved_meetings(schedules_df)
 
@@ -45,7 +92,7 @@ def render(students_df, t, selected_lang, aux_default):
         if not matched:
             st.warning(
                 f"No workbook week covers {fmt_date(meeting_date)}. Check the week dates "
-                "under Upload Workbook PDF, or pick the week yourself below."
+                "on the Workbook PDF page, or pick the week yourself below."
             )
         wb_parts = brochure[matched]["parts"] if matched else []
         saved_numbered = [(s_["part_no"], s_["title"]) for s_ in saved_slots
@@ -96,7 +143,7 @@ def render(students_df, t, selected_lang, aux_default):
                 if wk.get("gaps"):
                     st.error("Part number(s) not found in the workbook text: "
                              + ", ".join(map(str, wk["gaps"]))
-                             + ". Add them under Upload Workbook PDF → Review week.")
+                             + ". Add them on the Workbook PDF page, under Review and correct a week.")
                 st.dataframe(pd.DataFrame(parts_summary(wk["parts"])),
                              width="stretch", hide_index=True)
                 st.text_area("Workbook text for this week", wk.get("text", ""),
@@ -126,7 +173,7 @@ def render(students_df, t, selected_lang, aux_default):
 
     active = students_df[students_df["active"] == 1]
     if active.empty:
-        st.warning("Add participants under 'Manage Participants' first.")
+        st.warning("Add participants on the Participants page first.")
         st.stop()
 
     _, c_suggest = st.columns([3, 1])
@@ -169,7 +216,7 @@ def render(students_df, t, selected_lang, aux_default):
                 taken[i] = (sid, aid)
         return taken
 
-    if c_suggest.button(tr("suggest"), icon=":material/auto_awesome:", width="stretch",
+    if c_suggest.button("Suggest", icon=":material/auto_awesome:", width="stretch",
                         help="Fills only the empty slots. Anyone already chosen "
                              "stays, and is not suggested anywhere else."):
         st.session_state[sugg_key] = suggest_assignments(
@@ -282,8 +329,7 @@ def render(students_df, t, selected_lang, aux_default):
         # A field-ministry part goes to a sister or to a brother, and the app
         # cannot know which until it is decided — so the list used to hold both.
         # Choose first, then pick from one category instead of a mixed list.
-        rules = ROLE_RULES.get(slot["role"])
-        mixed = bool(rules) and not rules[1] and slot["student_part"]
+        mixed = slot["role"] in SISTER_ROLES and slot["student_part"]
         needs_assistant = bool(slot["needs_assistant"])
         # whoever is chosen right now, which may differ from what was saved
         current = st.session_state.get(f"{wkey}|student")
@@ -397,7 +443,7 @@ def render(students_df, t, selected_lang, aux_default):
                       else f"All {needed} filled"))
 
     b1, b2 = st.columns([1, 1])
-    if b1.button(tr("save_schedule"), icon=":material/save:", type="primary", width="stretch"):
+    if b1.button("Save schedule", icon=":material/save:", type="primary", width="stretch"):
         errors, warnings = [], []
         usage = {}
         for i, val in picks.items():
