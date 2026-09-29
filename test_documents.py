@@ -703,3 +703,63 @@ def test_only_the_talk_is_marked_as_a_guest_speakers(core, people):
                                           core.get_schedules(),
                                           core.TRANSLATIONS["Ga"]))
     assert ga.count("Wielɔ") == 1
+
+
+def _symposium(core, people):
+    """A weekend with Nii Tetteh and Kofi Mensah sharing talk 12."""
+    slots = core.apply_symposium(core.default_weekend_slots(), True)
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    first = next(i for i, s in enumerate(slots) if s["title"] == core.FIRST_SPEAKER)
+    second = next(i for i, s in enumerate(slots) if s["title"] == core.SECOND_SPEAKER)
+    picks = {first: (people["Nii Tetteh"], None),
+             second: (people["Kofi Mensah"], None)}
+    core.save_schedule("2026-10-18", core.WEEKEND, slots, picks,
+                       {"talk_number": "12", "talk_title": "Rely on Jehovah"}, names)
+    return core.get_schedules()
+
+
+def test_symposium_prints_one_talk_line_with_both_speakers(core, people):
+    rows = _symposium(core, people)
+    text = _text(core.generate_schedule_pdf([("2026-10-18", core.WEEKEND)], rows))
+    assert "Nii Tetteh & Kofi Mensah" in text.replace("\n", " ")
+    assert text.count("Rely on Jehovah") == 1          # the theme once
+    assert text.count("Public Talk") == 1              # one talk, not two
+
+
+def test_symposium_reminders_messages_and_checklist(core, people, monkeypatch):
+    import sheets_pdf
+    rows = _symposium(core, people)
+
+    class Early(sheets_pdf.date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 10, 1)
+    monkeypatch.setattr(sheets_pdf, "date", Early)
+    reminders = {c["person"]: c for c in core.upcoming_talk_reminders(rows)}
+    assert set(reminders) == {"Nii Tetteh", "Kofi Mensah"}
+    text = core.whatsapp_reminder_text(reminders["Kofi Mensah"])
+    assert "you share the Public Talk" in text and "with Brother Nii Tetteh" in text
+
+    items = core.month_assignments_for(rows, people["Kofi Mensah"], "2026-10")
+    line = core.whatsapp_month_text("Kofi Mensah", "Brother", "2026-10", items)
+    assert "• Public Talk — No. 12" in line and "shared with Nii Tetteh" in line
+    assert "Speaker 2" not in line
+
+    matrix = {r["number"]: r for r in core.talk_matrix_rows(rows, [2026])}
+    assert matrix["12"]["years"][2026] == [("2026-10-18", "Nii Tetteh & Kofi Mensah")]
+
+
+def test_a_single_speaker_reads_as_before(core, people):
+    """Without a symposium nothing about the talk changes."""
+    slots = core.apply_symposium(core.default_weekend_slots(), False)
+    assert not core.is_symposium(slots)
+    assert sum(1 for s in slots if s["role"] == "Public Talk") == 1
+    both = core.apply_symposium(slots, True)
+    assert core.apply_symposium(both, False) == slots   # switching back undoes it
+    reminder = core.whatsapp_reminder_text(
+        {"person": "Nii Tetteh", "meeting_date": "2026-10-18",
+         "talk_number": "12", "talk_title": "Rely on Jehovah"})
+    assert reminder == ('Hello Brother Nii Tetteh! This is a reminder that you '
+                        'have the Public Talk "Rely on Jehovah" (No. 12) on '
+                        '18 October 2026.')
+

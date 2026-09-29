@@ -35,7 +35,14 @@ from db import (
     talk_label,
     undo_last,
 )
-from parts import build_midweek_slots, default_midweek_parts, default_weekend_slots
+from parts import (
+    FIRST_SPEAKER,
+    apply_symposium,
+    build_midweek_slots,
+    default_midweek_parts,
+    default_weekend_slots,
+    is_symposium,
+)
 from picking import (
     assistant_pool,
     eligible_ids,
@@ -171,6 +178,22 @@ def render(students_df, t, selected_lang, aux_default):
             help="Printed beside the classroom on the schedule, e.g. “Asa 2 – Kuu 1”."))
     slots = apply_aux(slots, aux_on)
 
+    symposium = False
+    if meeting_type == WEEKEND:
+        symposium = st.checkbox(
+            "Symposium — one talk shared by two speakers",
+            value=is_symposium(saved_slots),
+            key=f"{meeting_date}|{meeting_type}|symposium",
+            help="Adds a second Public Talk speaker. The talk number and "
+                 "title are entered once for both.")
+        slots = apply_symposium(slots, symposium)
+        if symposium:
+            st.caption("Both speakers are brothers from the congregation — "
+                       "guest speakers don't give symposiums.")
+    # the talk fields follow the last speaker, so a symposium shows them once
+    talk_slots = [i for i, s_ in enumerate(slots) if s_["role"] == "Public Talk"]
+    last_talk = talk_slots[-1] if talk_slots else None
+
     active = students_df[students_df["active"] == 1]
     if active.empty:
         st.warning("Add participants on the Participants page first.")
@@ -288,12 +311,17 @@ def render(students_df, t, selected_lang, aux_default):
             pre_sid, pre_aid = suggested[i]
         wkey = f"{ns}|{slot['hall']}|{slot['role']}|{slot['part_no']}|{slot['title']}"
         text = slot_label(slot)
+        if symposium and slot["title"] == FIRST_SPEAKER:
+            text = f"{FIRST_SPEAKER} 1"
         if aux_on and slot["student_part"] and slot["hall"] == MAIN_HALL:
             text += " · Main hall"
 
         # a visitor from another congregation is typed by hand, not chosen from
         # the list — the public talk speaker, or a guest saying the closing prayer
-        if slot.get("allow_visitor"):
+        # a symposium is given by the congregation's own brothers
+        visitor_ok = slot.get("allow_visitor") and not (
+            symposium and slot["role"] == "Public Talk")
+        if visitor_ok:
             vkey = f"{wkey}|visitor"
             saved_visitor = saved_visitors.get(slot_match_key(slot), "")
             is_talk = slot["role"] == "Public Talk"
@@ -319,7 +347,7 @@ def render(students_df, t, selected_lang, aux_default):
                                         placeholder="Name — Congregation")
                 picks[i] = (None, None)
                 picks[i + 10000] = apply_ga_substitutes(nfc(vis))
-                if is_talk:
+                if i == last_talk:
                     talk_inputs()      # the talk fields belong to the talk only
                 return
 
@@ -396,7 +424,7 @@ def render(students_df, t, selected_lang, aux_default):
                 label_visibility="collapsed",
             )
         picks[i] = (sid, aid)
-        if slot["role"] == "Public Talk":
+        if i == last_talk:
             talk_inputs()
 
     # one bordered block per workbook section; single parts sit two to a row

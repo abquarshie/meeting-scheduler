@@ -47,3 +47,28 @@ def default_weekend_slots():
         make_slot("Watchtower Reader", "Watchtower Reader", "Weekend"),
         make_slot("Closing Prayer", "Prayer", "Weekend"),
     ]
+
+
+# A symposium: one public talk shared by two speakers, both brothers from the
+# congregation (guest speakers don't give them). The second speaker is a slot
+# of his own, so each is chosen, rotated and reminded like any speaker.
+FIRST_SPEAKER = "Public Talk Speaker"
+SECOND_SPEAKER = "Public Talk Speaker 2"
+
+
+def is_symposium(slots):
+    return any(s["title"] == SECOND_SPEAKER for s in slots)
+
+
+def apply_symposium(slots, on):
+    """Add (or remove) the second speaker, right after the first."""
+    out = [s for s in slots if s["title"] != SECOND_SPEAKER]
+    if not on:
+        return out
+    for i, s in enumerate(out):
+        if s["role"] == "Public Talk":
+            second = {**make_slot(SECOND_SPEAKER, "Public Talk", s["section"]),
+                      "allow_visitor": False}
+            return out[:i + 1] + [second] + out[i + 1:]
+    return out
+

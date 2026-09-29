@@ -78,7 +78,7 @@ def test_weekend_chairman_visitor_and_talk(people):
     assert not any("Kofi" in o for o in chairman.options)   # midweek-only chairman
     next(c for c in at.checkbox if "Visiting speaker" in c.label).check()
     run(at)
-    next(t for t in at.text_input if "Public Talk" in t.label).set_value("Bro. Addo — Osu")
+    next(t for t in at.text_input if t.label == "Speaker's name").set_value("Bro. Addo — Osu")
     next(t for t in at.text_input if t.label == "Talk no.").set_value("12")
     next(t for t in at.text_input if t.label == "Talk title").set_value("A Good Title")
     run(at)
@@ -408,3 +408,37 @@ def test_printing_page_holds_every_document(people, core, s140_template=None):
 
     # and Export is no longer a page of its own
     assert not any(b.key == "nav_Export" for b in at.button)
+
+
+def test_symposium_two_speakers_one_talk(people, core):
+    """A symposium adds a second speaker; the talk fields appear once, and
+    the choice is remembered when the schedule is opened again."""
+    core.add_student("Kwame Boateng", "Brother", ["Public Talk"])
+    kwame = int(core.get_students().set_index("name").at["Kwame Boateng", "id"])
+    at = app("Create or edit", schedule_mode="Create new",
+             new_meeting_type="Weekend Meeting")
+    assert sum(1 for s in at.selectbox if s.label.startswith("Public Talk")) == 1
+    next(c for c in at.checkbox if c.label.startswith("Symposium")).check()
+    run(at)
+    speakers = [s for s in at.selectbox if s.label.startswith("Public Talk")]
+    # guest speakers don't give symposiums: no visitor option for either
+    assert not any("Visiting speaker" in c.label for c in at.checkbox)
+    assert [s.label for s in speakers] == ["Public Talk Speaker 1", "Public Talk Speaker 2"]
+    assert sum(1 for t in at.text_input if t.label == "Talk no.") <= 1
+    talk_pick = [s for s in at.selectbox if s.label == "Talk"]
+    assert len(talk_pick) + sum(1 for t in at.text_input
+                                if t.label == "Talk title") == 1
+
+    speakers[0].set_value(people["Nii Tetteh"])
+    speakers[1].set_value(kwame)
+    run(at)
+    button(at, "Save schedule").click()
+    run(at)
+    rows = core.get_schedules()
+    talk = rows[rows["role"] == "Public Talk"].sort_values("sort_order")
+    assert talk["person"].tolist() == ["Nii Tetteh", "Kwame Boateng"]
+
+    at.session_state["schedule_mode"] = "Edit saved"
+    run(at)
+    assert next(c for c in at.checkbox if c.label.startswith("Symposium")).value
+
