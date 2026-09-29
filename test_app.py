@@ -442,3 +442,24 @@ def test_symposium_two_speakers_one_talk(people, core):
     run(at)
     assert next(c for c in at.checkbox if c.label.startswith("Symposium")).value
 
+
+
+def test_full_weekend_with_a_visiting_speaker_opens(people):
+    """Every part filled and a visiting speaker with his congregation: the
+    congregation used to count as a part, pushing the bar to 7 of 6 and
+    crashing the page."""
+    at = app("Create or edit", schedule_mode="Create new",
+             new_meeting_type="Weekend Meeting")
+    next(c for c in at.checkbox if "Visiting speaker" in c.label).check()
+    run(at)
+    next(t for t in at.text_input if t.label == "Speaker's name").set_value("Jonathan Adjei")
+    next(t for t in at.text_input if t.label == "His congregation").set_value("Dansoman Beach Ga")
+    who = {"Chairman": "Yaw Adjei", "Opening Prayer": "Kofi Mensah",
+           "Watchtower Conductor": "Nii Tetteh", "Watchtower Reader": "Yaw Adjei",
+           "Closing Prayer": "Kofi Mensah"}
+    for s in at.selectbox:
+        if s.label in who:
+            s.set_value(people[who[s.label]])
+    run(at)
+    bar = at.get("progress")[0]
+    assert bar.proto.value == 100 and bar.proto.text == "All 6 filled"

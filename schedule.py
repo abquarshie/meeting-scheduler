@@ -52,7 +52,7 @@ from picking import (
     suggest_assignments,
 )
 from ui import page_header, section_heading
-from utils import apply_aux, fmt_date, nfc, slot_label, slot_match_key
+from utils import apply_aux, fill_progress, fmt_date, nfc, slot_label, slot_match_key
 from workbook import load_workbook, parts_summary, week_dates_text, week_for_date
 
 
@@ -456,17 +456,9 @@ def render(students_df, t, selected_lang, aux_default):
 
     st.markdown("---")
     # how much is left, where the Save button is, rather than only on Home
-    needed = sum(1 + int(bool(s_["needs_assistant"])) for s_ in slots)
-    done = 0
-    for i, s_ in enumerate(slots):
-        sid, aid = picks.get(i, (None, None)) if i in picks else (None, None)
-        if isinstance(sid, str):                # a visitor typed by hand
-            sid, aid = None, None
-        done += int(sid is not None)
-        done += int(bool(s_["needs_assistant"]) and aid is not None)
-    done += sum(1 for i, v in picks.items() if i >= 10000 and nfc(str(v)))
-    left = max(needed - done, 0)
-    st.progress(done / needed if needed else 1.0,
+    done, needed = fill_progress(slots, picks)
+    left = needed - done
+    st.progress(min(done / needed, 1.0) if needed else 1.0,
                 text=(f"{done} of {needed} filled — {left} still open" if left
                       else f"All {needed} filled"))
 

@@ -689,3 +689,23 @@ def test_save_converts_numbers_that_arrive_as_text(core, people):
     with pytest.raises(ValueError, match="Treasures Talk.*minutes.*'ten'"):
         core.save_schedule("2026-10-14", core.MIDWEEK, slots, {}, {}, names)
     assert core.get_schedules()["meeting_date"].eq("2026-10-14").sum() == 0
+
+
+def test_fill_progress_never_counts_past_the_parts(core):
+    """A visiting speaker's congregation belongs to his name; counting it as
+    a part of its own made the progress bar run past 100% and crash."""
+    slots = core.default_weekend_slots()
+    talk = next(i for i, s in enumerate(slots) if s["role"] == "Public Talk")
+    picks = {i: (100 + i, None) for i in range(len(slots))}
+    picks[talk] = (None, None)
+    picks[talk + 10000] = "Jonathan Adjei"
+    picks[talk + 20000] = "Dansoman Beach Ga"
+    assert core.fill_progress(slots, picks) == (len(slots), len(slots))
+
+    picks[talk + 10000] = ""                       # name cleared: open again
+    assert core.fill_progress(slots, picks) == (len(slots) - 1, len(slots))
+
+    mid = core.build_midweek_slots(core.default_midweek_parts())
+    done, needed = core.fill_progress(mid, {})
+    assert done == 0 and needed == len(mid) + sum(s["needs_assistant"] for s in mid)
+

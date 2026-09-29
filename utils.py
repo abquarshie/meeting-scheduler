@@ -238,3 +238,24 @@ def apply_aux(slots, aux_on):
             out.append(make_slot(s["title"], s["role"], s["section"],
                                  s["part_no"], s.get("minutes"), hall=AUX_HALL))
     return out
+
+
+def fill_progress(slots, picks):
+    """(filled, needed) for the parts on the page, counted slot by slot.
+
+    picks holds (person, assistant) under each slot's index; a visitor's name
+    sits under index + 10000 and his congregation under index + 20000. The
+    congregation belongs to the name, so it is never a part of its own —
+    counting it made "filled" run past "needed".
+    """
+    needed = filled = 0
+    for i, slot in enumerate(slots):
+        sid, aid = picks.get(i, (None, None))
+        visitor = nfc(str(picks.get(i + 10000) or ""))
+        needed += 1
+        filled += int(sid is not None or bool(visitor))
+        if slot["needs_assistant"]:
+            needed += 1
+            filled += int(aid is not None)
+    return filled, needed
+
