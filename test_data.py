@@ -659,7 +659,9 @@ def test_month_whatsapp_text_lists_parts_and_assisting(core):
     text = core.whatsapp_month_text("Kofi Mensah", "Brother", "2026-10", items)
     assert text.startswith("Hello Brother Kofi Mensah!")
     assert "*October 2026*" in text
-    assert "*Wednesday 7 October*" in text and text.count("📅") == 1
+    assert "\n*Wednesday 7 October* · Midweek meeting\n" in text
+    assert text.count("Midweek meeting") == 1          # one heading per meeting
+    assert "📅" not in text
     assert "Auxiliary classroom 1 — assisting Ama Owusu" in text
     assert "Bible Reading" not in text and "November" not in text
     assert "2 assignments" in text

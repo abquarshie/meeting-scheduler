@@ -354,11 +354,9 @@ def _weekend_block(rows, meta, lang, st_, width, section_titles, role_labels, wo
     colour = SECTION_COLORS.get("Weekend", "#8A94A0")
     widths = [width * 0.46, width * 0.18, width * 0.36]
 
-    def row(part, label, name, guest=False):
+    def row(part, label, name):
         left = Paragraph(f'<font color="{colour}">\u25cf</font> ' + xml_escape(part),
                          st_["part"]) if part else ""
-        if guest and name:
-            name = f"{name}  ({words['guest_speaker']})"
         data.append([
             left,
             Paragraph(xml_escape(label), st_["label"]) if label else "",
@@ -398,22 +396,31 @@ def _weekend_block(rows, meta, lang, st_, width, section_titles, role_labels, wo
 
     listed = sorted(rows.itertuples(),
                     key=lambda r: (rank(r), int(r.sort_order or 0)))
+    speakers = [r for r in listed if r.role == "Public Talk"]
     for r in listed:
-        # the study names its conductor and reader beside the names, the way
-        # the midweek sheet does for the Bible study
-        label = (role_labels.get(r.role, "")
-                 if r.role in ("Watchtower Conductor", "Watchtower Reader") else "")
-        # only the talk is marked as a guest speaker's: a prayer said by a
-        # visitor is just their name
-        row(printed_title(r), label, _people(r.person, r.assistant),
-            guest=(r.role == "Public Talk"
-                   and bool(clean_value(getattr(r, "visitor", "")))))
         if r.role == "Public Talk":
+            if r is not speakers[0]:
+                continue                        # a symposium's second speaker
+            # one talk, one line: a symposium's two speakers share it, and
+            # only the talk marks a guest — a visitor's prayer is just a name
+            names = []
+            for s_ in speakers:
+                name = _people(s_.person, s_.assistant)
+                if clean_value(s_.person) and clean_value(getattr(s_, "visitor", "")):
+                    name = f"{name}  ({words['guest_speaker']})"
+                names.append(name)
+            row(printed_title(r), "", " & ".join(names))
             theme = clean_value(meta.get("talk_title"))
             number = clean_value(meta.get("talk_number"))
             if theme or number:
                 bits = f"No. {number}" if number else ""
                 note(f"{words['theme']}: " + " — ".join(b for b in (bits, theme) if b))
+            continue
+        # the study names its conductor and reader beside the names, the way
+        # the midweek sheet does for the Bible study
+        label = (role_labels.get(r.role, "")
+                 if r.role in ("Watchtower Conductor", "Watchtower Reader") else "")
+        row(printed_title(r), label, _people(r.person, r.assistant))
 
     table = Table(data, colWidths=widths)
     table.setStyle(TableStyle(style))
@@ -609,6 +616,15 @@ def build_s140_data(meetings, schedules_df, congregation):
 # SPEAKER REMINDERS, GUEST LETTERS, ANNUAL TALK CHECKLIST
 # (the Public talks page — see talks.py)
 # =============================================================================
+def co_speakers(schedules_df, meeting_date, meeting_type, person):
+    """In a symposium, the other speaker(s) of the same talk; else []."""
+    rows = schedules_df[(schedules_df["meeting_date"] == meeting_date)
+                        & (schedules_df["meeting_type"] == meeting_type)
+                        & (schedules_df["role"] == "Public Talk")]
+    return [clean_value(p) for p in rows["person"]
+            if clean_value(p) and clean_value(p) != clean_value(person)]
+
+
 def upcoming_talk_reminders(schedules_df, min_days=7):
     """Public Talk speakers whose meeting is at least `min_days` away.
 
@@ -634,6 +650,8 @@ def upcoming_talk_reminders(schedules_df, min_days=7):
             "talk_number": clean_value(meta.get("talk_number")),
             "talk_title": clean_value(meta.get("talk_title")),
             "is_guest": bool(clean_value(getattr(r, "visitor", ""))),
+            "co_speakers": co_speakers(schedules_df, r.meeting_date,
+                                       r.meeting_type, r.person),
         })
     return sorted(out, key=lambda c: c["meeting_date"])
 
@@ -641,9 +659,12 @@ def upcoming_talk_reminders(schedules_df, min_days=7):
 def whatsapp_reminder_text(candidate):
     """The reminder text, exactly as agreed — copy-paste only, nothing sent
     on the app's behalf."""
+    shared = candidate.get("co_speakers") or []
+    verb = "you share" if shared else "you have"
+    with_ = (" with Brother " + " and Brother ".join(shared)) if shared else ""
     return (f'Hello Brother {candidate["person"]}! This is a reminder that '
-           f'you have the Public Talk "{candidate.get("talk_title") or ""}" '
-           f'(No. {candidate.get("talk_number") or ""}) on '
+           f'{verb} the Public Talk "{candidate.get("talk_title") or ""}" '
+           f'(No. {candidate.get("talk_number") or ""}){with_} on '
            f'{fmt_date(candidate["meeting_date"])}.')
 
 
@@ -667,9 +688,12 @@ def month_assignments_for(schedules_df, student_id, month):
             title += f" ({minutes} min)"
         if pd.notna(r.part_no):
             title = f"{int(r.part_no)}. {title}"
-        talk = ""
+        talk, shared = "", []
         if r.role == "Public Talk":
+            title = "Public Talk"          # not "…Speaker 2" in a symposium
             talk = talk_text(get_meeting_meta(r.meeting_date, r.meeting_type))
+            shared = co_speakers(schedules_df, r.meeting_date, r.meeting_type,
+                                 r.person)
         hall = r.hall if isinstance(r.hall, str) else MAIN_HALL
         out.append({
             "meeting_date": str(r.meeting_date),
@@ -679,6 +703,7 @@ def month_assignments_for(schedules_df, student_id, month):
             "as_assistant": as_assistant,
             "partner": clean_value(r.person if as_assistant else r.assistant),
             "talk": talk,
+            "shared_with": shared,
         })
     return out
 
@@ -704,10 +729,14 @@ def whatsapp_month_text(person, gender, month, items):
             current = key
             d = datetime.strptime(item["meeting_date"], "%Y-%m-%d").date()
             kind = "Midweek" if item["meeting_type"] == MIDWEEK else "Weekend"
-            lines += ["", f"📅 *{d:%A} {d.day} {d:%B}* · {kind} meeting"]
+            # no calendar emoji: it pictures a fixed date ("JUL 17" on an
+            # iPhone) that sits misleadingly beside the real one
+            lines += ["", f"*{d:%A} {d.day} {d:%B}* · {kind} meeting"]
         line = f"• {item['part']}"
         if item["talk"]:
             line += f" — {item['talk']}"
+        if item.get("shared_with"):
+            line += " — shared with " + " and ".join(item["shared_with"])
         if item["hall"] != MAIN_HALL:
             line += f" · {HALL_NAMES.get(item['hall'], item['hall'])}"
         if item["as_assistant"]:
@@ -924,10 +953,10 @@ def talk_matrix_rows(schedules_df, years):
     talk_rows = schedules_df[(schedules_df["role"] == "Public Talk")
                              & schedules_df["person"].notna()]
     given, titles, seen_meetings = {}, {}, set()
-    for r in talk_rows.itertuples():
+    for r in talk_rows.sort_values("sort_order").itertuples():
         key = (r.meeting_date, r.meeting_type)
-        if key in seen_meetings:            # one Public Talk per weekend meeting
-            continue
+        if key in seen_meetings:            # one talk per meeting, even when
+            continue                        # a symposium shares it
         seen_meetings.add(key)
         meta = get_meeting_meta(r.meeting_date, WEEKEND)
         number = clean_value(meta.get("talk_number"))
@@ -941,8 +970,10 @@ def talk_matrix_rows(schedules_df, years):
         except ValueError:
             continue
         if year in years:
+            speakers = " & ".join([r.person] + co_speakers(
+                schedules_df, r.meeting_date, r.meeting_type, r.person))
             given.setdefault(number, {}).setdefault(year, []).append(
-                (r.meeting_date, r.person))
+                (r.meeting_date, speakers))
 
     talk_titles = dict(get_talks())
     numbers = set(given) | set(talk_titles)
