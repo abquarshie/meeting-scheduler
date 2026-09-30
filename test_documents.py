@@ -763,3 +763,31 @@ def test_a_single_speaker_reads_as_before(core, people):
                         'have the Public Talk "Rely on Jehovah" (No. 12) on '
                         '18 October 2026.')
 
+
+
+def test_outgoing_letter_prints_one_line_per_talk(core):
+    """The speaker column fits the longest name and the titles get the rest,
+    shrinking if they must, so no title wraps onto a second line."""
+    import pymupdf
+    speakers = [
+        ("Dexter Curtis Codjoe", [
+            ("112", "Te Obaafee Tɛŋŋ Ojie Suɔmɔ Kpo Yɛ Jeŋ Ni Asusuu Mɔ He Lɛ Mli?"),
+            ("166", "Mɛni Ji Anɔkwa Hemɔkɛyeli? Ni Te Ajieɔ Lɛ Kpo Ahãa Tɛŋŋ?")]),
+        ("Samuel Okine", [
+            ("41", "“Nyɛdamɔa Shi, Ni Nyɛkwɛa Bɔ Ni Yehowa Baahere Nyɛyiwala Ehã”"),
+            ("12", "Ani Obuɔ Mɛi Ni Yɔɔ Hegbɛi Yɛ Wɔnɔ Lɛ Tamɔ Bɔ Ni Nyɔŋmɔ "
+                   "Kpaa Gbɛ Lɛ?")]),       # too long for the normal size
+    ]
+    pdf = core.outgoing_speakers_letter_pdf("Ussher Town Ga", "Accra", speakers,
+                                            "Bernard Mensah")
+    page = pymupdf.open(stream=pdf, filetype="pdf")[0]
+    lines = ["".join(s["text"] for s in l["spans"])
+             for b in page.get_text("dict")["blocks"] for l in b.get("lines", [])]
+    talk_lines = [t for t in lines if t.startswith("No. ")]
+    assert len(talk_lines) == 4                      # one line each, none wrapped
+    assert any(t.endswith("Nyɔŋmɔ Kpaa Gbɛ Lɛ?") for t in talk_lines)
+    sizes = {round(s["size"], 1) for b in page.get_text("dict")["blocks"]
+             for l in b.get("lines", []) for s in l["spans"]
+             if s["text"].startswith("No. ")}
+    assert all(7.5 <= size < 9.5 for size in sizes)  # shrunk, within the floor
+    assert "Dexter Curtis Codjoe" in lines           # the name isn't wrapped either

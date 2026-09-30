@@ -897,16 +897,35 @@ def outgoing_speakers_letter_pdf(congregation, hall_address, speakers, signoff,
         Spacer(1, 14),
     ]
 
+    # One line per talk. The speaker column is only as wide as the longest
+    # name, and the titles get the rest; if a title still won't fit, the talk
+    # text shrinks (not below 7.5pt) until every title sits on one line.
+    usable = 487                             # A4 minus the letter's 54pt margins
+    pad = 8                                  # cell padding, each side
+    size = cell_style.fontSize
+    name_w = max([pdfmetrics.stringWidth(n, regular, size) for n, _ in speakers]
+                 + [pdfmetrics.stringWidth("Speaker", bold, size)]) + 2 * pad + 2
+    name_w = min(name_w, usable * 0.4)
+    talk_w = usable - name_w
+    lines = [talk_label(number, title) for _, talks in speakers
+             for number, title in talks]
+    longest = max((pdfmetrics.stringWidth(t, regular, size) for t in lines),
+                  default=0)
+    room = talk_w - 2 * pad - 2
+    if longest > room:
+        size = max(7.5, size * room / longest)
+    talk_style = ParagraphStyle("out_talk", parent=cell_style, fontSize=size,
+                                leading=round(size * 1.37, 1))
+
     data = [[Paragraph("Speaker", head_cell_style),
              Paragraph("Talks prepared", head_cell_style)]]
     for name, talks in speakers:
         talk_text = "<br/>".join(
             esc(talk_label(number, title)) for number, title in talks
         ) or "—"
-        data.append([Paragraph(esc(name), cell_style), Paragraph(talk_text, cell_style)])
+        data.append([Paragraph(esc(name), cell_style), Paragraph(talk_text, talk_style)])
 
-    usable = 487                             # A4 minus the letter's 54pt margins
-    table = Table(data, colWidths=[usable * 0.36, usable * 0.64])
+    table = Table(data, colWidths=[name_w, talk_w])
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), ACCENT),
         ("GRID", (0, 0), (-1, -1), 0.5, RULE),
@@ -914,7 +933,8 @@ def outgoing_speakers_letter_pdf(congregation, hall_address, speakers, signoff,
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F5F7F9")]),
         ("TOPPADDING", (0, 0), (-1, -1), 6),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("LEFTPADDING", (0, 0), (-1, -1), pad),
+        ("RIGHTPADDING", (0, 0), (-1, -1), pad),
     ]))
     story.append(table)
 
