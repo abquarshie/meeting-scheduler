@@ -925,7 +925,7 @@ def outgoing_speakers_letter_pdf(congregation, hall_address, speakers, signoff,
         ) or "—"
         data.append([Paragraph(esc(name), cell_style), Paragraph(talk_text, talk_style)])
 
-    table = Table(data, colWidths=[name_w, talk_w])
+    table = Table(data, colWidths=[name_w, talk_w], repeatRows=1)
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), ACCENT),
         ("GRID", (0, 0), (-1, -1), 0.5, RULE),
@@ -938,21 +938,27 @@ def outgoing_speakers_letter_pdf(congregation, hall_address, speakers, signoff,
     ]))
     story.append(table)
 
+    # The closing moves as one block: the signature line on a page by itself,
+    # parted from the rest of the letter, is no signature at all. If the list
+    # is ever too long for one page, the whole closing goes to the next.
     story += [
-        Spacer(1, 22),
-        Paragraph("If you need more information or clarification, please "
-                  f"feel free to call or send an email.<br/>{contact}", body_style),
-        Spacer(1, 12),
-        Paragraph("Please accept a warm expression of our Christian love.",
-                  body_style),
-        Spacer(1, 50),
-        Paragraph(f"<i>Your Brothers,</i><br/>"
-                 f"{esc(congregation)} Congregation of Jehovah's Witnesses",
-                 sign_style),
-        Spacer(1, 10),
-        HRFlowable(width="50%", thickness=1, color=ACCENT, hAlign="LEFT"),
-        Spacer(1, 4),
-        Paragraph(f"Talk Coordinator - {esc(signoff)}", sign_style),
+        Spacer(1, 16),
+        KeepTogether([
+            Paragraph("If you need more information or clarification, please "
+                      f"feel free to call or send an email.<br/>{contact}",
+                      body_style),
+            Spacer(1, 10),
+            Paragraph("Please accept a warm expression of our Christian love.",
+                      body_style),
+            Spacer(1, 30),
+            Paragraph(f"<i>Your Brothers,</i><br/>"
+                      f"{esc(congregation)} Congregation of Jehovah's Witnesses",
+                      sign_style),
+            Spacer(1, 10),
+            HRFlowable(width="50%", thickness=1, color=ACCENT, hAlign="LEFT"),
+            Spacer(1, 4),
+            Paragraph(f"Talk Coordinator - {esc(signoff)}", sign_style),
+        ]),
     ]
 
     buffer = io.BytesIO()

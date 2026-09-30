@@ -791,3 +791,21 @@ def test_outgoing_letter_prints_one_line_per_talk(core):
              if s["text"].startswith("No. ")}
     assert all(7.5 <= size < 9.5 for size in sizes)  # shrunk, within the floor
     assert "Dexter Curtis Codjoe" in lines           # the name isn't wrapped either
+
+
+def test_outgoing_letter_keeps_its_closing_together(core):
+    """The signature line once landed alone on page 2. The closing moves as
+    one block, and a table that runs over repeats its header."""
+    import pymupdf
+    talks = [("1", "A Talk Title Of Ordinary Length Here")] * 3
+    for count in (7, 8, 12, 16):
+        speakers = [(f"Brother Number {i}", talks) for i in range(count)]
+        doc = pymupdf.open(stream=core.outgoing_speakers_letter_pdf(
+            "Ussher Town Ga", "Accra", speakers, "Bernard Mensah"), filetype="pdf")
+        last = doc[-1].get_text()
+        assert "Talk Coordinator - Bernard Mensah" in last
+        assert "Your Brothers," in last and "If you need more information" in last
+        for page in list(doc)[1:]:
+            text = page.get_text()
+            if "Brother Number" in text:
+                assert text.startswith("Speaker")        # header repeated
