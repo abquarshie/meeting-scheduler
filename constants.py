@@ -104,6 +104,9 @@ GA_WORDS = {
     "closing_prayer": "Sɔlemɔ",
     "group": "Kuu",
     "song": "Lala",
+    "speaker": "Wielɔ",
+    "reader": "Kanelɔ",
+    "weekend_schedule": "Otsi Naagbee Kpee He Gbɛjianɔtoo",
 }
 EN_WORDS = {
     "public_talk": "Public Talk",
@@ -115,6 +118,9 @@ EN_WORDS = {
     "closing_prayer": "Closing Prayer",
     "group": "Group",
     "song": "Song",
+    "speaker": "Speaker",
+    "reader": "Reader",
+    "weekend_schedule": "Weekend Meeting Schedule",
 }
 ROLE_LABELS = {
     "Prayer": "Prayer",

@@ -186,7 +186,7 @@ def test_visitor_may_say_the_closing_prayer(core, people):
 
     text = _text(core.generate_schedule_pdf([("2026-09-27", core.WEEKEND)],
                                             core.get_schedules()))
-    assert "Bro. Tetteh — Osu" in text
+    assert "Bro. Tetteh — Osu" not in text   # the closing prayer isn't on the sheet
 
 
 def _weekend_with_guest(core, people):
@@ -205,19 +205,22 @@ def _weekend_with_guest(core, people):
                        names)
 
 
-def test_weekend_sheet_order_and_guest(core, people):
-    """The closing prayer ends the sheet; a visitor is marked as a guest."""
+def test_weekend_sheet_columns_and_guest(core, people):
+    """Date, chairman, opening prayer, the talk (theme, speaker) and the
+    Watchtower reader; the guest speaker is marked. No closing prayer and no
+    conductor — they're kept on the schedule, not on the board."""
     _weekend_with_guest(core, people)
     text = _text(core.generate_schedule_pdf([("2026-09-27", core.WEEKEND)],
                                             core.get_schedules()))
-    for word in ("Chairman", "Public Talk", "Watchtower Study", "Theme",
-                 "Guest speaker", "Opening Prayer", "Closing Prayer"):
+    order = ["Chairman", "Opening Prayer", "Public Talk", "Watchtower Study",
+             "Theme", "Speaker", "Reader"]
+    for word in order + ["Guest speaker", "Sep 27"]:
         assert word in text, word
-    assert text.index("Opening Prayer") < text.index("Public Talk")
-    assert text.index("Public Talk") < text.index("Watchtower Study")
-    assert text.index("Watchtower Study") < text.index("Closing Prayer")
-    assert text.rstrip().index("Closing Prayer") > text.index("Chairman")
-    assert "Bro. Tetteh — Osu" in text and "Bro. Addo — Osu" in text
+    assert [text.index(w) for w in order] == sorted(text.index(w) for w in order)
+    assert "No. 12 — Is God Interested in You?" in text.replace("\n", " ")
+    assert "Bro. Addo — Osu" in text
+    assert "Closing Prayer" not in text and "Bro. Tetteh — Osu" not in text
+    assert "Conductor" not in text
 
 
 def test_weekend_sheet_in_ga_has_no_english(core, people):
@@ -470,7 +473,7 @@ def test_classroom_has_its_own_section(core, people):
     assert ga.count("Ŋaawolɔ") == 1
 
 
-def test_watchtower_conductor_is_labelled_in_ga(core, people):
+def test_weekend_sheet_leaves_out_the_conductor(core, people):
     slots = core.default_weekend_slots()
     names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
     core.save_schedule("2026-09-20", core.WEEKEND, slots,
@@ -479,8 +482,8 @@ def test_watchtower_conductor_is_labelled_in_ga(core, people):
     ga = _text(core.generate_schedule_pdf([("2026-09-20", core.WEEKEND)],
                                           core.get_schedules(),
                                           core.TRANSLATIONS["Ga"]))
-    assert "Buu Mɔɔ Nɔkwɛlɔ" in ga               # conductor, now labelled
-    assert "Buu Mɔɔ Nikasemɔ" in ga              # the study itself
+    assert "Buu Mɔɔ Nɔkwɛlɔ" not in ga           # no conductor on the board
+    assert "Buu Mɔɔ Nikasemɔ" in ga and "Kanelɔ" in ga   # the study and its reader
 
 
 S140_EN = Path(__file__).resolve().parent / "tests_data" / "S-140_E.docx"
@@ -696,13 +699,13 @@ def test_only_the_talk_is_marked_as_a_guest_speakers(core, people):
 
     text = _text(core.generate_schedule_pdf([("2026-10-03", core.WEEKEND)],
                                             core.get_schedules()))
-    assert "Bro. Addo — Osu" in text and "Bro. Addo" in text
+    assert "Bro. Addo — Osu" in text
     assert text.count("Guest speaker") == 1          # the talk only
 
     ga = _text(core.generate_schedule_pdf([("2026-10-03", core.WEEKEND)],
                                           core.get_schedules(),
                                           core.TRANSLATIONS["Ga"]))
-    assert ga.count("Wielɔ") == 1
+    assert ga.count("Wielɔ ni afɔ lɛ nine") == 1
 
 
 def _symposium(core, people):
@@ -809,3 +812,33 @@ def test_outgoing_letter_keeps_its_closing_together(core):
             text = page.get_text()
             if "Brother Number" in text:
                 assert text.startswith("Speaker")        # header repeated
+
+
+def test_weekend_month_is_one_landscape_table(core, people):
+    """The weekend meetings of a month on one landscape page, a row each, in
+    date order, titled as the congregation's printed talk schedule."""
+    import io
+
+    import pypdf
+
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    dates = ["2026-10-03", "2026-10-10", "2026-10-17", "2026-10-24", "2026-10-31"]
+    for n, d in enumerate(dates):
+        slots = core.default_weekend_slots()
+        core.save_schedule(d, core.WEEKEND, slots,
+                           {i: (people["Kofi Mensah"], None) for i in range(len(slots))},
+                           {"talk_number": str(70 + n), "talk_title": f"Title {n}"},
+                           names)
+    core.set_setting("congregation", "Ussher Town Ga")
+    rows = core.get_schedules()
+    pdf = core.generate_schedule_pdf([(d, core.WEEKEND) for d in reversed(dates)],
+                                     rows, core.TRANSLATIONS["Ga"])
+    page = pypdf.PdfReader(io.BytesIO(pdf)).pages
+    assert len(page) == 1
+    assert float(page[0].mediabox.width) > float(page[0].mediabox.height)  # landscape
+    text = _text(pdf)
+    assert text.index("USSHER TOWN GA") < text.index("Otsi Naagbee Kpee He Gbɛjianɔtoo")
+    days = [text.index(f"Oct {int(d[-2:])}") for d in dates]
+    assert days == sorted(days)                       # one row each, in date order
+    assert all(f"No. {70 + n} — Title {n}" in text for n in range(5))
+

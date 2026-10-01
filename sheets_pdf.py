@@ -10,7 +10,7 @@ import pandas as pd
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.fonts import addMapping
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -341,92 +341,6 @@ def _midweek_block(rows, meta, lang, st_, width, section_titles, hall_names,
     return table
 
 
-def _weekend_block(rows, meta, lang, st_, width, section_titles, role_labels, words):
-    """The weekend sheet: talk, theme, Watchtower study, prayers."""
-    data, style = [], [
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ("LINEBELOW", (0, 0), (-1, -1), 0.4, RULE),
-    ]
-    colour = SECTION_COLORS.get("Weekend", "#8A94A0")
-    widths = [width * 0.46, width * 0.18, width * 0.36]
-
-    def row(part, label, name):
-        left = Paragraph(f'<font color="{colour}">\u25cf</font> ' + xml_escape(part),
-                         st_["part"]) if part else ""
-        data.append([
-            left,
-            Paragraph(xml_escape(label), st_["label"]) if label else "",
-            Paragraph(xml_escape(name), st_["name"]) if name else ""])
-
-    def note(text):
-        data.append([Paragraph("<i>" + xml_escape(text) + "</i>", st_["theme"]), "", ""])
-        i = len(data) - 1
-        style.extend([("SPAN", (0, i), (-1, i)),
-                      ("LINEBELOW", (0, i), (-1, i), 0, colors.white)])
-
-    def closing(r):
-        return r.role == "Prayer" and clean_value(r.part_name).lower().startswith("closing")
-
-    def rank(r):
-        if r.role == "Weekend Chairman":
-            return 0
-        if r.role == "Prayer":
-            return 9 if closing(r) else 1      # the closing prayer ends the sheet
-        return {"Public Talk": 2, "Watchtower Conductor": 4,
-                "Watchtower Reader": 5}.get(r.role, 3)
-
-    def printed_title(r):
-        """The left column names the part in the chosen language; the stored
-        part name is English and would leak onto the Ga sheet."""
-        if r.role == "Weekend Chairman":
-            return words["chairman"]
-        if r.role == "Prayer":
-            return words["closing_prayer" if closing(r) else "opening_prayer"]
-        if r.role == "Public Talk":
-            return words["public_talk"]
-        if r.role == "Watchtower Conductor":
-            return words["watchtower"]
-        if r.role == "Watchtower Reader":
-            return ""                          # sits under the study, labelled
-        return clean_value(r.part_name)
-
-    listed = sorted(rows.itertuples(),
-                    key=lambda r: (rank(r), int(r.sort_order or 0)))
-    speakers = [r for r in listed if r.role == "Public Talk"]
-    for r in listed:
-        if r.role == "Public Talk":
-            if r is not speakers[0]:
-                continue                        # a symposium's second speaker
-            # one talk, one line: a symposium's two speakers share it, and
-            # only the talk marks a guest — a visitor's prayer is just a name
-            names = []
-            for s_ in speakers:
-                name = _people(s_.person, s_.assistant)
-                if clean_value(s_.person) and clean_value(getattr(s_, "visitor", "")):
-                    name = f"{name}  ({words['guest_speaker']})"
-                names.append(name)
-            row(printed_title(r), "", " & ".join(names))
-            theme = clean_value(meta.get("talk_title"))
-            number = clean_value(meta.get("talk_number"))
-            if theme or number:
-                bits = f"No. {number}" if number else ""
-                note(f"{words['theme']}: " + " — ".join(b for b in (bits, theme) if b))
-            continue
-        # the study names its conductor and reader beside the names, the way
-        # the midweek sheet does for the Bible study
-        label = (role_labels.get(r.role, "")
-                 if r.role in ("Watchtower Conductor", "Watchtower Reader") else "")
-        row(printed_title(r), label, _people(r.person, r.assistant))
-
-    table = Table(data, colWidths=widths)
-    table.setStyle(TableStyle(style))
-    return table
-
-
 def split_by_type(meetings):
     """(midweek, weekend) from a mixed list, each sorted by date.
 
@@ -440,9 +354,28 @@ def split_by_type(meetings):
 
 
 def generate_schedule_pdf(meetings, schedules_df, lang=None, compact=False):
-    """A printable sheet per meeting: the midweek running order, or the
-    weekend programme. lang is a TRANSLATIONS entry; None means English.
-    compact tightens the midweek sheet so two weeks fit on one A4."""
+    """The printable schedule: a sheet per midweek meeting (its running
+    order), and the weekend meetings together on one landscape table. lang is
+    a TRANSLATIONS entry; None means English. compact tightens the midweek
+    sheet so two weeks fit on one A4."""
+    midweek, weekend = split_by_type(meetings)
+    if not midweek:
+        return weekend_schedule_pdf(weekend, schedules_df, lang)
+    sheet = _midweek_pdf(midweek, schedules_df, lang, compact)
+    if not weekend:
+        return sheet
+    # both kinds asked for at once: midweek pages, then the weekend table
+    import pypdf
+    out = pypdf.PdfWriter()
+    for part in (sheet, weekend_schedule_pdf(weekend, schedules_df, lang)):
+        out.append(pypdf.PdfReader(io.BytesIO(part)))
+    buffer = io.BytesIO()
+    out.write(buffer)
+    return buffer.getvalue()
+
+
+def _midweek_pdf(meetings, schedules_df, lang=None, compact=False):
+    """A sheet per midweek meeting: its running order, section by section."""
     lang = lang or TRANSLATIONS["English"]
     name = _lang_name(lang)
     section_titles = SECTION_TITLES_BY_LANG.get(name, SECTION_TITLES)
@@ -472,21 +405,9 @@ def generate_schedule_pdf(meetings, schedules_df, lang=None, compact=False):
         size either way, because shrinking one to fit costs more than the page.
         """
         if not compact:
-            # Weekend weeks are short, so they flow and four share one A4.
-            # Midweek weeks get a sheet each unless two-up is asked for: that
-            # is what the checkbox is choosing between.
-            out, current = [], []
-            for m in items:
-                if m[1] == MIDWEEK:
-                    if current:
-                        out.append(current)
-                        current = []
-                    out.append([m])
-                else:
-                    current.append(m)
-            if current:
-                out.append(current)
-            return out
+            # a sheet each unless two-up is asked for: that is what the
+            # checkbox is choosing between
+            return [[m] for m in items]
         out, current = [], []
         for m in items:
             if m[1] == MIDWEEK and uses_classroom(*m):
@@ -527,13 +448,9 @@ def generate_schedule_pdf(meetings, schedules_df, lang=None, compact=False):
             block.append(Paragraph(
                 xml_escape(when) + (f"&nbsp;&nbsp;|&nbsp;&nbsp;{xml_escape(heading)}"
                                     if heading else ""), st_["when"]))
-            if midweek:
-                block.append(_midweek_block(rows, meta, lang, st_, width,
-                                            section_titles, hall_names, role_labels,
-                                            words))
-            else:
-                block.append(_weekend_block(rows, meta, lang, st_, width,
-                                            section_titles, role_labels, words))
+            block.append(_midweek_block(rows, meta, lang, st_, width,
+                                        section_titles, hall_names, role_labels,
+                                        words))
             block.append(Spacer(1, 10 if compact else 18))
             story.append(KeepTogether(block))
 
@@ -543,6 +460,121 @@ def generate_schedule_pdf(meetings, schedules_df, lang=None, compact=False):
         ParagraphStyle("Made", fontName=regular, fontSize=7, leading=9,
                        textColor=MUTED, alignment=TA_RIGHT)))
     doc.build(story)
+    return buffer.getvalue()
+
+
+WEEKEND_INK = colors.HexColor("#1F4E5F")      # deep teal, as the printed list
+WEEKEND_GREY_HEX = "#6B7280"
+WEEKEND_GREY = colors.HexColor(WEEKEND_GREY_HEX)
+
+
+def weekend_schedule_pdf(meetings, schedules_df, lang=None):
+    """The weekend meetings on one landscape page, a row per meeting:
+    date · chairman · opening prayer · the public talk (theme, speaker) ·
+    the Watchtower Study (reader).
+
+    Laid out like the talk schedule the congregation posts. The closing
+    prayer and the Watchtower conductor are left off: they are the same few
+    brothers week after week and nobody looks them up on the board. Both are
+    still kept on the schedule itself.
+    """
+    lang = lang or TRANSLATIONS["English"]
+    words = GA_WORDS if _lang_name(lang) == "Ga" else EN_WORDS
+    regular, bold, _ = register_fonts()
+    meetings = sorted(m for m in meetings if m[1] != MIDWEEK)
+
+    def style(name, size, font=regular, colour=colors.black, **kw):
+        return ParagraphStyle(name, fontName=font, fontSize=size,
+                              leading=round(size * 1.3, 1), textColor=colour, **kw)
+
+    cong_style = style("wk_cong", 8.5, bold, WEEKEND_GREY)
+    title_style = style("wk_title", 20, bold, WEEKEND_INK)
+    head_style = style("wk_head", 9, bold, WEEKEND_INK)
+    group_style = style("wk_group", 8, regular, WEEKEND_GREY)
+    date_style = style("wk_date", 10, bold, WEEKEND_INK)
+    cell_style = style("wk_cell", 10)
+    made_style = style("wk_made", 7.5, regular, WEEKEND_GREY, alignment=TA_RIGHT)
+
+    def p(text, st_):
+        return Paragraph(xml_escape(text), st_)
+
+    years = sorted({d[:4] for d, _ in meetings}) or [str(date.today().year)]
+    year = years[0] if len(years) == 1 else f"{years[0]}–{years[-1][2:]}"
+    data = [
+        [p(year, head_style), p(words["chairman"], head_style),
+         p(words["opening_prayer"], head_style), p(words["public_talk"], group_style),
+         "", p(words["watchtower"], group_style)],
+        ["", "", "", p(words["theme"], head_style), p(words["speaker"], head_style),
+         p(words["reader"], head_style)],
+    ]
+
+    def names(rows, keep=lambda r: True):
+        found = [_people(r.person, r.assistant) for r in rows.itertuples() if keep(r)]
+        return " & ".join(found) if found else UNFILLED
+
+    def is_closing(r):
+        return clean_value(r.part_name).lower().startswith("closing")
+
+    for meeting_date, meeting_type in meetings:
+        rows = schedules_df[(schedules_df["meeting_date"] == meeting_date)
+                            & (schedules_df["meeting_type"] == meeting_type)]
+        if rows.empty:
+            continue
+        rows = rows.sort_values("sort_order")
+        meta = get_meeting_meta(meeting_date, meeting_type)
+        day = datetime.strptime(meeting_date, "%Y-%m-%d").date()
+        number = clean_value(meta.get("talk_number"))
+        title = clean_value(meta.get("talk_title"))
+        theme = " — ".join(b for b in (f"No. {number}" if number else "", title) if b)
+
+        # one talk, however many speakers: a symposium shares the cell
+        talk = rows[rows["role"] == "Public Talk"]
+        speaker = xml_escape(names(talk))
+        if any(clean_value(r.person) and clean_value(getattr(r, "visitor", ""))
+               for r in talk.itertuples()):
+            speaker += (f'<br/><font size="7.5" color="{WEEKEND_GREY_HEX}">'
+                        f'({xml_escape(words["guest_speaker"])})</font>')
+
+        data.append([
+            p(f"{day:%b} {day.day}", date_style),
+            p(names(rows[rows["role"] == "Weekend Chairman"]), cell_style),
+            p(names(rows[rows["role"] == "Prayer"], lambda r: not is_closing(r)),
+              cell_style),
+            p(theme or UNFILLED, cell_style),
+            Paragraph(speaker, cell_style),
+            p(names(rows[rows["role"] == "Watchtower Reader"]), cell_style),
+        ])
+
+    page = landscape(A4)
+    width = page[0] - 72
+    grid = [1100, 2200, 2200, 4498, 2900, 2500]      # the printed list's columns
+    table = Table(data, colWidths=[width * g / sum(grid) for g in grid],
+                  repeatRows=2)
+    table.setStyle(TableStyle([
+        ("SPAN", (0, 0), (0, 1)), ("SPAN", (1, 0), (1, 1)), ("SPAN", (2, 0), (2, 1)),
+        ("SPAN", (3, 0), (4, 0)),
+        ("VALIGN", (0, 0), (-1, 1), "BOTTOM"),
+        ("VALIGN", (0, 2), (-1, -1), "MIDDLE"),
+        ("LINEBELOW", (3, 0), (-1, 0), 0.5, RULE),
+        ("LINEBELOW", (0, 1), (-1, 1), 1.2, WEEKEND_INK),
+        ("LINEBELOW", (0, 2), (-1, -1), 0.4, RULE),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+    ]))
+
+    congregation = get_setting("congregation", "")
+    story = []
+    if congregation:
+        story.append(p(congregation.upper(), cong_style))
+        story.append(Spacer(1, 2))
+    story += [p(words["weekend_schedule"], title_style), Spacer(1, 12), table,
+              Spacer(1, 8),
+              p(f"Prepared {fmt_date(date.today().isoformat())}", made_style)]
+    buffer = io.BytesIO()
+    SimpleDocTemplate(buffer, pagesize=page, rightMargin=36, leftMargin=36,
+                      topMargin=45, bottomMargin=36).build(story)
     return buffer.getvalue()
 
 
