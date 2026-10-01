@@ -357,7 +357,8 @@ def generate_schedule_pdf(meetings, schedules_df, lang=None, compact=False):
     """The printable schedule: a sheet per midweek meeting (its running
     order), and the weekend meetings together on one landscape table. lang is
     a TRANSLATIONS entry; None means English. compact tightens the midweek
-    sheet so two weeks fit on one A4."""
+    sheet so two weeks fit on one A4. The weekend sheets hold two months
+    each."""
     midweek, weekend = split_by_type(meetings)
     if not midweek:
         return weekend_schedule_pdf(weekend, schedules_df, lang)
@@ -468,15 +469,24 @@ WEEKEND_GREY_HEX = "#6B7280"
 WEEKEND_GREY = colors.HexColor(WEEKEND_GREY_HEX)
 
 
-def weekend_schedule_pdf(meetings, schedules_df, lang=None):
-    """The weekend meetings on one landscape page, a row per meeting:
-    date · chairman · opening prayer · the public talk (theme, speaker) ·
-    the Watchtower Study (reader).
+# Months printed on each weekend sheet. Two months of weekends (8–10 rows)
+# sit comfortably on a landscape A4 at full size, so nothing is shrunk.
+WEEKEND_MONTHS_PER_SHEET = 2
 
-    Laid out like the talk schedule the congregation posts. The closing
-    prayer and the Watchtower conductor are left off: they are the same few
-    brothers week after week and nobody looks them up on the board. Both are
-    still kept on the schedule itself.
+
+def weekend_schedule_pdf(meetings, schedules_df, lang=None):
+    """The weekend meetings as landscape sheets, a row per meeting, two months
+    to a sheet: four months make two sheets, five make three (2 + 2 + 1).
+
+    Each sheet has one header — the congregation, the title and the column
+    headings — and a firm line with extra space where its second month
+    begins. Text and spacing are the same whatever the number of months.
+
+    Laid out like the talk schedule the congregation posts: date · chairman ·
+    opening prayer · the public talk (theme, speaker) · the Watchtower Study
+    (reader). The closing prayer and the Watchtower conductor are left off:
+    they are the same few brothers week after week and nobody looks them up
+    on the board. Both are still kept on the schedule itself.
     """
     lang = lang or TRANSLATIONS["English"]
     words = GA_WORDS if _lang_name(lang) == "Ga" else EN_WORDS
@@ -487,25 +497,59 @@ def weekend_schedule_pdf(meetings, schedules_df, lang=None):
         return ParagraphStyle(name, fontName=font, fontSize=size,
                               leading=round(size * 1.3, 1), textColor=colour, **kw)
 
-    cong_style = style("wk_cong", 8.5, bold, WEEKEND_GREY)
-    title_style = style("wk_title", 20, bold, WEEKEND_INK)
-    head_style = style("wk_head", 9, bold, WEEKEND_INK)
-    group_style = style("wk_group", 8, regular, WEEKEND_GREY)
-    date_style = style("wk_date", 10, bold, WEEKEND_INK)
-    cell_style = style("wk_cell", 10)
-    made_style = style("wk_made", 7.5, regular, WEEKEND_GREY, alignment=TA_RIGHT)
+    st_ = {
+        "cong": style("wk_cong", 8.5, bold, WEEKEND_GREY),
+        "title": style("wk_title", 20, bold, WEEKEND_INK),
+        "head": style("wk_head", 9, bold, WEEKEND_INK),
+        "group": style("wk_group", 8, regular, WEEKEND_GREY),
+        "date": style("wk_date", 10, bold, WEEKEND_INK),
+        "cell": style("wk_cell", 10),
+        "made": style("wk_made", 7.5, regular, WEEKEND_GREY, alignment=TA_RIGHT),
+    }
+    page = landscape(A4)
+    width = page[0] - 72
 
-    def p(text, st_):
-        return Paragraph(xml_escape(text), st_)
+    months = sorted({d[:7] for d, _ in meetings})
+    sheets = [months[i:i + WEEKEND_MONTHS_PER_SHEET]
+              for i in range(0, len(months), WEEKEND_MONTHS_PER_SHEET)] or [[]]
+    congregation = get_setting("congregation", "")
+    made = f"Prepared {fmt_date(date.today().isoformat())}"
+
+    story = []
+    for n, sheet_months in enumerate(sheets):
+        if n:
+            story.append(PageBreak())
+        on_sheet = [m for m in meetings if m[0][:7] in sheet_months]
+        # the one header for this sheet
+        if congregation:
+            story += [Paragraph(xml_escape(congregation.upper()), st_["cong"]),
+                      Spacer(1, 2)]
+        story += [Paragraph(xml_escape(words["weekend_schedule"]), st_["title"]),
+                  Spacer(1, 12),
+                  _weekend_table(on_sheet, schedules_df, words, st_, width),
+                  Spacer(1, 8),
+                  Paragraph(xml_escape(made), st_["made"])]
+
+    buffer = io.BytesIO()
+    SimpleDocTemplate(buffer, pagesize=page, rightMargin=36, leftMargin=36,
+                      topMargin=36, bottomMargin=36).build(story)
+    return buffer.getvalue()
+
+
+def _weekend_table(meetings, schedules_df, words, st_, width):
+    """One sheet's table: the column headings once, then a row per meeting,
+    with a divider where a new month begins."""
+    def p(text, style_):
+        return Paragraph(xml_escape(text), style_)
 
     years = sorted({d[:4] for d, _ in meetings}) or [str(date.today().year)]
     year = years[0] if len(years) == 1 else f"{years[0]}–{years[-1][2:]}"
     data = [
-        [p(year, head_style), p(words["chairman"], head_style),
-         p(words["opening_prayer"], head_style), p(words["public_talk"], group_style),
-         "", p(words["watchtower"], group_style)],
-        ["", "", "", p(words["theme"], head_style), p(words["speaker"], head_style),
-         p(words["reader"], head_style)],
+        [p(year, st_["head"]), p(words["chairman"], st_["head"]),
+         p(words["opening_prayer"], st_["head"]), p(words["public_talk"], st_["group"]),
+         "", p(words["watchtower"], st_["group"])],
+        ["", "", "", p(words["theme"], st_["head"]), p(words["speaker"], st_["head"]),
+         p(words["reader"], st_["head"])],
     ]
 
     def names(rows, keep=lambda r: True):
@@ -515,6 +559,7 @@ def weekend_schedule_pdf(meetings, schedules_df, lang=None):
     def is_closing(r):
         return clean_value(r.part_name).lower().startswith("closing")
 
+    month_starts, last_month = [], None
     for meeting_date, meeting_type in meetings:
         rows = schedules_df[(schedules_df["meeting_date"] == meeting_date)
                             & (schedules_df["meeting_type"] == meeting_type)]
@@ -535,21 +580,33 @@ def weekend_schedule_pdf(meetings, schedules_df, lang=None):
             speaker += (f'<br/><font size="7.5" color="{WEEKEND_GREY_HEX}">'
                         f'({xml_escape(words["guest_speaker"])})</font>')
 
+        if last_month and meeting_date[:7] != last_month:
+            month_starts.append(len(data))      # the second month begins here
+        last_month = meeting_date[:7]
         data.append([
-            p(f"{day:%b} {day.day}", date_style),
-            p(names(rows[rows["role"] == "Weekend Chairman"]), cell_style),
+            p(f"{day:%b} {day.day}", st_["date"]),
+            p(names(rows[rows["role"] == "Weekend Chairman"]), st_["cell"]),
             p(names(rows[rows["role"] == "Prayer"], lambda r: not is_closing(r)),
-              cell_style),
-            p(theme or UNFILLED, cell_style),
-            Paragraph(speaker, cell_style),
-            p(names(rows[rows["role"] == "Watchtower Reader"]), cell_style),
+              st_["cell"]),
+            p(theme or UNFILLED, st_["cell"]),
+            Paragraph(speaker, st_["cell"]),
+            p(names(rows[rows["role"] == "Watchtower Reader"]), st_["cell"]),
         ])
 
-    page = landscape(A4)
-    width = page[0] - 72
-    grid = [1100, 2200, 2200, 4498, 2900, 2500]      # the printed list's columns
+    # the printed list's columns, with the theme given the width it needs for
+    # the longest titles to take two lines rather than three — what lets two
+    # five-weekend months share a sheet at full size
+    grid = [1100, 2050, 2050, 5300, 2800, 2100]     # date fits "May 31" on one line
     table = Table(data, colWidths=[width * g / sum(grid) for g in grid],
                   repeatRows=2)
+    divider = []
+    for i in month_starts:
+        divider += [
+            # a firm line between the months, with room above and below it
+            ("LINEABOVE", (0, i), (-1, i), 1.5, WEEKEND_INK),
+            ("TOPPADDING", (0, i), (-1, i), 10),
+            ("BOTTOMPADDING", (0, i - 1), (-1, i - 1), 9),
+        ]
     table.setStyle(TableStyle([
         ("SPAN", (0, 0), (0, 1)), ("SPAN", (1, 0), (1, 1)), ("SPAN", (2, 0), (2, 1)),
         ("SPAN", (3, 0), (4, 0)),
@@ -562,20 +619,8 @@ def weekend_schedule_pdf(meetings, schedules_df, lang=None):
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
         ("LEFTPADDING", (0, 0), (-1, -1), 4),
         ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-    ]))
-
-    congregation = get_setting("congregation", "")
-    story = []
-    if congregation:
-        story.append(p(congregation.upper(), cong_style))
-        story.append(Spacer(1, 2))
-    story += [p(words["weekend_schedule"], title_style), Spacer(1, 12), table,
-              Spacer(1, 8),
-              p(f"Prepared {fmt_date(date.today().isoformat())}", made_style)]
-    buffer = io.BytesIO()
-    SimpleDocTemplate(buffer, pagesize=page, rightMargin=36, leftMargin=36,
-                      topMargin=45, bottomMargin=36).build(story)
-    return buffer.getvalue()
+    ] + divider))
+    return table
 
 
 def build_s140_data(meetings, schedules_df, congregation):

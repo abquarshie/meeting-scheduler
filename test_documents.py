@@ -842,3 +842,98 @@ def test_weekend_month_is_one_landscape_table(core, people):
     assert days == sorted(days)                       # one row each, in date order
     assert all(f"No. {70 + n} — Title {n}" in text for n in range(5))
 
+
+
+def _weekends(core, people, dates):
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    for n, d in enumerate(dates):
+        slots = core.default_weekend_slots()
+        core.save_schedule(d, core.WEEKEND, slots,
+                           {i: (people["Kofi Mensah"], None) for i in range(len(slots))},
+                           {"talk_number": str(n + 1), "talk_title": f"Title {n}"},
+                           names)
+    return [(d, core.WEEKEND) for d in dates]
+
+
+def _weekend_days(n_months, start=(2026, 10)):
+    """Every Saturday in n_months months from start."""
+    from datetime import date, timedelta
+    y, m = start
+    first = date(y, m, 1)
+    day = first + timedelta(days=(5 - first.weekday()) % 7)
+    out = []
+    while True:
+        months = (day.year - y) * 12 + day.month - m
+        if months >= n_months:
+            return out
+        out.append(day.isoformat())
+        day += timedelta(days=7)
+
+
+def _sheet_pages(pdf):
+    import io
+
+    import pymupdf
+    return list(pymupdf.open(stream=io.BytesIO(pdf).getvalue(), filetype="pdf"))
+
+
+def _month_days(page):
+    """The month abbreviations on a sheet's date column, in order."""
+    import re
+    lines = [t.strip() for t in page.get_text().split("\n")]
+    seen = []
+    for t in lines:
+        m = re.fullmatch(r"([A-Z][a-z]{2}) \d{1,2}", t)
+        if m and (not seen or seen[-1] != m.group(1)):
+            seen.append(m.group(1))
+    return seen
+
+
+def test_weekend_months_print_two_to_a_sheet(core, people):
+    """Four months make two sheets and three make two (2 + 1), in date order,
+    each with one header — the title and the column headings once."""
+    rows_for = lambda n: (_weekends(core, people, _weekend_days(n)), core.get_schedules())
+    meetings, rows = rows_for(4)                        # October to January
+    pages = _sheet_pages(core.generate_schedule_pdf(meetings, rows))
+    assert [_month_days(p) for p in pages] == [["Oct", "Nov"], ["Dec", "Jan"]]
+    for page in pages:
+        text = page.get_text()
+        assert text.count("Weekend Meeting Schedule") == 1      # one header each
+        assert text.count("Opening Prayer") == 1
+        assert page.rect.width > page.rect.height               # landscape
+
+    three = [m for m in meetings if m[0] < "2027-01"]           # October–December
+    pages = _sheet_pages(core.generate_schedule_pdf(three, rows))
+    assert [_month_days(p) for p in pages] == [["Oct", "Nov"], ["Dec"]]
+
+
+def test_two_full_months_fit_one_sheet_at_full_size(core, people):
+    """Nothing is shrunk: two five-weekend months, every row with the
+    longest title and two speakers, still fit one sheet with all text at its
+    normal size and every date on one line."""
+    long_title = ("Kwa Je Lɛŋ Yaka Yiŋsusumɔi Lɛ, Dii Maŋtsɛyeli Lɛ He Nibii "
+                  "Ni Yɔɔ Diɛŋtsɛ Lɛ Asɛɛ")
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    core.add_student("Kwame Boateng", "Brother", ["Public Talk"])
+    kwame = int(core.get_students().set_index("name").at["Kwame Boateng", "id"])
+    dates = ([f"2027-01-{d:02d}" for d in (2, 9, 16, 23, 30)]
+             + [f"2027-05-{d:02d}" for d in (1, 8, 15, 22, 29)])
+    for n, d in enumerate(dates):
+        slots = core.apply_symposium(core.default_weekend_slots(), True)
+        picks = {i: (people["Kofi Mensah"], None) for i in range(len(slots))}
+        picks[next(i for i, s in enumerate(slots)
+                   if s["title"] == core.SECOND_SPEAKER)] = (kwame, None)
+        core.save_schedule(d, core.WEEKEND, slots, picks,
+                           {"talk_number": str(100 + n), "talk_title": long_title},
+                           names)
+    pages = _sheet_pages(core.generate_schedule_pdf(
+        [(d, core.WEEKEND) for d in dates], core.get_schedules(),
+        core.TRANSLATIONS["Ga"]))
+    assert len(pages) == 1
+    assert _month_days(pages[0]) == ["Jan", "May"]
+    spans = [s for b in pages[0].get_text("dict")["blocks"]
+             for l in b.get("lines", []) for s in l["spans"]]
+    dates_seen = [s for s in spans if s["text"][:4] in ("Jan ", "May ")]
+    assert len(dates_seen) == 10                        # each date on one line
+    assert {round(s["size"], 1) for s in dates_seen} == {10.0}
+    assert {round(s["size"], 1) for s in spans if s["text"].startswith("No. ")} == {10.0}

@@ -21,6 +21,7 @@ from db import (
 )
 from s140 import S140Error, fill_s140
 from sheets_pdf import (
+    WEEKEND_MONTHS_PER_SHEET,
     build_s140_data,
     generate_schedule_pdf,
     month_assignments_for,
@@ -75,7 +76,8 @@ def render(students_df, t, selected_lang, aux_default):
         ["Slips & sheets", "S-140 & CSV", "Messages"])
     with tab_print:
         slips_and_sheets(chosen, rows, schedules_df, t, selected_lang,
-                         label_for_file)
+                         label_for_file, meetings,
+                         month if scope == "A whole month" else None)
     with tab_export:
         s140_and_csv(meetings, schedules_df, t, selected_lang, month)
     with tab_messages:
@@ -107,7 +109,8 @@ def meeting_summary(meeting, rows):
 
 
 # ------------------------------------------------------------ slips & sheets
-def slips_and_sheets(chosen, rows, schedules_df, t, selected_lang, label_for_file):
+def slips_and_sheets(chosen, rows, schedules_df, t, selected_lang, label_for_file,
+                     meetings, month=None):
     st.subheader("S-89 assignment slips")
     slip_rows = slip_rows_for(rows)
     if not slip_rows:
@@ -138,6 +141,30 @@ def slips_and_sheets(chosen, rows, schedules_df, t, selected_lang, label_for_fil
             "Two midweek weeks per sheet", value=True, key="midweek_two_up",
             help="A week using the auxiliary classroom still prints on its own "
                  "sheet — it is too tall to pair without shrinking it.")
+    # The weekend schedule is a list for the noticeboard, often posted for
+    # several months at once: its months are picked here, apart from the
+    # selection above, and print two to a sheet.
+    weekend_file = label_for_file
+    weekend_months = sorted({d[:7] for d, k in meetings if k == WEEKEND})
+    if weekend_months:
+        months_on_sheet = st.multiselect(
+            "Months on the weekend schedule", weekend_months,
+            default=[month] if month in weekend_months else [],
+            key=f"weekend_months|{month or label_for_file}",
+            format_func=lambda ym: datetime.strptime(ym, "%Y-%m").strftime("%B %Y"),
+            placeholder="Just the meeting chosen above",
+            help="Two months print on each sheet, at full size: four months "
+                 "make two sheets, in one file.")
+        months_on_sheet = sorted(months_on_sheet)     # in the order clicked
+        if len(months_on_sheet) > 1:
+            n_sheets = -(-len(months_on_sheet) // WEEKEND_MONTHS_PER_SHEET)
+            st.caption(f"{len(months_on_sheet)} months → {n_sheets} sheet"
+                       f"{'s' if n_sheets > 1 else ''}, two months to a sheet.")
+        if months_on_sheet:
+            weekend = sorted(m for m in meetings
+                             if m[1] == WEEKEND and m[0][:7] in months_on_sheet)
+            first, last = months_on_sheet[0], months_on_sheet[-1]
+            weekend_file = first if first == last else f"{first}_to_{last}"
     st.caption("The midweek and weekend sheets download separately.")
     c1, c2 = st.columns(2)
     for column, picked, kind in ((c1, midweek, "Midweek"), (c2, weekend, "Weekend")):
@@ -150,7 +177,8 @@ def slips_and_sheets(chosen, rows, schedules_df, t, selected_lang, label_for_fil
             f"{kind} schedule ({len(picked)})", icon=":material/print:",
             data=generate_schedule_pdf(picked, schedules_df, t,
                                        compact=two_up and kind == "Midweek"),
-            file_name=f"{kind.lower()}_schedule_{label_for_file}.pdf",
+            file_name=(f"{kind.lower()}_schedule_"
+                       f"{weekend_file if kind == 'Weekend' else label_for_file}.pdf"),
             mime="application/pdf", width="stretch", key=f"dl_{kind}",
         )
 
