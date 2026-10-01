@@ -302,7 +302,8 @@ def test_dropdowns_show_how_long_ago_and_what_it_was(people, core):
     names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
     slots = c.build_midweek_slots(c.default_midweek_parts())
     reading = next(i for i, s in enumerate(slots) if s["role"] == "Bible Reading")
-    recent = (date.today() - timedelta(days=9)).isoformat()      # the week before
+    recent = (date.today() - timedelta(days=7)).isoformat()      # last week, by
+    # calendar week: 7 days back is always in the previous Monday–Sunday week
     core.save_schedule(recent, c.MIDWEEK, slots,
                        {reading: (people["Nii Tetteh"], None)}, {}, names)
 
@@ -316,7 +317,7 @@ def test_dropdowns_show_how_long_ago_and_what_it_was(people, core):
     assert "this same part" in nii
 
     kojo = next(o for o in box.options if "Kojo" in o)
-    assert kojo.startswith("🟢") and "no parts yet" in kojo
+    assert kojo.startswith("⭐") and "no parts yet" in kojo   # never served
 
     # on a different part, the label names what they last did
     chairman = slot_key(ns, "main_hall", "Chairman", None, "Chairman")
@@ -463,3 +464,47 @@ def test_full_weekend_with_a_visiting_speaker_opens(people):
     run(at)
     bar = at.get("progress")[0]
     assert bar.proto.value == 100 and bar.proto.text == "All 6 filled"
+
+
+def test_a_double_booking_shows_as_soon_as_it_is_picked(people, core):
+    """No Save needed: the clash appears under both parts and in the Checks
+    box on the very next rerun, and the other dropdown already says where the
+    person is."""
+    at = app("Create or edit", schedule_mode="Create new")
+    ns = f"{TODAY}|Midweek Meeting|default"
+    chairman = next(s for s in at.selectbox
+                    if s.key == slot_key(ns, "main_hall", "Chairman", None, "Chairman"))
+    chairman.set_value(people["Kofi Mensah"])
+    run(at)
+
+    prayer = next(s for s in at.selectbox
+                  if s.key == slot_key(ns, "main_hall", "Prayer", None, "Opening Prayer"))
+    kofi = next(o for o in prayer.options if "Kofi Mensah" in o)
+    assert kofi.startswith("🟠") and "also on Chairman" in kofi   # before choosing
+
+    prayer.set_value(people["Kofi Mensah"])
+    run(at)                                   # a rerun, as any selection makes
+    notes = [c.value for c in at.caption if "has 2 parts in this meeting" in c.value]
+    assert len(notes) == 2                    # under the chairman and the prayer
+    assert any(m.value.startswith("**Checks**") for m in at.markdown)
+    assert core.get_schedules().empty         # and nothing was saved to find it
+
+
+def test_reopening_a_saved_week_and_saving_again_flags_nobody(people, core):
+    at = app("Create or edit", schedule_mode="Create new")
+    ns = f"{TODAY}|Midweek Meeting|default"
+    next(s for s in at.selectbox if s.key == slot_key(
+        ns, "main_hall", "Chairman", None, "Chairman")).set_value(people["Kofi Mensah"])
+    next(s for s in at.selectbox if s.key == slot_key(
+        ns, "main_hall", "Prayer", None, "Opening Prayer")).set_value(people["Yaw Adjei"])
+    run(at)
+    button(at, "Save schedule").click()
+    run(at)
+
+    at.session_state["schedule_mode"] = "Edit saved"
+    run(at)
+    assert not any(m.value.startswith("**Checks**") for m in at.markdown)
+    button(at, "Save schedule").click()
+    run(at)
+    assert not at.warning and not at.error
+    assert any("Saved" in s.value for s in at.success)

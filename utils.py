@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Small text, date and part-slot helpers."""
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import unicodedata
 
 from constants import (
@@ -159,44 +159,91 @@ def make_slot(title, role, section, part_no=None, minutes=None, hall=MAIN_HALL):
     }
 
 
-def recency(last_date, meeting_date=None):
-    """(marker, wording) for how many weeks before this meeting that was.
-
-    Counted from the meeting being scheduled rather than from today: working on
-    week 2 of October, "last week" means week 1 of October whenever you happen
-    to open it.
-    """
-    if not last_date:
-        return NEVER_BAND
+# ---------------------------------------------------------------------------
+# Calendar weeks. A meeting week runs Monday to Sunday, as the workbook does,
+# so "this week", "last week" and "next week" are fixed periods rather than
+# "within 7 days": the Sunday before a Wednesday meeting is last week, the
+# Sunday after it is later this week.
+# ---------------------------------------------------------------------------
+def as_date(value):
+    """A date from a date or an ISO string (None if it isn't one)."""
+    if isinstance(value, date):
+        return value
     try:
-        then = datetime.strptime(str(last_date), "%Y-%m-%d").date()
-        now = (datetime.strptime(str(meeting_date), "%Y-%m-%d").date()
-               if meeting_date else date.today())
+        return datetime.strptime(str(value), "%Y-%m-%d").date()
     except ValueError:
+        return None
+
+
+def week_start(day):
+    """The Monday of the meeting week this day falls in."""
+    day = as_date(day)
+    return day - timedelta(days=day.weekday())
+
+
+def weeks_apart(earlier, later):
+    """Whole meeting weeks from one date's week to another's (0 = same week)."""
+    return (week_start(later) - week_start(earlier)).days // 7
+
+
+def week_label(day):
+    """A fixed name for the meeting week, e.g. "Week 2 of October (5–11 Oct)".
+
+    The week belongs to the month its Monday is in, so the week of
+    28 September – 4 October is Week 5 of September; the dates printed beside
+    it remove any doubt.
+    """
+    monday = week_start(day)
+    sunday = monday + timedelta(days=6)
+    number = (monday.day - 1) // 7 + 1
+    span = (f"{monday.day}–{sunday.day} {sunday:%b}" if monday.month == sunday.month
+            else f"{monday.day} {monday:%b} – {sunday.day} {sunday:%b}")
+    return f"Week {number} of {monday:%B} ({span})"
+
+
+def relative_week(other, meeting_date):
+    """How another date's week relates to this meeting's week, in words:
+    "this week", "last week", "next week", "3 weeks ago", "in 2 weeks"."""
+    n = weeks_apart(meeting_date, other)
+    if n == 0:
+        return "this week"
+    if n == -1:
+        return "last week"
+    if n == 1:
+        return "next week"
+    return f"{-n} weeks ago" if n < 0 else f"in {n} weeks"
+
+
+def recency(last_date, meeting_date=None):
+    """(marker, wording) for when someone last had a part, in meeting weeks
+    before the meeting being scheduled.
+
+    Counted from that meeting rather than from today: working on Week 3 of
+    October, "last week" means Week 2 of October whenever you open it.
+    """
+    then = as_date(last_date) if last_date else None
+    now = as_date(meeting_date) if meeting_date else date.today()
+    if then is None or now is None:
         return NEVER_BAND
-    days = (now - then).days
-    if days < 0:
-        return CONFLICT[0], conflict_wording(-days, then)
-    if days < 7:
+    if then > now:
+        return CONFLICT[0], conflict_wording(then, now)
+    weeks = weeks_apart(then, now)
+    if weeks == 0:
         return THIS_WEEK
-    weeks = days // 7
     if weeks == 1:
         return RESTING, "last week"
     return AVAILABLE, (f"{weeks} weeks ago" if weeks <= 4 else "over a month ago")
 
 
-def conflict_wording(ahead, when):
-    """How far after this meeting the other assignment falls, with its date.
+def conflict_wording(when, meeting_date):
+    """How far after this meeting another assignment falls, with its date.
 
     Orange on its own only says "later"; whether that is this weekend or a
     month away changes whether it matters, so the wording spells it out.
     """
-    if ahead < 7:
-        span = "later this week"
-    elif ahead < 14:
-        span = "next week"
-    else:
-        span = f"in {ahead // 7} weeks"
+    when = as_date(when)
+    span = relative_week(when, meeting_date)
+    span = "later this week" if span == "this week" else span
     return f"{CONFLICT[1]} {span} ({when.day} {when:%b})"
 
 

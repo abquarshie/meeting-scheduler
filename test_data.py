@@ -711,3 +711,93 @@ def test_fill_progress_never_counts_past_the_parts(core):
     done, needed = core.fill_progress(mid, {})
     assert done == 0 and needed == len(mid) + sum(s["needs_assistant"] for s in mid)
 
+
+
+# ------------------------------------------------- week context and conflicts
+def _chairman(core, people, day, who):
+    """Save a midweek meeting on `day` with `who` as chairman."""
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    slots = core.build_midweek_slots(core.default_midweek_parts())
+    core.save_schedule(day, core.MIDWEEK, slots, {0: (people[who], None)}, {}, names)
+    return slots
+
+
+def test_weeks_are_calendar_weeks_with_fixed_names(core):
+    """Monday to Sunday, as the workbook prints them — not "within 7 days"."""
+    assert core.week_label("2026-10-07") == "Week 1 of October (5–11 Oct)"
+    assert core.week_label("2026-10-21") == "Week 3 of October (19–25 Oct)"
+    assert core.week_label("2026-10-01") == "Week 4 of September (28 Sep – 4 Oct)"
+    meeting = "2026-10-14"                                  # Wednesday, Week 2
+    assert core.relative_week("2026-10-11", meeting) == "last week"   # the Sunday before
+    assert core.relative_week("2026-10-18", meeting) == "this week"   # the Sunday after
+    assert core.relative_week("2026-10-21", meeting) == "next week"
+    assert core.relative_week("2026-09-30", meeting) == "2 weeks ago"
+    # 3 days apart but in different weeks: last week, not "this week"
+    assert core.recency("2026-10-11", meeting) == ("🔴", "last week")
+
+
+def test_lookups_are_relative_to_the_meeting_being_edited(core, people):
+    """Editing Week 3 with Weeks 2 and 4 saved: "last time" is Week 2 and
+    "next time" Week 4 — a later week never hides an earlier one, and a
+    meeting is never its own neighbour."""
+    kofi = people["Kofi Mensah"]
+    _chairman(core, people, "2026-10-14", "Kofi Mensah")    # Week 2
+    _chairman(core, people, "2026-10-28", "Kofi Mensah")    # Week 4
+    assert core.last_role_dates("Chairman", "2026-10-21")[kofi] == "2026-10-14"
+    assert core.next_role_dates("Chairman", "2026-10-21")[kofi] == "2026-10-28"
+    # Week 4 looking back skips itself and finds Week 2
+    assert core.last_role_dates("Chairman", "2026-10-28")[kofi] == "2026-10-14"
+    assert kofi not in core.next_role_dates("Chairman", "2026-10-28")
+    # no meeting given: the latest overall, as the participants list wants
+    assert core.last_role_dates("Chairman")[kofi] == "2026-10-28"
+    assert core.last_assignment_dates(exclude_date="")[kofi] == "2026-10-28"
+    assert core.last_assignment_dates("2026-10-21")[kofi] == "2026-10-14"
+    assert core.next_assignment_details("2026-10-21")[kofi] == ("2026-10-28", "Chairman")
+
+
+def test_saving_again_unchanged_flags_nothing(core, people):
+    """The bug: reopen a saved week and save it unchanged, and everyone on it
+    was flagged — the meeting's own saved copy counted as "last time"."""
+    slots = _chairman(core, people, "2026-10-14", "Kofi Mensah")
+    _, saved_picks, _, _ = core.load_schedule("2026-10-14", core.MIDWEEK,
+                                              core.get_schedules())
+    picks = {i: saved_picks.get(core.slot_match_key(s), (None, None))
+             for i, s in enumerate(slots)}
+    assert picks[0][0] == people["Kofi Mensah"]
+    issues = core.assignment_issues(slots, picks, core.get_students(),
+                                    "2026-10-14", core.MIDWEEK)
+    assert issues == []
+
+
+def test_rest_period_counts_both_neighbouring_weeks(core, people):
+    """Filling Week 3 must respect Week 4 as much as Week 2."""
+    kofi = people["Kofi Mensah"]
+    _chairman(core, people, "2026-10-14", "Kofi Mensah")    # Week 2
+    _chairman(core, people, "2026-10-28", "Kofi Mensah")    # Week 4
+    slots = core.build_midweek_slots(core.default_midweek_parts())
+    texts = [x["text"] for x in core.assignment_issues(
+        slots, {0: (kofi, None)}, core.get_students(), "2026-10-21", core.MIDWEEK)]
+    assert any("had 'Chairman' last week (14 Oct)" in t for t in texts)
+    assert any("already has 'Chairman' next week (28 Oct)" in t for t in texts)
+
+    # and Suggest gives Week 3's chairman to someone else who qualifies
+    picks = core.suggest_assignments(slots, core.get_students(), set(), "2026-10-21")
+    assert picks[0][0] not in (None, kofi)
+
+
+def test_duplicates_in_one_meeting_are_flagged_on_every_part(core, people):
+    kofi = people["Kofi Mensah"]
+    slots = core.build_midweek_slots(core.default_midweek_parts())
+    prayer = next(i for i, s in enumerate(slots) if s["title"] == "Opening Prayer")
+    issues = core.assignment_issues(slots, {0: (kofi, None), prayer: (kofi, None)},
+                                    core.get_students(), "2026-10-21", core.MIDWEEK)
+    double = [x for x in issues if "has 2 parts in this meeting" in x["text"]]
+    assert len(double) == 1 and double[0]["slots"] == [0, prayer]
+    assert double[0]["level"] == "warning"
+
+    ministry = next(i for i, s in enumerate(slots) if s["needs_assistant"])
+    esi = people["Esi Mensah"]
+    errors = [x for x in core.assignment_issues(
+        slots, {ministry: (esi, esi)}, core.get_students(), "2026-10-21",
+        core.MIDWEEK) if x["level"] == "error"]
+    assert errors and "both student and assistant" in errors[0]["text"]

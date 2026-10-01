@@ -30,8 +30,7 @@ def fresh_db(monkeypatch):
     db._all_settings.clear()
     db._students.clear()
     db._schedules.clear()
-    db._role_dates.clear()
-    db._student_part_dates.clear()
+    db._assignment_rows.clear()
     db._talks.clear()
     import workbook
     workbook._workbook.clear()

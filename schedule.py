@@ -29,6 +29,7 @@ from db import (
     last_snapshot,
     load_schedule,
     meeting_label,
+    next_assignment_details,
     same_family,
     save_schedule,
     saved_meetings,
@@ -44,15 +45,24 @@ from parts import (
     is_symposium,
 )
 from picking import (
+    assignment_issues,
     assistant_pool,
     eligible_ids,
-    held_recently,
     ordered_options,
     person_label_factory,
     suggest_assignments,
 )
 from ui import page_header, section_heading
-from utils import apply_aux, fill_progress, fmt_date, nfc, slot_label, slot_match_key
+from utils import (
+    apply_aux,
+    fill_progress,
+    fmt_date,
+    nfc,
+    relative_week,
+    slot_label,
+    slot_match_key,
+    week_label,
+)
 from workbook import load_workbook, parts_summary, week_dates_text, week_for_date
 
 
@@ -79,6 +89,13 @@ def render(students_df, t, selected_lang, aux_default):
         meeting_type = c1.selectbox("Meeting type", MEETING_TYPES,
                                     key="new_meeting_type")
         meeting_date = c2.date_input("Meeting date", key="new_meeting_date").isoformat()
+
+    # the week this meeting belongs to, by name: everything below ("last
+    # week", "next week") is counted from this week, not from today
+    when = relative_week(meeting_date, date.today().isoformat())
+    st.caption(f":material/date_range: **{week_label(meeting_date)}**"
+               + (f" · {when}" if when in ("this week", "last week", "next week")
+                  else ""))
 
     saved_slots, saved_picks, saved_visitors, saved_visitor_congs = load_schedule(
         meeting_date, meeting_type, schedules_df)
@@ -303,6 +320,57 @@ def render(students_df, t, selected_lang, aux_default):
                 "Talk title", talk_in["talk_title"], key=f"{ns}|talktitle",
                 placeholder="Title of the public talk")))
 
+    # What is chosen right now in every part, read before any part is drawn,
+    # so each dropdown can show who already has another part in this meeting
+    # and each part can show its clash the moment it is made — not on Save.
+    def visitor_ok_for(slot):
+        # a symposium is given by the congregation's own brothers
+        return slot.get("allow_visitor") and not (
+            symposium and slot["role"] == "Public Talk")
+
+    def current_choices():
+        out = {}
+        for i, slot in enumerate(slots):
+            wkey = (f"{ns}|{slot['hall']}|{slot['role']}|{slot['part_no']}"
+                    f"|{slot['title']}")
+            if visitor_ok_for(slot) and st.session_state.get(
+                    f"{wkey}|isvis", bool(saved_visitors.get(slot_match_key(slot)))):
+                continue
+            pre = saved_picks.get(slot_match_key(slot), (None, None))
+            if i in suggested:
+                pre = suggested[i]
+            out[i] = (st.session_state.get(f"{wkey}|student", pre[0]),
+                      st.session_state.get(f"{wkey}|assistant", pre[1]))
+        return out
+
+    other_type = WEEKEND if meeting_type == MIDWEEK else MIDWEEK
+    _, other_picks, _, _ = load_schedule(meeting_date, other_type, schedules_df)
+    other_meeting = (other_type, {p for pair in other_picks.values() for p in pair if p})
+    next_details = next_assignment_details(meeting_date)
+    choices_now = current_choices()
+    live_issues = assignment_issues(slots, choices_now, students_df, meeting_date,
+                                    meeting_type, suspended, other_meeting)
+    issues_at = {}
+    for issue in live_issues:
+        for i in issue["slots"]:
+            issues_at.setdefault(i, []).append(issue)
+
+    def elsewhere_for(i):
+        """{person: [other parts]} for everyone chosen in another part."""
+        out = {}
+        for j, pair in choices_now.items():
+            if j == i:
+                continue
+            for pid in pair:
+                if pid is not None:
+                    out.setdefault(pid, []).append(slots[j]["title"])
+        return out
+
+    def show_issues(where, i):
+        for issue in issues_at.get(i, []):
+            colour = "red" if issue["level"] == "error" else "orange"
+            where.caption(f":{colour}[:material/warning: {issue['text']}]")
+
     picks = {}
 
     def render_slot(i, slot):
@@ -318,10 +386,7 @@ def render(students_df, t, selected_lang, aux_default):
 
         # a visitor from another congregation is typed by hand, not chosen from
         # the list — the public talk speaker, or a guest saying the closing prayer
-        # a symposium is given by the congregation's own brothers
-        visitor_ok = slot.get("allow_visitor") and not (
-            symposium and slot["role"] == "Public Talk")
-        if visitor_ok:
+        if visitor_ok_for(slot):
             vkey = f"{wkey}|visitor"
             saved_visitor = saved_visitors.get(slot_match_key(slot), "")
             is_talk = slot["role"] == "Public Talk"
@@ -351,7 +416,8 @@ def render(students_df, t, selected_lang, aux_default):
                     talk_inputs()      # the talk fields belong to the talk only
                 return
 
-        role_dates = last_role_dates(slot["role"])
+        role_dates = last_role_dates(slot["role"], meeting_date)
+        elsewhere = elsewhere_for(i)
         eligible = eligible_ids(slot["role"], students_df, away_all, suspended)
 
         # A field-ministry part goes to a sister or to a brother, and the app
@@ -397,7 +463,8 @@ def render(students_df, t, selected_lang, aux_default):
         label = person_label_factory(students_df, last_dates, away, role_dates,
                                      suspended=suspended, details=last_details,
                                      meeting_date=meeting_date, role=slot["role"],
-                                     outgoing=outgoing)
+                                     outgoing=outgoing, elsewhere=elsewhere,
+                                     upcoming=next_details)
         pick_left, pick_right = (st.columns(2) if needs_assistant
                                  else (st.container(), None))
         sid = pick_left.selectbox(
@@ -417,13 +484,15 @@ def render(students_df, t, selected_lang, aux_default):
                                            family_of=sid, suspended=suspended,
                                            details=last_details,
                                            meeting_date=meeting_date,
-                                           outgoing=outgoing)
+                                           outgoing=outgoing, elsewhere=elsewhere,
+                                           upcoming=next_details)
             aid = pick_right.selectbox(
                 "Assistant", a_options, index=a_options.index(pre_aid),
                 format_func=a_label, key=f"{wkey}|assistant",
                 label_visibility="collapsed",
             )
         picks[i] = (sid, aid)
+        show_issues(st, i)
         if i == last_talk:
             talk_inputs()
 
@@ -462,62 +531,35 @@ def render(students_df, t, selected_lang, aux_default):
                 text=(f"{done} of {needed} filled — {left} still open" if left
                       else f"All {needed} filled"))
 
-    b1, b2 = st.columns([1, 1])
-    if b1.button("Save schedule", icon=":material/save:", type="primary", width="stretch"):
-        errors, warnings = [], []
-        usage = {}
-        for i, val in picks.items():
-            if i >= 10000:  # visitor name entries, not (sid, aid)
-                continue
-            sid, aid = val
-            if sid is not None and sid == aid:
-                errors.append(f"{names[sid]} is both student and assistant on "
-                              f"'{slot_label(slots[i])}'.")
-            for pid in (sid, aid):
-                if pid is not None:
-                    usage.setdefault(pid, []).append(slot_label(slots[i]))
-            if (sid and aid and categories.get(sid) != categories.get(aid)
-                    and not same_family(families, sid, aid)):
-                warnings.append(f"'{slot_label(slots[i])}': student and assistant "
-                                "are in different categories and not family.")
-        for pid, parts in usage.items():
-            if len(parts) > 1:
-                warnings.append(f"{names[pid]} has {len(parts)} parts: {', '.join(parts)}.")
-        for i, val in picks.items():
-            if i >= 10000:
-                continue
-            sid, _ = val
-            if sid is None:
-                continue
-            role = slots[i]["role"]
-            if held_recently(last_role_dates(role), sid, meeting_date):
-                warnings.append(
-                    f"{names[sid]} had '{role}' at the last meeting too — "
-                    "someone else would usually take it this week.")
-        for pid in set(usage) & suspended:
-            warnings.append(f"{names[pid]} is suspended but still assigned: "
-                            f"{', '.join(usage[pid])}.")
-        other_type = WEEKEND if meeting_type == MIDWEEK else MIDWEEK
-        _, other_picks, _, _ = load_schedule(meeting_date, other_type, schedules_df)
-        other_people = {p for pair in other_picks.values() for p in pair if p}
-        for pid in set(usage) & other_people:
-            warnings.append(f"{names[pid]} also has a part in the {other_type} on this date.")
-
-        if errors:
+    # the same check as each part showed, on the picks as they stand now
+    issues = assignment_issues(slots, picks, students_df, meeting_date,
+                               meeting_type, suspended, other_meeting)
+    errors = [x["text"] for x in issues if x["level"] == "error"]
+    warnings = [x["text"] for x in issues if x["level"] == "warning"]
+    if issues:
+        with st.container(border=True):
+            st.markdown(f"**Checks** · {len(issues)} to look at")
             for e in errors:
                 st.error(e, icon=":material/error:")
+            for w in warnings:
+                st.warning(w, icon=":material/warning:")
+            if errors:
+                st.caption("Saving is blocked until the red items are fixed.")
+
+    b1, b2 = st.columns([1, 1])
+    if b1.button("Save schedule", icon=":material/save:", type="primary",
+                 width="stretch", disabled=bool(errors)):
+        meta_in.update(talk_in)
+        try:
+            save_schedule(meeting_date, meeting_type, slots, picks, meta_in, names)
+        except ValueError as exc:
+            st.error(f"Not saved — {exc} Correct that part (or the week "
+                     "on the Workbook PDF page) and save again.",
+                     icon=":material/error:")
         else:
-            meta_in.update(talk_in)
-            try:
-                save_schedule(meeting_date, meeting_type, slots, picks, meta_in, names)
-            except ValueError as exc:
-                st.error(f"Not saved — {exc} Correct that part (or the week "
-                         "on the Workbook PDF page) and save again.",
-                         icon=":material/error:")
-            else:
-                st.success(f"Saved {meeting_type} for {fmt_date(meeting_date)}.")
-                for w in warnings:
-                    st.warning(f"Check: {w}")
+            st.success(f"Saved {meeting_type} for {fmt_date(meeting_date)}."
+                       + (" The checks above are still worth a look."
+                          if warnings else ""))
 
     snap = last_snapshot(meeting_date, meeting_type)
     if snap:

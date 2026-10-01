@@ -992,108 +992,130 @@ def last_assignments(exclude_date):
     return {pid: (date_, part, role) for pid, date_, part, role in rows}
 
 
-def last_assignment_details(exclude_date):
-    """student_id -> (date, what it was) for their most recent assignment.
+# ---------------------------------------------------------------------------
+# Who had what, and when — always relative to one meeting.
+#
+# Every lookup below takes the meeting being scheduled and looks strictly
+# before it ("last time") or strictly after it ("next time"). The meeting
+# itself is never its own neighbour: saving a week and saving it again must not
+# make everyone on it look as if they had the same part "0 days ago". And a
+# later week never hides an earlier one: editing Week 3 with Week 4 already
+# saved, "last time" is still Week 2.
+# ---------------------------------------------------------------------------
+@st.cache_data(show_spinner=False)
+def _assignment_rows(schema_name):
+    """[(person, date, role, part_name, assisted)] for every saved assignment,
+    in one query. Cleared by _forget_schedules() on every write."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT student_id, meeting_date, role, part_name, 0 FROM schedules
+                WHERE student_id IS NOT NULL
+               UNION ALL
+               SELECT assistant_id, meeting_date, role, part_name, 1 FROM schedules
+                WHERE assistant_id IS NOT NULL""").fetchall()
+    return [(pid, str(when), role, part_name, assisted)
+            for pid, when, role, part_name, assisted in rows]
+
+
+def _nearest(meeting_date, keep, after=False):
+    """{person: (date, row)} for the closest assignment before (or after)
+    meeting_date among the rows `keep` accepts. With no meeting_date, the
+    latest overall."""
+    cutoff = str(meeting_date) if meeting_date else ""
+    out = {}
+    for row in _assignment_rows(schema()):
+        pid, when = row[0], row[1]
+        if not keep(row):
+            continue
+        if cutoff and (when <= cutoff if after else when >= cutoff):
+            continue
+        best = out.get(pid)
+        if best is None or (when < best[0] if after else when > best[0]):
+            out[pid] = (when, row)
+    return out
+
+
+def _is_own_part(role):
+    return lambda row: row[4] == 0 and row[2] == role
+
+
+def _is_student_part(row):
+    return row[2] in STUDENT_ROLES
+
+
+def last_role_dates(role, meeting_date=None):
+    """person -> latest date before this meeting they had this same part
+    (either hall). Without a meeting, the latest date overall."""
+    return {p: d for p, (d, _) in _nearest(meeting_date, _is_own_part(role)).items()}
+
+
+def next_role_dates(role, meeting_date):
+    """person -> earliest date after this meeting they have this same part."""
+    return {p: d for p, (d, _) in
+            _nearest(meeting_date, _is_own_part(role), after=True).items()}
+
+
+def last_student_part_dates(meeting_date=None):
+    """person -> latest date before this meeting they had any field-ministry
+    part or assisted on one.
+
+    The ministry parts are separate roles, so "not the same part twice" lets
+    someone take a different one each week. Turn-taking needs them counted
+    together.
+    """
+    return {p: d for p, (d, _) in _nearest(meeting_date, _is_student_part).items()}
+
+
+def next_student_part_dates(meeting_date):
+    return {p: d for p, (d, _) in
+            _nearest(meeting_date, _is_student_part, after=True).items()}
+
+
+def last_assignment_dates(meeting_date=None, exclude_date=None):
+    """person -> latest date before this meeting they had any part or assisted.
+
+    exclude_date is the old name for meeting_date; "" means no meeting, the
+    latest date overall (the participants list).
+    """
+    meeting_date = meeting_date if meeting_date is not None else exclude_date
+    return {p: d for p, (d, _) in _nearest(meeting_date, lambda r: True).items()}
+
+
+def next_assignment_dates(meeting_date):
+    """person -> earliest date after this meeting they have any part."""
+    return {p: d for p, (d, _) in
+            _nearest(meeting_date, lambda r: True, after=True).items()}
+
+
+def last_assignment_details(meeting_date):
+    """person -> (date, what it was) for their latest assignment before this
+    meeting.
 
     "Bible Reading, 3 weeks ago" says more than a date on its own when you are
     deciding who to give a part to.
     """
-    with get_conn() as conn:
-        rows = conn.execute(
-            """SELECT pid, meeting_date, part_name, role, assisted FROM (
-                   SELECT student_id AS pid, meeting_date, part_name, role, 0 AS assisted
-                     FROM schedules
-                    WHERE student_id IS NOT NULL AND meeting_date != ?
-                   UNION ALL
-                   SELECT assistant_id, meeting_date, part_name, role, 1
-                     FROM schedules
-                    WHERE assistant_id IS NOT NULL AND meeting_date != ?
-               ) AS everything
-               ORDER BY meeting_date DESC""",
-            (str(exclude_date), str(exclude_date)),
-        ).fetchall()
     out = {}
-    for pid, when, part_name, role, assisted in rows:
-        if pid in out:                      # already have this person's latest
-            continue
+    for pid, (when, row) in _nearest(meeting_date, lambda r: True).items():
+        _, _, role, part_name, assisted = row
         what = (role or part_name or "").strip()
         out[pid] = (when, f"assisted, {what}" if assisted else what)
     return out
 
 
-def last_assignment_dates(exclude_date):
-    """student_id -> most recent meeting date they had a part or assisted."""
-    with get_conn() as conn:
-        rows = conn.execute(
-            """SELECT pid, MAX(meeting_date) FROM (
-                   SELECT student_id AS pid, meeting_date FROM schedules
-                    WHERE student_id IS NOT NULL AND meeting_date != ?
-                   UNION ALL
-                   SELECT assistant_id, meeting_date FROM schedules
-                    WHERE assistant_id IS NOT NULL AND meeting_date != ?
-               ) GROUP BY pid""",
-            (str(exclude_date), str(exclude_date)),
-        ).fetchall()
-    return {pid: d for pid, d in rows}
-
-
-@st.cache_data(show_spinner=False)
-def _role_dates(schema_name):
-    """{role: {student_id: last date}} for every role, in one query.
-
-    The schedule page asks for this once per slot — a dozen round trips for one
-    page render. Cleared by _forget_schedules() on every write, so it cannot
-    serve stale rotation order. A change-token query was the obvious
-    alternative, but that costs one round trip per call and saves nothing.
-    """
-    with get_conn() as conn:
-        rows = conn.execute(
-            """SELECT role, student_id, MAX(meeting_date) FROM schedules
-                WHERE student_id IS NOT NULL
-                GROUP BY role, student_id""").fetchall()
+def next_assignment_details(meeting_date):
+    """person -> (date, what) for their first assignment after this meeting."""
     out = {}
-    for role, pid, last in rows:
-        out.setdefault(role, {})[pid] = last
+    for pid, (when, row) in _nearest(meeting_date, lambda r: True, after=True).items():
+        _, _, role, part_name, assisted = row
+        what = (role or part_name or "").strip()
+        out[pid] = (when, f"assisting, {what}" if assisted else what)
     return out
 
 
 def _forget_schedules():
     """Call after anything that changes the schedules table."""
     _schedules.clear()
-    _role_dates.clear()
-    _student_part_dates.clear()
-
-
-@st.cache_data(show_spinner=False)
-def _student_part_dates(schema_name):
-    with get_conn() as conn:
-        rows = conn.execute(
-            """SELECT pid, MAX(meeting_date) FROM (
-                   SELECT student_id AS pid, meeting_date, role FROM schedules
-                    WHERE student_id IS NOT NULL
-                   UNION ALL
-                   SELECT assistant_id, meeting_date, role FROM schedules
-                    WHERE assistant_id IS NOT NULL
-               ) AS everything
-               WHERE role = ANY(%s)
-               GROUP BY pid""",
-            (list(STUDENT_ROLES),)).fetchall()
-    return {pid: when for pid, when in rows}
-
-
-def last_student_part_dates(exclude_date=None):
-    """student_id -> when they last had any field-ministry part or assisted.
-
-    The ministry parts are separate roles, so "not the same part twice" lets
-    someone take a different one each week. Turn-taking needs them counted
-    together.
-    """
-    return _student_part_dates(schema())
-
-
-def last_role_dates(role):
-    """student_id -> most recent date they had this same role (either hall)."""
-    return _role_dates(schema()).get(role, {})
+    _assignment_rows.clear()
 
 
 def role_history(student_id, limit=8):
