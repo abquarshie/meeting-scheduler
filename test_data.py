@@ -801,3 +801,27 @@ def test_duplicates_in_one_meeting_are_flagged_on_every_part(core, people):
         slots, {ministry: (esi, esi)}, core.get_students(), "2026-10-21",
         core.MIDWEEK) if x["level"] == "error"]
     assert errors and "both student and assistant" in errors[0]["text"]
+
+
+def test_a_label_handed_back_as_text_is_turned_back_into_the_person(core, people):
+    """The exact text from the reported error resolves to the person; text
+    that can't be matched for sure gives None, never the text itself."""
+    core.add_student("Theophilus Quarcoo", "Brother", ["Student Talk"])
+    students = core.get_students()
+    theo = int(students.set_index("name").at["Theophilus Quarcoo", "id"])
+    ids = students["id"].tolist()
+    stale = ("🟠 Theophilus Quarcoo — 4 weeks ago, Bible Reading · also on "
+             "Kɛ́ Oyaaje Sanegbaa Shishi")
+    assert core.recover_person(stale, ids, students) == theo
+    assert core.recover_person("⭐ Kojo Mensah — no parts yet · child", ids,
+                               students) == people["Kojo Mensah"]
+    assert core.recover_person("Nii Tetteh · away", ids, students) == people["Nii Tetteh"]
+    assert core.recover_person("🟢 Nobody Here — 2 weeks ago", ids, students) is None
+    assert core.recover_person(people["Kofi Mensah"], ids, students) == people["Kofi Mensah"]
+    assert core.recover_person(None, ids, students) is None
+
+    core.add_student("Kofi Mensah", "Brother", ["Prayer"])      # a second Kofi
+    students = core.get_students()
+    assert core.recover_person("🔴 Kofi Mensah — last week", students["id"].tolist(),
+                               students) is None                 # not sure: no guess
+

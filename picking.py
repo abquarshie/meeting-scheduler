@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """Who can take a part, rotation order and automatic suggestions."""
 from datetime import datetime
+import re
 
-from constants import CONFLICT, GROUP_TAGS, MIDWEEK, ROLES, SISTER_ROLES
+from constants import GROUP_TAGS, MIDWEEK, ROLES, SISTER_ROLES
 from db import (
     get_outgoing_on,
     get_suspended,
@@ -17,7 +18,15 @@ from db import (
     save_schedule,
 )
 from parts import build_midweek_slots
-from utils import apply_aux, as_date, recency, relative_week, slot_label, weeks_apart
+from utils import (
+    apply_aux,
+    as_date,
+    nfc,
+    recency,
+    relative_week,
+    slot_label,
+    weeks_apart,
+)
 
 
 # =============================================================================
@@ -50,9 +59,9 @@ def ordered_options(ids, last_dates, keep=None):
 
 
 def person_label_factory(students, last_dates, away=frozenset(), role_dates=None,
-                        family_of=None, suspended=frozenset(), details=None,
+                        suspended=frozenset(), details=None,
                         meeting_date=None, role=None, outgoing=frozenset(),
-                        elsewhere=None, upcoming=None):
+                        upcoming=None):
     """Labels for the people dropdowns.
 
     Each reads "🟢 Kofi Mensah — 3 weeks ago, Bible Reading": a colour for how
@@ -64,17 +73,21 @@ def person_label_factory(students, last_dates, away=frozenset(), role_dates=None
     only one or two people ever take that part, so a rotation colour would
     misread as a warning where none is intended.
 
-    `elsewhere` ({person: [parts]}) is who already has another part in this
-    same meeting: they turn orange and say where, so a double booking shows
-    before it is made. `upcoming` ({person: (date, what)}) is each person's
-    next assignment after this meeting, named when it falls this week or next.
+    `upcoming` ({person: (date, what)}) is each person's next assignment
+    after this meeting, named when it falls this week or next.
+
+    A label must not change while the page is being filled in. Streamlit
+    remembers a dropdown's choice by its label text; if the label changes
+    between reruns it can no longer find the person and returns the old text
+    instead. So nothing here depends on what is picked on this page (who else
+    is chosen, which student an assistant is for) — only on the saved history
+    and the person's own record. Clashes on the page are shown beside the
+    part instead.
     """
     names = dict(zip(students["id"], students["name"]))
     inactive = set(students[students["active"] != 1]["id"])
     tags = dict(zip(students["id"], students["group_list"]))
-    fam = dict(zip(students["id"], students["family"]))
     details = details or {}
-    elsewhere = elsewhere or {}
     upcoming = upcoming or {}
     no_recency = role == "Watchtower Conductor"
 
@@ -92,10 +105,6 @@ def person_label_factory(students, last_dates, away=frozenset(), role_dates=None
             flags += " · suspended"
         for g in tags.get(pid, []):
             flags += f" · {GROUP_TAGS[g]}"
-        if family_of is not None and same_family(fam, pid, family_of):
-            flags += " · family"
-        if pid in elsewhere:
-            flags += " · also on " + ", ".join(elsewhere[pid])
         nxt = upcoming.get(pid)
         if nxt and meeting_date and weeks_apart(meeting_date, nxt[0]) <= 1:
             when = as_date(nxt[0])
@@ -110,11 +119,28 @@ def person_label_factory(students, last_dates, away=frozenset(), role_dates=None
         else:
             entry = details.get(pid)
             what = f"{wording}, {entry[1]}" if entry and entry[1] else wording
-        if pid in elsewhere:
-            marker = CONFLICT[0]            # a clash in this meeting outranks rotation
         return f"{marker} {names.get(pid, '?')} — {what}{flags}"
 
     return label
+
+
+def recover_person(value, candidates, students):
+    """The person a dropdown meant, when Streamlit hands back label text.
+
+    Streamlit returns a dropdown's old label instead of the person when that
+    label is no longer in the list (see person_label_factory). The labels are
+    kept stable so this should not happen; if it does, the name is read back
+    out of the label — "🟠 Kofi Mensah — 2 weeks ago, Chairman · away" —
+    and matched among the candidates. None when it can't be told for sure.
+    """
+    if value is None or not isinstance(value, str):
+        return value
+    text = re.sub(r"^[^\w]+", "", nfc(value))          # the colour marker
+    text = text.split(" — ")[0].split(" · ")[0].strip()
+    names = dict(zip(students["id"], students["name"]))
+    found = [p for p in candidates
+             if p is not None and nfc(str(names.get(p, ""))) == text]
+    return found[0] if len(found) == 1 else None
 
 
 def assistant_pool(students, student_id, away):

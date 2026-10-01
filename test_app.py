@@ -43,8 +43,10 @@ def test_create_midweek_with_aux_and_family_assistant(people):
     at.session_state[kojo] = people["Kojo Mensah"]
     run(at)
     assistant = next(s for s in at.selectbox if s.key == kojo.replace("student", "assistant"))
-    assert "(family)" not in assistant.options[1]
-    assert "· family" in assistant.options[1]            # family listed first
+    # family listed first (marked by order, not in the text: a label that
+    # changed with the student chosen would lose the assistant's choice)
+    assert "Esi Mensah" in assistant.options[1] or "Kofi Mensah" in assistant.options[1]
+    assert "family" not in assistant.options[1]
     at.session_state[kojo.replace("student", "assistant")] = people["Esi Mensah"]
     aux_key = slot_key(ns, "aux_1", "Initial Presentation", 4, "Initial Presentation")
     at.session_state[aux_key.replace("|student", "|cat")] = "Sister"
@@ -479,9 +481,6 @@ def test_a_double_booking_shows_as_soon_as_it_is_picked(people, core):
 
     prayer = next(s for s in at.selectbox
                   if s.key == slot_key(ns, "main_hall", "Prayer", None, "Opening Prayer"))
-    kofi = next(o for o in prayer.options if "Kofi Mensah" in o)
-    assert kofi.startswith("🟠") and "also on Chairman" in kofi   # before choosing
-
     prayer.set_value(people["Kofi Mensah"])
     run(at)                                   # a rerun, as any selection makes
     notes = [c.value for c in at.caption if "has 2 parts in this meeting" in c.value]
@@ -530,3 +529,28 @@ def test_weekend_months_on_the_printing_page(people, core):
     assert not at.radio or not any(r.label == "Weekend sheets" for r in at.radio)
     weekend = next(b for b in at.get("download_button") if "Weekend" in b.proto.label)
     assert "(4)" in weekend.proto.label                        # every picked weekend
+
+
+def test_dropdown_text_never_changes_with_what_is_picked(people, core):
+    """Streamlit remembers a dropdown's choice by its text. When a person's
+    label changed because of a pick elsewhere on the page ("· also on …"),
+    the choice came back as that old text and Save refused it:
+    "the person's id should be a whole number, but it is '🟠 Theophilus …'".
+    """
+    at = app("Create or edit", schedule_mode="Create new")
+    ns = f"{TODAY}|Midweek Meeting|default"
+    key = lambda role, title: slot_key(ns, "main_hall", role, None, title)
+    box = lambda role, title: next(s for s in at.selectbox if s.key == key(role, title))
+    before = {s.key: list(s.options) for s in at.selectbox}
+
+    box("Chairman", "Chairman").set_value(people["Kofi Mensah"])
+    run(at)
+    box("Prayer", "Opening Prayer").set_value(people["Kofi Mensah"])  # a clash
+    run(at)
+    after = {s.key: list(s.options) for s in at.selectbox}
+    for role, title in (("Chairman", "Chairman"), ("Prayer", "Opening Prayer"),
+                        ("Prayer", "Closing Prayer")):
+        assert after[key(role, title)] == before[key(role, title)], title
+    assert box("Chairman", "Chairman").value == people["Kofi Mensah"]
+    assert any("has 2 parts" in c.value for c in at.caption)       # still flagged
+

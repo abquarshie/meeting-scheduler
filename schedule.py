@@ -50,6 +50,7 @@ from picking import (
     eligible_ids,
     ordered_options,
     person_label_factory,
+    recover_person,
     suggest_assignments,
 )
 from ui import page_header, section_heading
@@ -328,6 +329,15 @@ def render(students_df, t, selected_lang, aux_default):
         return slot.get("allow_visitor") and not (
             symposium and slot["role"] == "Public Talk")
 
+    every_id = students_df["id"].tolist()
+
+    def repair_state(key):
+        """A dropdown whose stored choice came back as label text: put the
+        person back, or clear it if the name can't be matched for sure."""
+        value = st.session_state.get(key)
+        if isinstance(value, str):
+            st.session_state[key] = recover_person(value, every_id, students_df)
+
     def current_choices():
         out = {}
         for i, slot in enumerate(slots):
@@ -339,6 +349,8 @@ def render(students_df, t, selected_lang, aux_default):
             pre = saved_picks.get(slot_match_key(slot), (None, None))
             if i in suggested:
                 pre = suggested[i]
+            for kind in ("student", "assistant"):
+                repair_state(f"{wkey}|{kind}")
             out[i] = (st.session_state.get(f"{wkey}|student", pre[0]),
                       st.session_state.get(f"{wkey}|assistant", pre[1]))
         return out
@@ -354,17 +366,6 @@ def render(students_df, t, selected_lang, aux_default):
     for issue in live_issues:
         for i in issue["slots"]:
             issues_at.setdefault(i, []).append(issue)
-
-    def elsewhere_for(i):
-        """{person: [other parts]} for everyone chosen in another part."""
-        out = {}
-        for j, pair in choices_now.items():
-            if j == i:
-                continue
-            for pid in pair:
-                if pid is not None:
-                    out.setdefault(pid, []).append(slots[j]["title"])
-        return out
 
     def show_issues(where, i):
         for issue in issues_at.get(i, []):
@@ -417,7 +418,6 @@ def render(students_df, t, selected_lang, aux_default):
                 return
 
         role_dates = last_role_dates(slot["role"], meeting_date)
-        elsewhere = elsewhere_for(i)
         eligible = eligible_ids(slot["role"], students_df, away_all, suspended)
 
         # A field-ministry part goes to a sister or to a brother, and the app
@@ -463,14 +463,14 @@ def render(students_df, t, selected_lang, aux_default):
         label = person_label_factory(students_df, last_dates, away, role_dates,
                                      suspended=suspended, details=last_details,
                                      meeting_date=meeting_date, role=slot["role"],
-                                     outgoing=outgoing, elsewhere=elsewhere,
-                                     upcoming=next_details)
+                                     outgoing=outgoing, upcoming=next_details)
         pick_left, pick_right = (st.columns(2) if needs_assistant
                                  else (st.container(), None))
         sid = pick_left.selectbox(
             text, options, index=options.index(pre_sid), format_func=label,
             key=f"{wkey}|student", label_visibility="collapsed",
         )
+        sid = recover_person(sid, options, students_df)   # never label text
         aid = None
         if needs_assistant:
             pool = assistant_pool(students_df, sid, blocked)
@@ -481,16 +481,18 @@ def render(students_df, t, selected_lang, aux_default):
             if pre_aid not in a_options:
                 pre_aid = None
             a_label = person_label_factory(students_df, last_dates, away,
-                                           family_of=sid, suspended=suspended,
+                                           suspended=suspended,
                                            details=last_details,
                                            meeting_date=meeting_date,
-                                           outgoing=outgoing, elsewhere=elsewhere,
+                                           outgoing=outgoing,
                                            upcoming=next_details)
             aid = pick_right.selectbox(
                 "Assistant", a_options, index=a_options.index(pre_aid),
                 format_func=a_label, key=f"{wkey}|assistant",
                 label_visibility="collapsed",
+                help="Family members are listed first.",
             )
+            aid = recover_person(aid, a_options, students_df)
         picks[i] = (sid, aid)
         show_issues(st, i)
         if i == last_talk:
