@@ -579,7 +579,7 @@ def test_the_watchtower_conductor_is_gone_and_old_data_is_cleared(core, people):
     assert "Watchtower Conductor" not in core.PRIVILEGES
     assert "Watchtower Conductor" not in core.ROLES
     assert [s["role"] for s in core.default_weekend_slots()] == [
-        "Weekend Chairman", "Prayer", "Public Talk", "Watchtower Reader", "Prayer"]
+        "Weekend Chairman", "Prayer", "Public Talk", "Watchtower Reader"]
 
     # data as an older version of the app left it
     with db.get_conn() as conn:
@@ -806,3 +806,71 @@ def test_a_label_handed_back_as_text_is_turned_back_into_the_person(core, people
     assert core.recover_person("🔴 Kofi Mensah — last week", students["id"].tolist(),
                                students) is None                 # not sure: no guess
 
+
+
+# ------------------------------------------------ assembly and convention weeks
+def test_the_labels_in_each_language_are_exactly_as_given(core):
+    assert core.event_text("assembly") == "Assembly Week"
+    assert core.event_text("convention") == "Convention Week"
+    assert core.event_text("assembly", "Ga") == "Kpokpaa Nɔ Kpee Otsi"
+    assert core.event_text("convention", "Ga") == "Kpokpaa wulu Nɔ Kpee Otsi"
+    for kind in core.EVENT_KINDS:                 # never the two run together
+        assert "=" not in core.event_text(kind) + core.event_text(kind, "Ga")
+
+
+def test_marking_a_week_clears_its_meetings_and_labels_it(core, people):
+    """Any day marks the whole Monday–Sunday week; both of its meetings are
+    cleared (and can be undone once the mark is removed); the weeks either
+    side are untouched."""
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    mid = core.build_midweek_slots(core.default_midweek_parts())
+    wk = core.default_weekend_slots()
+    for day, kind, slots in (("2026-10-14", core.MIDWEEK, mid),
+                             ("2026-10-18", core.WEEKEND, wk),
+                             ("2026-10-11", core.WEEKEND, wk),     # the week before
+                             ("2026-10-21", core.MIDWEEK, mid)):   # the week after
+        core.save_schedule(day, kind, slots, {0: (people["Kofi Mensah"], None)},
+                           {}, names)
+
+    cleared = core.mark_event_week("2026-10-16", "assembly")       # a Friday
+    assert cleared == [("2026-10-14", core.MIDWEEK), ("2026-10-18", core.WEEKEND)]
+    left = sorted(set(core.get_schedules()["meeting_date"]))
+    assert left == ["2026-10-11", "2026-10-21"]
+
+    for day in ("2026-10-12", "2026-10-14", "2026-10-18"):
+        assert core.event_for(day) == "assembly"
+        assert core.event_label(day) == "Assembly Week"
+        assert core.event_label(day, "Ga") == "Kpokpaa Nɔ Kpee Otsi"
+    assert core.event_for("2026-10-11") is None and core.event_for("2026-10-19") is None
+    assert core.event_weeks() == {"2026-10-12": "assembly"}
+    assert core.is_no_meeting("2026-10-14")
+
+    # marking the same week again replaces the record rather than adding one
+    core.mark_event_week("2026-10-13", "convention")
+    assert core.event_weeks() == {"2026-10-12": "convention"}
+    assert core.event_label("2026-10-18") == "Convention Week"
+    assert core.event_label("2026-10-18", "Ga") == "Kpokpaa wulu Nɔ Kpee Otsi"
+    assert len(core.get_no_meeting_periods()) == 1
+
+    # remove the mark, and a cleared meeting can be brought back with undo
+    pid = core.get_no_meeting_periods()[0][0]
+    core.delete_no_meeting_period(pid)
+    assert core.event_for("2026-10-14") is None
+    assert core.undo_last("2026-10-14", core.MIDWEEK) > 0
+    assert "2026-10-14" in set(core.get_schedules()["meeting_date"])
+
+
+def test_weeks_recorded_before_kinds_existed_get_one(core):
+    """Older records only had a note: "convention" in it makes a convention,
+    anything else an assembly."""
+    import db
+    with db.get_conn() as conn:
+        conn.execute("""INSERT INTO no_meeting_periods (start_date, end_date, note)
+                        VALUES ('2026-07-06', '2026-07-12', 'Regional Convention'),
+                               ('2026-03-02', '2026-03-08', 'Circuit Assembly'),
+                               ('2026-05-04', '2026-05-10', '')""")
+    core.init_db()
+    db._forget_no_meeting()
+    assert core.event_for("2026-07-08") == "convention"
+    assert core.event_for("2026-03-04") == "assembly"
+    assert core.event_for("2026-05-06") == "assembly"

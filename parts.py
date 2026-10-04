@@ -39,12 +39,13 @@ def build_midweek_slots(parts):
 
 
 def default_weekend_slots():
+    """The weekend parts. There is no closing prayer of its own: the public
+    talk speaker says it, so choosing him covers both (TALK_AND_PRAYER)."""
     return [
         make_slot("Chairman", "Weekend Chairman", "Weekend"),
         make_slot("Opening Prayer", "Prayer", "Weekend"),
         {**make_slot("Public Talk Speaker", "Public Talk", "Weekend"), "allow_visitor": True},
         make_slot("Watchtower Reader", "Watchtower Reader", "Weekend"),
-        make_slot("Closing Prayer", "Prayer", "Weekend"),
     ]
 
 
@@ -53,6 +54,10 @@ def default_weekend_slots():
 # of his own, so each is chosen, rotated and reminded like any speaker.
 FIRST_SPEAKER = "Public Talk Speaker"
 SECOND_SPEAKER = "Public Talk Speaker 2"
+# How the talk's part is named wherever it is shown. The speaker also says
+# the closing prayer — in a symposium, the first speaker. The stored title
+# stays FIRST_SPEAKER, which is how saved schedules find the part.
+TALK_AND_PRAYER = "Public Talk & Closing Prayer"
 
 
 def is_symposium(slots):

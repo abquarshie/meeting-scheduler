@@ -4,12 +4,14 @@
 Colour carries meaning only: the three workbook section colours mark sections,
 and the ink blue marks actions. Everything else stays neutral.
 """
+from datetime import date
 from html import escape as html_escape
 
 import streamlit as st
 
-from constants import SECTION_COLORS, SECTION_TITLES
-from db import fill_counts
+from constants import EVENT_KINDS, EVENT_NAMES, SECTION_COLORS, SECTION_TITLES
+from db import event_text, fill_counts, mark_event_week, meetings_in_week
+from utils import fmt_date, week_label
 
 APP_NAME = "Meeting Scheduler"
 APP_TAGLINE = "Life and Ministry assignments"
@@ -172,3 +174,34 @@ def section_bars(rows):
             f'<div class="ms-bar-count">{filled} of {needed}</div></div>')
     html.append("</div>")
     st.markdown("".join(html), unsafe_allow_html=True)
+
+
+def mark_event_week_form(key, default_day=None):
+    """Mark a week as a circuit assembly or convention week.
+
+    Any day in the week will do: the whole Monday–Sunday week is marked.
+    Meetings already saved that week are listed and cleared only once that
+    is ticked, since marking the week removes them.
+    """
+    c1, c2 = st.columns(2)
+    day = c1.date_input("Any day in the week", default_day or date.today(),
+                        key=f"event_day|{key}")
+    kind = c2.radio("Kind of week", list(EVENT_KINDS), horizontal=True,
+                    format_func=EVENT_NAMES.get, key=f"event_kind|{key}")
+    st.caption(f"**{week_label(day)}** will show **{event_text(kind)}** "
+               f"(in Ga: {event_text(kind, 'Ga')})")
+    saved = meetings_in_week(day)
+    sure = True
+    if saved:
+        st.warning(
+            "Already saved that week: "
+            + ", ".join(f"{t.split()[0].lower()} {fmt_date(d, short=True)}"
+                        for d, t in saved)
+            + ". Marking the week clears them.", icon=":material/warning:")
+        sure = st.checkbox("Clear them (to bring one back later, remove the mark, "
+                           "then use Undo on Create or edit)",
+                           key=f"event_sure|{key}")
+    if st.button(f"Mark as {EVENT_NAMES[kind]} week", type="primary",
+                 disabled=not sure, key=f"event_go|{key}"):
+        mark_event_week(day, kind)
+        st.rerun()

@@ -426,7 +426,8 @@ def test_symposium_two_speakers_one_talk(people, core):
     speakers = [s for s in at.selectbox if s.label.startswith("Public Talk")]
     # guest speakers don't give symposiums: no visitor option for either
     assert not any("Visiting speaker" in c.label for c in at.checkbox)
-    assert [s.label for s in speakers] == ["Public Talk Speaker 1", "Public Talk Speaker 2"]
+    assert [s.label for s in speakers] == [
+        "Public Talk Speaker 1 · says the Closing Prayer", "Public Talk Speaker 2"]
     assert sum(1 for t in at.text_input if t.label == "Talk no.") <= 1
     talk_pick = [s for s in at.selectbox if s.label == "Talk"]
     assert len(talk_pick) + sum(1 for t in at.text_input
@@ -458,13 +459,13 @@ def test_full_weekend_with_a_visiting_speaker_opens(people):
     next(t for t in at.text_input if t.label == "Speaker's name").set_value("Jonathan Adjei")
     next(t for t in at.text_input if t.label == "His congregation").set_value("Dansoman Beach Ga")
     who = {"Chairman": "Yaw Adjei", "Opening Prayer": "Kofi Mensah",
-           "Watchtower Reader": "Yaw Adjei", "Closing Prayer": "Kofi Mensah"}
+           "Watchtower Reader": "Yaw Adjei"}
     for s in at.selectbox:
         if s.label in who:
             s.set_value(people[who[s.label]])
     run(at)
     bar = at.get("progress")[0]
-    assert bar.proto.value == 100 and bar.proto.text == "All 5 filled"
+    assert bar.proto.value == 100 and bar.proto.text == "All 4 filled"
 
 
 def test_a_double_booking_shows_as_soon_as_it_is_picked(people, core):
@@ -574,3 +575,43 @@ def test_one_weekly_message_on_the_messages_tab(people, core):
     assert "• Opening Prayer: Yaw Adjei" in weekly[0]
     assert not any("assignments for *Week" in c.value for c in at.code)
     assert not any("Speaker reminders" in m.value for m in at.markdown)
+
+
+def test_weekend_form_has_one_part_for_the_talk_and_closing_prayer(people):
+    at = app("Create or edit", schedule_mode="Create new",
+             new_meeting_type="Weekend Meeting")
+    labels = [s.label for s in at.selectbox]
+    assert "Public Talk & Closing Prayer" in labels
+    assert "Closing Prayer" not in labels
+    assert not any("Said by a visitor" in c.label for c in at.checkbox)
+    assert any(c.label == "Visiting speaker (another congregation)" for c in at.checkbox)
+
+
+def test_an_assembly_week_shows_its_label_instead_of_a_form(people, core):
+    from datetime import timedelta
+    monday = date.today() - timedelta(days=date.today().weekday())
+    core.mark_event_week(monday, "assembly")
+    at = app("Create or edit", schedule_mode="Create new",
+             new_meeting_date=monday + timedelta(days=2))
+    assert any(m.value == "### Assembly Week" for m in at.markdown)
+    assert any(c.value == "In Ga: Kpokpaa Nɔ Kpee Otsi" for c in at.caption)
+    assert not any(b.label == "Save schedule" for b in at.button)
+
+
+def test_marking_a_week_from_admin_asks_before_clearing(people, core):
+    from datetime import timedelta
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    monday = date.today() - timedelta(days=date.today().weekday())
+    core.save_schedule((monday + timedelta(days=2)).isoformat(), core.MIDWEEK,
+                       core.build_midweek_slots(core.default_midweek_parts()),
+                       {0: (people["Kofi Mensah"], None)}, {}, names)
+    at = app("Admin")
+    go = next(b for b in at.button if b.label == "Mark as Circuit Assembly week")
+    assert go.disabled                                   # a meeting would be cleared
+    next(c for c in at.checkbox if c.label.startswith("Clear them")).check()
+    run(at)
+    next(b for b in at.button if b.label == "Mark as Circuit Assembly week").click()
+    run(at)
+    assert core.event_for(monday) == "assembly"
+    assert core.get_schedules().empty
+    assert any("Assembly Week · Kpokpaa Nɔ Kpee Otsi" in m.value for m in at.markdown)

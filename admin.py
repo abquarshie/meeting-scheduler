@@ -8,9 +8,9 @@ import streamlit as st
 from backup import backup_bytes, import_all
 from constants import TRANSLATIONS, WEEKDAYS
 from db import (
-    add_no_meeting_period,
     delete_no_meeting_period,
     delete_template,
+    event_text,
     get_log,
     get_no_meeting_periods,
     get_setting,
@@ -22,8 +22,8 @@ from db import (
 )
 from s140 import S140Error, check_s140_template
 from slips import S89Error, check_s89_template
-from ui import page_header
-from utils import fmt_date
+from ui import mark_event_week_form, page_header
+from utils import week_label
 
 
 def render(students_df, t, selected_lang, aux_default):
@@ -160,30 +160,22 @@ def render(students_df, t, selected_lang, aux_default):
             st.success("Saved.")
 
         st.subheader("Assemblies & conventions")
-        st.caption("Weeks with no meeting at all. Once recorded here, they stop "
-                   "showing up as a schedule still to create, on Home "
-                   "and in Month overview.")
+        st.caption("A week with a circuit assembly or a convention has no "
+                   "regular midweek or weekend meeting. Marked here, it shows "
+                   "its own label everywhere that week appears, and is never "
+                   "offered as a schedule to create.")
         periods = get_no_meeting_periods()
         if periods:
-            for pid, start, end, note in periods:
+            for pid, start, end, _note, kind in periods:
                 c1, c2 = st.columns([4, 1])
-                span = fmt_date(start) if start == end else \
-                    f"{fmt_date(start, short=True)} – {fmt_date(end)}"
-                c1.write(span + (f" — {note}" if note else ""))
+                c1.write(f"**{week_label(start)}** — "
+                         f"{event_text(kind)} · {event_text(kind, 'Ga')}")
                 if c2.button("Remove", key=f"rm_nomeeting_{pid}", width="stretch"):
                     delete_no_meeting_period(pid)
                     st.rerun()
         else:
-            st.caption("None recorded.")
-        with st.form("add_no_meeting", clear_on_submit=True):
-            d1, d2 = st.columns(2)
-            start = d1.date_input("First day with no meeting")
-            end = d2.date_input("Last day with no meeting", start)
-            note = st.text_input("Note", placeholder="e.g. Circuit Assembly")
-            if st.form_submit_button("Add"):
-                add_no_meeting_period(start, end, note)
-                st.success("Saved.")
-                st.rerun()
+            st.caption("None marked.")
+        mark_event_week_form("admin")
 
     with tab_log:
         log = get_log()

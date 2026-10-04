@@ -158,48 +158,60 @@ def test_interface_labels_stay_english(core):
     assert "Asa 2" in core.slot_label(slot, ga_rooms)
 
 
-def test_visitor_may_say_the_closing_prayer(core, people):
-    """A guest speaker is often asked to close. The flag must also survive
-    reopening a saved schedule, or the option vanishes on the next edit."""
+def test_the_speaker_says_the_closing_prayer(core, people):
+    """The weekend has no closing prayer of its own: the public talk speaker
+    says it, so his part covers both. Only that part may be a visitor, and a
+    visiting speaker survives reopening the schedule."""
     slots = core.default_weekend_slots()
-    by_role = {(s["role"], s["title"]): s for s in slots}
-    assert by_role[("Public Talk", "Public Talk Speaker")]["allow_visitor"]
-    assert by_role[("Prayer", "Closing Prayer")]["allow_visitor"]
-    assert not by_role[("Prayer", "Opening Prayer")]["allow_visitor"]
-    assert not by_role[("Weekend Chairman", "Chairman")]["allow_visitor"]
+    assert [(s["role"], s["title"]) for s in slots] == [
+        ("Weekend Chairman", "Chairman"), ("Prayer", "Opening Prayer"),
+        ("Public Talk", "Public Talk Speaker"), ("Watchtower Reader", "Watchtower Reader")]
+    assert [s["allow_visitor"] for s in slots] == [False, False, True, False]
+    assert core.TALK_AND_PRAYER == "Public Talk & Closing Prayer"
 
     names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
-    closing = next(i for i, s in enumerate(slots)
-                   if s["role"] == "Prayer" and s["title"] == "Closing Prayer")
     talk = next(i for i, s in enumerate(slots) if s["role"] == "Public Talk")
     core.save_schedule("2026-09-27", core.WEEKEND, slots,
-                       {talk + 10000: "Bro. Addo — Osu",
-                        closing + 10000: "Bro. Tetteh — Osu"}, {}, names)
-
+                       {talk + 10000: "Bro. Addo — Osu"}, {}, names)
     reopened, _, visitors, _ = core.load_schedule("2026-09-27", core.WEEKEND,
                                                   core.get_schedules())
-    flags = {(s["role"], s["title"]): s["allow_visitor"] for s in reopened}
-    assert flags[("Prayer", "Closing Prayer")]        # still offered on re-edit
-    assert flags[("Public Talk", "Public Talk Speaker")]
-    assert not flags[("Prayer", "Opening Prayer")]
-    assert "Bro. Tetteh — Osu" in visitors.values()
+    assert [s["title"] for s in reopened] == [s["title"] for s in slots]
+    assert list(visitors.values()) == ["Bro. Addo — Osu"]
 
-    text = _text(core.generate_schedule_pdf([("2026-09-27", core.WEEKEND)],
-                                            core.get_schedules()))
-    assert "Bro. Tetteh — Osu" not in text   # the closing prayer isn't on the sheet
+    # the midweek meeting keeps its own closing prayer, always a local brother
+    midweek = {(s["role"], s["title"]): s for s in
+               core.build_midweek_slots(core.default_midweek_parts())}
+    assert not midweek[("Prayer", "Closing Prayer")]["allow_visitor"]
+
+
+def test_old_weekend_closing_prayers_are_cleared(core, people):
+    """Saved before the change, a weekend's separate closing prayer is
+    cleared at start-up; the midweek closing prayer is left alone."""
+    import db
+    with db.get_conn() as conn:
+        for kind in (core.WEEKEND, core.MIDWEEK):
+            conn.execute("""INSERT INTO schedules (meeting_date, meeting_type,
+                                part_name, section, role, student_id, sort_order, hall)
+                            VALUES ('2026-09-27', ?, 'Closing Prayer', 'Closing',
+                                    'Prayer', ?, 9, 'main_hall')""",
+                         (kind, people["Kofi Mensah"]))
+    core.init_db()
+    db._forget_schedules()
+    rows = core.get_schedules()
+    closing = rows[rows["part_name"] == "Closing Prayer"]
+    assert closing["meeting_type"].tolist() == [core.MIDWEEK]
+    assert core.is_retired("Prayer", core.WEEKEND, "Closing Prayer")
+    assert not core.is_retired("Prayer", core.WEEKEND, "Opening Prayer")
+    assert not core.is_retired("Prayer", core.MIDWEEK, "Closing Prayer")
 
 
 def _weekend_with_guest(core, people):
     slots = core.default_weekend_slots()
     names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
     talk = next(i for i, s in enumerate(slots) if s["role"] == "Public Talk")
-    closing = next(i for i, s in enumerate(slots)
-                   if s["role"] == "Prayer" and s["title"] == "Closing Prayer")
     picks = {i: (people["Kofi Mensah"], None) for i, s in enumerate(slots)}
     picks[talk] = (None, None)
     picks[talk + 10000] = "Bro. Addo — Osu"
-    picks[closing] = (None, None)
-    picks[closing + 10000] = "Bro. Tetteh — Osu"
     core.save_schedule("2026-09-27", core.WEEKEND, slots, picks,
                        {"talk_number": "12", "talk_title": "Is God Interested in You?"},
                        names)
@@ -357,18 +369,6 @@ def test_songs_print_in_the_sheet_language(core, people):
                                           core.TRANSLATIONS["Ga"]))
     assert "Lala 74" in ga and "Lala 134" in ga
     assert "Song" not in ga
-
-
-def test_guest_prayer_is_weekend_only(core):
-    """A visiting speaker may close the weekend meeting; the midweek closing
-    prayer is always a local brother."""
-    weekend = {(s["role"], s["title"]): s for s in core.default_weekend_slots()}
-    assert weekend[("Prayer", "Closing Prayer")]["allow_visitor"]
-
-    midweek = {(s["role"], s["title"]): s for s in
-               core.build_midweek_slots(core.default_midweek_parts())}
-    assert not midweek[("Prayer", "Closing Prayer")]["allow_visitor"]
-    assert not midweek[("Prayer", "Opening Prayer")]["allow_visitor"]
 
 
 def test_s89_edge_cases(core):
@@ -682,18 +682,13 @@ def test_weeks_flow_onto_a_sheet_rather_than_one_each(core, people):
 
 
 def test_only_the_talk_is_marked_as_a_guest_speakers(core, people):
-    """A visiting speaker often says the closing prayer too. The talk says who
-    the speaker is; the prayer just needs the name."""
+    """Only the talk marks a guest; nothing else on the sheet does."""
     slots = core.default_weekend_slots()
     names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
     talk = next(i for i, s in enumerate(slots) if s["role"] == "Public Talk")
-    closing = next(i for i, s in enumerate(slots)
-                   if s["role"] == "Prayer" and s["title"] == "Closing Prayer")
     picks = {i: (people["Kofi Mensah"], None) for i in range(len(slots))}
     picks[talk] = (None, None)
     picks[talk + 10000] = "Bro. Addo — Osu"
-    picks[closing] = (None, None)
-    picks[closing + 10000] = "Bro. Addo"
     core.save_schedule("2026-10-03", core.WEEKEND, slots, picks,
                        {"talk_number": "73", "talk_title": "A title"}, names)
 
@@ -733,6 +728,7 @@ def test_symposium_messages_and_checklist(core, people):
     rows = _symposium(core, people)
     week = core.week_overview_text(rows, "2026-10-18")
     assert "• Public Talk — No. 12 — “Rely on Jehovah”: Nii Tetteh & Kofi Mensah" in week
+    assert "• Closing Prayer: Nii Tetteh" in week          # the first speaker
 
     items = core.month_assignments_for(rows, people["Kofi Mensah"], "2026-10")
     line = core.whatsapp_month_text("Kofi Mensah", "Brother", "2026-10", items)
@@ -938,7 +934,7 @@ def _week_of_meetings(core, people):
     wk = core.default_weekend_slots()
     core.save_schedule("2026-10-18", core.WEEKEND, wk,
                        {0: (people["Yaw Adjei"], None), 2: (people["Nii Tetteh"], None),
-                        4: (people["Kofi Mensah"], None)},
+                        3: (people["Kofi Mensah"], None)},
                        {"talk_number": "12", "talk_title": "Rely on Jehovah"}, names)
     for day, kind, slots in (("2026-10-11", core.WEEKEND, wk),
                              ("2026-10-21", core.MIDWEEK, mid)):
@@ -956,10 +952,35 @@ def test_the_week_is_one_message_with_every_part(core, people):
     assert text.startswith("*Meeting assignments — Week 2 of October (12–18 Oct)*")
     assert "• Chairman: Kofi Mensah" in text
     assert ": Esi Mensah & Ama Owusu" in text
-    assert "• Public Talk — No. 12 — “Rely on Jehovah”: Nii Tetteh" in text
+    assert ("• Public Talk & Closing Prayer — No. 12 — “Rely on Jehovah”: "
+            "Nii Tetteh") in text
     assert "• Opening Prayer: —" in text                 # nobody yet
-    assert "• Closing Prayer: Kofi Mensah" in text       # the weekend's too
+    assert "• Watchtower Reader: Kofi Mensah" in text    # the weekend's too
+    assert text.count("Closing Prayer") == 2   # midweek's own, and the speaker's
     assert text.index("Wednesday 14 October") < text.index("Sunday 18 October")
     assert "11 October" not in text and "Watchtower Conductor" not in text
     assert core.week_overview_text(rows, "2026-11-04").endswith(
         "No meetings are scheduled that week.")
+
+
+def test_an_assembly_weekend_prints_its_label_and_the_week_message_too(core, people):
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    for day in ("2026-10-03", "2026-10-10", "2026-10-24", "2026-10-31"):
+        core.save_schedule(day, core.WEEKEND, core.default_weekend_slots(),
+                           {0: (people["Yaw Adjei"], None)}, {}, names)
+    core.mark_event_week("2026-10-17", "convention")
+    rows = core.get_schedules()
+    weekends = [(d, core.WEEKEND) for d in sorted(set(rows["meeting_date"]))]
+    text = _text(core.generate_schedule_pdf(weekends, rows, core.TRANSLATIONS["Ga"]))
+    flat = text.replace("\n", " ")
+    assert "Kpokpaa wulu Nɔ Kpee Otsi" in flat and "Convention Week" not in flat
+    english = _text(core.generate_schedule_pdf(weekends, rows)).replace("\n", " ")
+    assert "Convention Week" in english and "Kpokpaa" not in english
+    days = [flat.index(f"Oct {n}") for n in (3, 10, 18, 24, 31)]
+    assert days == sorted(days)                    # in its place, between the 10th and 24th
+
+    week = core.week_overview_text(rows, "2026-10-14")
+    assert week == ("*Meeting assignments — Week 2 of October (12–18 Oct)*\n\n"
+                    "Convention Week")
+    assert core.week_overview_text(rows, "2026-10-14", "Ga").endswith(
+        "\n\nKpokpaa wulu Nɔ Kpee Otsi")

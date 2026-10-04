@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Postgres storage: participants, schedules, settings."""
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import json
 import os
 import re
@@ -12,12 +12,16 @@ import psycopg
 import streamlit as st
 
 from constants import (
+    EVENT_KINDS,
+    EVENT_NAMES,
     GROUPS,
     MAIN_HALL,
     NO_FAMILY,
     REMOVED_ROLES,
     SAME_ROLE_GAP_DAYS,
     STUDENT_ROLES,
+    TRANSLATIONS,
+    WEEKEND,
 )
 from utils import (
     default_section,
@@ -29,6 +33,7 @@ from utils import (
     slot_label,
     slot_match_key,
     visitor_allowed,
+    week_start,
 )
 
 # =============================================================================
@@ -280,6 +285,15 @@ def ensure_db():
     _schema_ready(schema(), schema_fingerprint())
 
 
+def is_retired(role, meeting_type, part_name):
+    """Rows the app no longer keeps: roles it doesn't schedule any more, and
+    the weekend's separate closing prayer — the public talk speaker says it."""
+    if role in REMOVED_ROLES:
+        return True
+    return (meeting_type == WEEKEND and role == "Prayer"
+            and str(part_name or "").strip().lower().startswith("closing"))
+
+
 def init_db():
     with get_conn() as conn:
         conn.execute(f"CREATE SCHEMA IF NOT EXISTS {schema()}")
@@ -399,10 +413,18 @@ def init_db():
                 talk_number TEXT,
                 UNIQUE (student_id, meeting_date)
             )""")
+        # assembly or convention, for the label each week shows; weeks
+        # recorded before the kind existed are read from their note
+        conn.execute("ALTER TABLE no_meeting_periods ADD COLUMN IF NOT EXISTS kind TEXT")
+        conn.execute("""UPDATE no_meeting_periods SET kind = 'convention'
+                        WHERE kind IS NULL AND LOWER(note) LIKE '%%convention%%'""")
+        conn.execute("UPDATE no_meeting_periods SET kind = 'assembly' WHERE kind IS NULL")
         conn.execute("UPDATE schedules SET hall = 'main_hall' WHERE hall IS NULL")
         conn.execute("UPDATE students SET active = 1 WHERE active IS NULL")
         # roles no longer scheduled: their assignments and privileges go, so
         # an old weekend never reopens with a part the app no longer has
+        conn.execute("""DELETE FROM schedules WHERE meeting_type = ? AND role = 'Prayer'
+                        AND LOWER(TRIM(part_name)) LIKE 'closing%%'""", (WEEKEND,))
         for role in REMOVED_ROLES:
             conn.execute("DELETE FROM schedules WHERE role = ?", (role,))
             for sid, privileges in conn.execute(
@@ -880,8 +902,8 @@ def undo_last(meeting_date, meeting_type):
         conn.execute("DELETE FROM meetings WHERE meeting_date = ? AND meeting_type = ?",
                      (str(meeting_date), meeting_type))
         for r in data["schedules"]:
-            if r.get("role") in REMOVED_ROLES:      # saved before it was removed
-                continue
+            if is_retired(r.get("role"), r.get("meeting_type"), r.get("part_name")):
+                continue                             # saved before it was removed
             keep = {k: v for k, v in r.items() if k != "id"}
             conn.execute(
                 f"INSERT INTO schedules ({qcols(keep)}) "
@@ -891,7 +913,9 @@ def undo_last(meeting_date, meeting_type):
             conn.execute(
                 f"INSERT INTO meetings ({qcols(keep)}) "
                 f"VALUES ({', '.join('?' for _ in keep)})", list(keep.values()))
-    restored = sum(1 for r in data["schedules"] if r.get("role") not in REMOVED_ROLES)
+    restored = sum(1 for r in data["schedules"]
+                   if not is_retired(r.get("role"), r.get("meeting_type"),
+                                     r.get("part_name")))
     _forget_schedules()
     log_change("Save undone", f"{meeting_type} {meeting_date}: {restored} row(s) put back")
     return restored
@@ -1260,7 +1284,7 @@ def set_unavailable(student_id, dates):
 def _no_meeting_periods(schema_name):
     with get_conn() as conn:
         return conn.execute(
-            "SELECT id, start_date, end_date, note FROM no_meeting_periods "
+            "SELECT id, start_date, end_date, note, kind FROM no_meeting_periods "
             "ORDER BY start_date").fetchall()
 
 
@@ -1269,24 +1293,99 @@ def _forget_no_meeting():
 
 
 def get_no_meeting_periods():
-    """[(id, start, end, note), ...], soonest first."""
+    """[(id, start, end, note, kind), ...], soonest first. kind is
+    "assembly" or "convention"."""
     return _no_meeting_periods(schema())
 
 
 def is_no_meeting(meeting_date):
-    """True if this date falls inside an assembly/convention period."""
+    """True if this date falls in an assembly or convention week."""
+    return event_for(meeting_date) is not None
+
+
+def event_for(meeting_date):
+    """"assembly" or "convention" if this date falls in such a week, else None."""
     d = str(meeting_date)
-    return any(start <= d <= end for _, start, end, _ in get_no_meeting_periods())
+    for _, start, end, _, kind in get_no_meeting_periods():
+        if start <= d <= end:
+            return kind if kind in EVENT_KINDS else "assembly"
+    return None
 
 
-def add_no_meeting_period(start, end, note=""):
+def event_text(kind, language="English"):
+    """"Assembly Week" / "Kpokpaa Nɔ Kpee Otsi", and so on, in one language."""
+    strings = TRANSLATIONS.get(language, TRANSLATIONS["English"])
+    return strings[f"event_{kind if kind in EVENT_KINDS else 'assembly'}"]
+
+
+def event_label(meeting_date, language="English"):
+    """The label for an assembly or convention week, in that language; else
+    None. The app's own pages are in English; printouts and messages use
+    the slip language."""
+    kind = event_for(meeting_date)
+    return event_text(kind, language) if kind else None
+
+
+def event_weeks():
+    """{Monday (ISO): kind} for every week marked as an assembly or
+    convention, whatever its recorded range."""
+    out = {}
+    for _, start, end, _, kind in get_no_meeting_periods():
+        day = datetime.strptime(start, "%Y-%m-%d").date()
+        last = datetime.strptime(end, "%Y-%m-%d").date()
+        while day <= last:
+            out.setdefault(week_start(day).isoformat(),
+                           kind if kind in EVENT_KINDS else "assembly")
+            day += timedelta(days=7 - day.weekday())
+    return out
+
+
+def meetings_in_week(day):
+    """[(date, type)] saved for the Monday–Sunday week holding this day."""
+    monday = week_start(day)
+    sunday = (monday + timedelta(days=6)).isoformat()
+    return sorted((d, t) for d, t in saved_meetings(get_schedules())
+                  if monday.isoformat() <= d <= sunday)
+
+
+def mark_event_week(day, kind):
+    """Mark the week holding this day as an assembly or convention week.
+
+    The whole Monday–Sunday week is recorded (replacing any earlier record
+    for it), and every meeting already saved in that week is deleted — there
+    is no regular meeting that week. Each deletion is snapshotted first, so
+    any of them can be undone from the schedule page. Returns the meetings
+    that were cleared.
+    """
+    if kind not in EVENT_KINDS:
+        raise ValueError(f"Unknown kind of week: {kind!r}")
+    monday = week_start(day)
+    sunday = monday + timedelta(days=6)
+    cleared = meetings_in_week(monday)
+    for meeting_date, meeting_type in cleared:
+        delete_schedule(meeting_date, meeting_type)
+    with get_conn() as conn:
+        conn.execute("DELETE FROM no_meeting_periods WHERE start_date >= ? "
+                     "AND end_date <= ?", (monday.isoformat(), sunday.isoformat()))
+        conn.execute(
+            "INSERT INTO no_meeting_periods (start_date, end_date, note, kind) "
+            "VALUES (?, ?, ?, ?)",
+            (monday.isoformat(), sunday.isoformat(), EVENT_NAMES[kind], kind))
+    _forget_no_meeting()
+    log_change(f"{EVENT_NAMES[kind]} week marked",
+               f"{monday} to {sunday}"
+               + (f"; {len(cleared)} meeting(s) cleared" if cleared else ""))
+    return cleared
+
+
+def add_no_meeting_period(start, end, note="", kind="assembly"):
     start, end = str(start), str(end)
     if end < start:
         start, end = end, start
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO no_meeting_periods (start_date, end_date, note) "
-            "VALUES (?, ?, ?)", (start, end, nfc(note)))
+            "INSERT INTO no_meeting_periods (start_date, end_date, note, kind) "
+            "VALUES (?, ?, ?, ?)", (start, end, nfc(note), kind))
     _forget_no_meeting()
     log_change("No-meeting period added",
               f"{start} to {end}" + (f": {note}" if note else ""))
@@ -1296,7 +1395,7 @@ def delete_no_meeting_period(period_id):
     with get_conn() as conn:
         conn.execute("DELETE FROM no_meeting_periods WHERE id = ?", (period_id,))
     _forget_no_meeting()
-    log_change("No-meeting period removed", f"id {period_id}")
+    log_change("Assembly/convention week removed", f"id {period_id}")
 
 
 # =============================================================================

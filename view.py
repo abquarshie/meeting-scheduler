@@ -11,6 +11,7 @@ import streamlit as st
 
 from constants import MAIN_HALL, MIDWEEK, WEEKEND
 from db import (
+    event_weeks,
     get_meeting_meta,
     get_schedules,
     get_setting,
@@ -82,7 +83,7 @@ def render(students_df, t, selected_lang, aux_default):
     with tab_export:
         s140_and_csv(meetings, schedules_df, t, selected_lang, month)
     with tab_messages:
-        weekly_messages(meetings, schedules_df)
+        weekly_messages(meetings, schedules_df, selected_lang)
         st.divider()
         monthly_messages(meetings, schedules_df, students_df, month)
 
@@ -248,13 +249,15 @@ def s140_download(meetings, schedules_df, t, template, s140_month):
 
 
 # ------------------------------------------------------------------ messages
-def weekly_messages(meetings, schedules_df):
+def weekly_messages(meetings, schedules_df, language="English"):
     """Every assignment in one meeting week, in a single message to copy."""
     st.subheader("Weekly assignments")
     st.caption("Pick a week: every part in it, midweek and weekend, in one "
                "message — copy it and send it yourself. A part with nobody "
                "yet shows —.")
-    weeks = sorted({week_start(d).isoformat() for d, _ in meetings})
+    # assembly and convention weeks have no saved meetings but are listed too
+    weeks = sorted({week_start(d).isoformat() for d, _ in meetings}
+                   | set(event_weeks()))
     this_week = week_start(date.today()).isoformat()
     ahead = [w for w in weeks if w >= this_week]
     week = st.selectbox(
@@ -264,7 +267,8 @@ def weekly_messages(meetings, schedules_df):
             f" · {relative_week(w, this_week)}"
             if relative_week(w, this_week) in ("this week", "last week", "next week")
             else ""))
-    st.code(week_overview_text(schedules_df, week), language=None, wrap_lines=True)
+    st.code(week_overview_text(schedules_df, week, language), language=None,
+            wrap_lines=True)
     st.caption("The copy button is at the top right of the message.")
 
 

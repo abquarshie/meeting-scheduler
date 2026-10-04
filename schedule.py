@@ -17,6 +17,7 @@ from constants import (
 from db import (
     apply_ga_substitutes,
     delete_schedule,
+    event_label,
     get_meeting_meta,
     get_outgoing_on,
     get_schedules,
@@ -38,6 +39,7 @@ from db import (
 )
 from parts import (
     FIRST_SPEAKER,
+    TALK_AND_PRAYER,
     apply_symposium,
     build_midweek_slots,
     default_midweek_parts,
@@ -97,6 +99,20 @@ def render(students_df, t, selected_lang, aux_default):
     st.caption(f":material/date_range: **{week_label(meeting_date)}**"
                + (f" · {when}" if when in ("this week", "last week", "next week")
                   else ""))
+
+    # an assembly or convention week has no regular meeting to schedule
+    special = event_label(meeting_date)
+    if special:
+        with st.container(border=True):
+            st.markdown(f"### {special}")
+            st.caption(f"In Ga: {event_label(meeting_date, 'Ga')}")
+            st.write("This week is marked as an assembly or convention week, so "
+                     "there is no midweek or weekend meeting to schedule.")
+            st.caption("To schedule it after all, remove the mark under "
+                       "Admin → Settings → Assemblies & conventions. A meeting "
+                       "cleared when the week was marked can then be brought "
+                       "back with Undo on this page.")
+        return
 
     saved_slots, saved_picks, saved_visitors, saved_visitor_congs = load_schedule(
         meeting_date, meeting_type, schedules_df)
@@ -380,19 +396,20 @@ def render(students_df, t, selected_lang, aux_default):
             pre_sid, pre_aid = suggested[i]
         wkey = f"{ns}|{slot['hall']}|{slot['role']}|{slot['part_no']}|{slot['title']}"
         text = slot_label(slot)
-        if symposium and slot["title"] == FIRST_SPEAKER:
-            text = f"{FIRST_SPEAKER} 1"
+        if slot["title"] == FIRST_SPEAKER:
+            # the speaker says the closing prayer too; in a symposium, the first
+            text = (f"{FIRST_SPEAKER} 1 · says the Closing Prayer" if symposium
+                    else TALK_AND_PRAYER)
         if aux_on and slot["student_part"] and slot["hall"] == MAIN_HALL:
             text += " · Main hall"
 
-        # a visitor from another congregation is typed by hand, not chosen from
-        # the list — the public talk speaker, or a guest saying the closing prayer
+        # a visiting speaker is typed by hand, not chosen from the list; he
+        # says the closing prayer too
         if visitor_ok_for(slot):
             vkey = f"{wkey}|visitor"
             saved_visitor = saved_visitors.get(slot_match_key(slot), "")
             is_talk = slot["role"] == "Public Talk"
-            label = ("Visiting speaker (another congregation)" if is_talk
-                     else "Said by a visitor (another congregation)")
+            label = "Visiting speaker (another congregation)"
             is_visitor = st.checkbox(label, value=bool(saved_visitor),
                                      key=f"{wkey}|isvis")
             if is_visitor:

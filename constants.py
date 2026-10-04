@@ -42,6 +42,11 @@ PRIVILEGES = [
 # so the two lists are one. Every part is for brothers only, apart from these.
 ROLES = PRIVILEGES
 SISTER_ROLES = {"Initial Presentation", "Making Disciples", "Explaining Beliefs"}
+# Weeks with no regular meetings. Each shows a label wherever the week
+# appears, in the language of the page or printout: TRANSLATIONS["event_…"].
+EVENT_KINDS = ("assembly", "convention")
+EVENT_NAMES = {"assembly": "Circuit Assembly", "convention": "Convention"}
+
 # Roles the app no longer schedules. Saved assignments and privileges naming
 # them are cleared at start-up (db.init_db), after a restore, and on undo.
 REMOVED_ROLES = ("Watchtower Conductor",)
@@ -175,6 +180,8 @@ TRANSLATIONS = {
         "aux_2": "Auxiliary classroom 2",
         "midweek_meeting": "Midweek Meeting",
         "weekend_meeting": "Weekend Meeting",
+        "event_assembly": "Assembly Week",
+        "event_convention": "Convention Week",
     },
     "Ga": {
         "main_hall": "Asa 1",
@@ -182,6 +189,8 @@ TRANSLATIONS = {
         "aux_2": "Asa 3",
         "midweek_meeting": "Wɔshiɛmɔ Kɛ Wɔshihilɛ Kpee",
         "weekend_meeting": "Otsi Naagbee Kpee",
+        "event_assembly": "Kpokpaa Nɔ Kpee Otsi",
+        "event_convention": "Kpokpaa wulu Nɔ Kpee Otsi",
     },
 }
 TRANSLATIONS = {

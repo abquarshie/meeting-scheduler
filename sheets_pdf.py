@@ -44,8 +44,20 @@ from constants import (
     TRANSLATIONS,
     WEEKEND,
 )
-from db import get_meeting_meta, get_setting, get_talks, talk_label, talk_text
+from db import (
+    event_for,
+    event_label,
+    event_text,
+    event_weeks,
+    get_meeting_meta,
+    get_setting,
+    get_talks,
+    talk_label,
+    talk_text,
+)
+from parts import SECOND_SPEAKER, TALK_AND_PRAYER
 from utils import fmt_date, week_label, week_start
+from workbook import meeting_day
 
 # =============================================================================
 # PDF OUTPUT
@@ -484,14 +496,12 @@ def weekend_schedule_pdf(meetings, schedules_df, lang=None):
 
     Laid out like the talk schedule the congregation posts: date · chairman ·
     opening prayer · the public talk (theme, speaker) · the Watchtower Study
-    (reader). The closing prayer and the Watchtower conductor are left off:
-    they are the same few brothers week after week and nobody looks them up
-    on the board. Both are still kept on the schedule itself.
+    (reader). There is no closing prayer column: the speaker says it.
     """
     lang = lang or TRANSLATIONS["English"]
     words = GA_WORDS if _lang_name(lang) == "Ga" else EN_WORDS
     regular, bold, _ = register_fonts()
-    meetings = sorted(m for m in meetings if m[1] != MIDWEEK)
+    meetings = with_event_weekends(m for m in meetings if m[1] != MIDWEEK)
 
     def style(name, size, font=regular, colour=colors.black, **kw):
         return ParagraphStyle(name, fontName=font, fontSize=size,
@@ -504,6 +514,7 @@ def weekend_schedule_pdf(meetings, schedules_df, lang=None):
         "group": style("wk_group", 8, regular, WEEKEND_GREY),
         "date": style("wk_date", 10, bold, WEEKEND_INK),
         "cell": style("wk_cell", 10),
+        "event": style("wk_event", 10, bold, WEEKEND_INK),
         "made": style("wk_made", 7.5, regular, WEEKEND_GREY, alignment=TA_RIGHT),
     }
     page = landscape(A4)
@@ -526,7 +537,8 @@ def weekend_schedule_pdf(meetings, schedules_df, lang=None):
                       Spacer(1, 2)]
         story += [Paragraph(xml_escape(words["weekend_schedule"]), st_["title"]),
                   Spacer(1, 12),
-                  _weekend_table(on_sheet, schedules_df, words, st_, width),
+                  _weekend_table(on_sheet, schedules_df, words, st_, width,
+                                 _lang_name(lang)),
                   Spacer(1, 8),
                   Paragraph(xml_escape(made), st_["made"])]
 
@@ -536,7 +548,25 @@ def weekend_schedule_pdf(meetings, schedules_df, lang=None):
     return buffer.getvalue()
 
 
-def _weekend_table(meetings, schedules_df, words, st_, width):
+EVENT = "event:"     # the meeting type given to an assembly/convention weekend
+
+
+def with_event_weekends(meetings):
+    """The weekend meetings plus, in date order, the weekend of every
+    assembly or convention week falling in the same months — as
+    (date, "event:assembly") — so the week reads as its label rather than
+    simply missing. A meeting saved inside such a week is left out."""
+    meetings = [m for m in meetings if not event_for(m[0])]
+    months = {d[:7] for d, _ in meetings}
+    offset = timedelta(days=meeting_day(WEEKEND))
+    for monday, kind in event_weeks().items():
+        day = (datetime.strptime(monday, "%Y-%m-%d").date() + offset).isoformat()
+        if day[:7] in months:
+            meetings.append((day, EVENT + kind))
+    return sorted(meetings)
+
+
+def _weekend_table(meetings, schedules_df, words, st_, width, language="English"):
     """One sheet's table: the column headings once, then a row per meeting,
     with a divider where a new month begins."""
     def p(text, style_):
@@ -559,8 +589,20 @@ def _weekend_table(meetings, schedules_df, words, st_, width):
     def is_closing(r):
         return clean_value(r.part_name).lower().startswith("closing")
 
-    month_starts, last_month = [], None
+    month_starts, last_month, event_rows = [], None, []
     for meeting_date, meeting_type in meetings:
+        if meeting_type.startswith(EVENT):
+            # an assembly or convention weekend: its label across the row
+            if last_month and meeting_date[:7] != last_month:
+                month_starts.append(len(data))
+            last_month = meeting_date[:7]
+            day = datetime.strptime(meeting_date, "%Y-%m-%d").date()
+            event_rows.append(len(data))
+            data.append([p(f"{day:%b} {day.day}", st_["date"]),
+                         p(event_text(meeting_type[len(EVENT):], language),
+                           st_["event"]),
+                         "", "", "", ""])
+            continue
         rows = schedules_df[(schedules_df["meeting_date"] == meeting_date)
                             & (schedules_df["meeting_type"] == meeting_type)]
         if rows.empty:
@@ -609,6 +651,7 @@ def _weekend_table(meetings, schedules_df, words, st_, width):
         ]
     table.setStyle(TableStyle([
         ("SPAN", (0, 0), (0, 1)), ("SPAN", (1, 0), (1, 1)), ("SPAN", (2, 0), (2, 1)),
+    ] + [("SPAN", (1, i), (-1, i)) for i in event_rows] + [
         ("SPAN", (3, 0), (4, 0)),
         ("VALIGN", (0, 0), (-1, 1), "BOTTOM"),
         ("VALIGN", (0, 2), (-1, -1), "MIDDLE"),
@@ -704,9 +747,12 @@ def co_speakers(schedules_df, meeting_date, meeting_type, person):
 
 def _part_title(r):
     """How a schedule row's part reads in a message: "5. Making Disciples
-    (4 min)", "Chairman", "Public Talk" (one talk, whichever speaker)."""
+    (4 min)", "Chairman", "Public Talk & Closing Prayer" — the speaker says
+    the closing prayer; in a symposium the first speaker does, and the second
+    has the talk alone (never "…Speaker 2")."""
     if r.role == "Public Talk":
-        return "Public Talk"              # not "…Speaker 2" in a symposium
+        return ("Public Talk" if clean_value(r.part_name) == SECOND_SPEAKER
+                else TALK_AND_PRAYER)
     title = clean_value(r.part_name) or clean_value(r.role)
     minutes = int(r.minutes) if pd.notna(r.minutes) else None
     if minutes and "min" not in title.lower():
@@ -815,16 +861,19 @@ def whatsapp_month_text(person, gender, month, items):
     return _personal_message(person, gender, month_name, items)
 
 
-def week_overview_text(schedules_df, week_of):
+def week_overview_text(schedules_df, week_of, language="English"):
     """Every assignment in the meeting week (Monday to Sunday), meeting by
     meeting, as the one message sent for that week. A part nobody has yet
     shows "—"."""
     monday = week_start(week_of)
+    lines = [f"*Meeting assignments — {week_label(week_of)}*"]
+    special = event_label(monday, language)   # in the slip language
+    if special:              # an assembly or convention week: no meetings to list
+        return "\n".join(lines + ["", special])
     dates = schedules_df["meeting_date"].astype(str)
     rows = schedules_df[(dates >= monday.isoformat())
                         & (dates <= (monday + timedelta(days=6)).isoformat())]
     rows = rows.sort_values(["meeting_date", "meeting_type", "sort_order"])
-    lines = [f"*Meeting assignments — {week_label(week_of)}*"]
     for (meeting_date, meeting_type), meeting in rows.groupby(
             ["meeting_date", "meeting_type"], sort=False):
         lines += ["", _meeting_heading(str(meeting_date), meeting_type)]
@@ -838,8 +887,15 @@ def week_overview_text(schedules_df, week_of):
                 who = " & ".join(clean_value(p) for p in speakers["person"]
                                  if clean_value(p)) or UNFILLED
                 talk = talk_text(get_meeting_meta(str(meeting_date), meeting_type))
-                lines.append("• Public Talk" + (f" — {talk}" if talk else "")
-                             + f": {who}")
+                if len(speakers) > 1:
+                    # a symposium: both give the talk, the first says the prayer
+                    first = clean_value(speakers.iloc[0]["person"]) or UNFILLED
+                    lines.append("• Public Talk" + (f" — {talk}" if talk else "")
+                                 + f": {who}")
+                    lines.append(f"• Closing Prayer: {first}")
+                else:
+                    lines.append(f"• {TALK_AND_PRAYER}"
+                                 + (f" — {talk}" if talk else "") + f": {who}")
                 continue
             hall = r.hall if isinstance(r.hall, str) else MAIN_HALL
             part = _part_title(r)

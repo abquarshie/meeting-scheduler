@@ -133,14 +133,9 @@ def default_section(role, meeting_type=MIDWEEK):
 
 def visitor_allowed(role, title, section=None):
     """Parts a visitor from another congregation may take, typed by hand
-    instead of picked from the congregation's list: the public talk, and the
-    weekend closing prayer, which a visiting speaker is often asked to say.
-    The midweek closing prayer is always a local brother."""
-    if role == "Public Talk":
-        return True
-    if role != "Prayer" or section != "Weekend":
-        return False
-    return nfc(title).lower().startswith("closing")
+    instead of picked from the congregation's list: the public talk (with the
+    closing prayer that goes with it). Every other part is a local brother."""
+    return role == "Public Talk"
 
 
 def make_slot(title, role, section, part_no=None, minutes=None, hall=MAIN_HALL):

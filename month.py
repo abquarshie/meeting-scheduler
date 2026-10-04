@@ -8,7 +8,8 @@ import streamlit as st
 
 from constants import MAIN_HALL, MIDWEEK
 from db import (
-    add_no_meeting_period,
+    event_label,
+    event_text,
     fill_counts,
     get_meeting_meta,
     get_no_meeting_periods,
@@ -17,7 +18,7 @@ from db import (
     talk_text,
 )
 from picking import create_week
-from ui import go, page_header
+from ui import go, mark_event_week_form, page_header
 from utils import fmt_date, nfc
 from workbook import load_workbook, midweek_workbook_weeks
 
@@ -60,7 +61,7 @@ def render(students_df, t, selected_lang, aux_default):
         if status == "no meeting":
             rows.append({"Date": fmt_date(md), "Meeting": MIDWEEK, "Filled": None,
                          "Open slots": None, "Aux. classroom": "",
-                         "Heading": f"{label} · no meeting (assembly/convention)"})
+                         "Heading": f"{label} · {event_label(md)}"})
             continue
         to_create.append((md, label))
         rows.append({"Date": fmt_date(md), "Meeting": MIDWEEK, "Filled": None,
@@ -73,7 +74,7 @@ def render(students_df, t, selected_lang, aux_default):
     month_start = f"{month}-01"
     month_end = f"{month}-{calendar.monthrange(y_, m_)[1]:02d}"
     shown = {r["Date"] for r in rows}
-    for _pid, start, end, note in get_no_meeting_periods():
+    for _pid, start, end, _note, kind in get_no_meeting_periods():
         if start > month_end or end < month_start:
             continue
         label = fmt_date(start)
@@ -82,7 +83,7 @@ def render(students_df, t, selected_lang, aux_default):
         span = "" if start == end else f" – {fmt_date(end)}"
         rows.append({"Date": label, "Meeting": "—", "Filled": None,
                      "Open slots": None, "Aux. classroom": "",
-                     "Heading": (note or "Assembly / Convention") + span})
+                     "Heading": event_text(kind) + span})
 
     if not rows:
         st.info("Nothing scheduled this month yet.")
@@ -139,20 +140,9 @@ def render(students_df, t, selected_lang, aux_default):
                    new_meeting_type=MIDWEEK,
                    new_meeting_date=datetime.strptime(md, "%Y-%m-%d").date())
 
-        with st.expander("One of these is an assembly or convention, not a "
-                         "meeting to create?"):
-            options = [f"{fmt_date(md, short=True)} — {label}" for md, label in to_create]
-            picked = st.multiselect("Mark as no meeting", options,
-                                    key="mark_no_meeting")
-            note = st.text_input("Note", placeholder="e.g. Circuit Assembly",
-                                 key="mark_no_meeting_note")
-            if st.button("Mark selected", disabled=not picked):
-                for p in picked:
-                    md, _ = to_create[options.index(p)]
-                    add_no_meeting_period(md, md, note)
-                st.success(f"Marked {len(picked)} week(s). More options for the "
-                          "date range are under Admin → Settings.")
-                st.rerun()
+        with st.expander("Is one of these an assembly or convention week?"):
+            mark_event_week_form(
+                "month", datetime.strptime(to_create[0][0], "%Y-%m-%d").date())
 
     st.divider()
     if st.button("Print this month", icon=":material/print:"):
