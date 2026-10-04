@@ -481,18 +481,16 @@ WEEKEND_GREY_HEX = "#6B7280"
 WEEKEND_GREY = colors.HexColor(WEEKEND_GREY_HEX)
 
 
-# Months printed on each weekend sheet. Two months of weekends (8–10 rows)
-# sit comfortably on a landscape A4 at full size, so nothing is shrunk.
-WEEKEND_MONTHS_PER_SHEET = 2
-
-
 def weekend_schedule_pdf(meetings, schedules_df, lang=None):
-    """The weekend meetings as landscape sheets, a row per meeting, two months
-    to a sheet: four months make two sheets, five make three (2 + 2 + 1).
+    """The weekend meetings as one continuous landscape document, a row per
+    meeting, however many months they span.
 
-    Each sheet has one header — the congregation, the title and the column
-    headings — and a firm line with extra space where its second month
-    begins. Text and spacing are the same whatever the number of months.
+    There is one header, at the very top — the congregation, the title and
+    the column headings — and the rows then run on down the pages until the
+    schedule ends, with nothing repeated or restarted at a page break. A firm
+    line with extra space marks where each new month begins. A row is never
+    split across two pages. Text and spacing are the same whatever the
+    number of months.
 
     Laid out like the talk schedule the congregation posts: date · chairman ·
     opening prayer · the public talk (theme, speaker) · the Watchtower Study
@@ -520,27 +518,20 @@ def weekend_schedule_pdf(meetings, schedules_df, lang=None):
     page = landscape(A4)
     width = page[0] - 72
 
-    months = sorted({d[:7] for d, _ in meetings})
-    sheets = [months[i:i + WEEKEND_MONTHS_PER_SHEET]
-              for i in range(0, len(months), WEEKEND_MONTHS_PER_SHEET)] or [[]]
     congregation = get_setting("congregation", "")
     made = f"Prepared {fmt_date(date.today().isoformat())}"
 
+    # the one header, then one table that flows on across the pages
     story = []
-    for n, sheet_months in enumerate(sheets):
-        if n:
-            story.append(PageBreak())
-        on_sheet = [m for m in meetings if m[0][:7] in sheet_months]
-        # the one header for this sheet
-        if congregation:
-            story += [Paragraph(xml_escape(congregation.upper()), st_["cong"]),
-                      Spacer(1, 2)]
-        story += [Paragraph(xml_escape(words["weekend_schedule"]), st_["title"]),
-                  Spacer(1, 12),
-                  _weekend_table(on_sheet, schedules_df, words, st_, width,
-                                 _lang_name(lang)),
-                  Spacer(1, 8),
-                  Paragraph(xml_escape(made), st_["made"])]
+    if congregation:
+        story += [Paragraph(xml_escape(congregation.upper()), st_["cong"]),
+                  Spacer(1, 2)]
+    story += [Paragraph(xml_escape(words["weekend_schedule"]), st_["title"]),
+              Spacer(1, 12),
+              _weekend_table(meetings, schedules_df, words, st_, width,
+                             _lang_name(lang)),
+              Spacer(1, 8),
+              Paragraph(xml_escape(made), st_["made"])]
 
     buffer = io.BytesIO()
     SimpleDocTemplate(buffer, pagesize=page, rightMargin=36, leftMargin=36,
@@ -567,8 +558,8 @@ def with_event_weekends(meetings):
 
 
 def _weekend_table(meetings, schedules_df, words, st_, width, language="English"):
-    """One sheet's table: the column headings once, then a row per meeting,
-    with a divider where a new month begins."""
+    """The schedule's table: the column headings once, at the top, then a row
+    per meeting, with a divider where a new month begins."""
     def p(text, style_):
         return Paragraph(xml_escape(text), style_)
 
@@ -623,7 +614,7 @@ def _weekend_table(meetings, schedules_df, words, st_, width, language="English"
                         f'({xml_escape(words["guest_speaker"])})</font>')
 
         if last_month and meeting_date[:7] != last_month:
-            month_starts.append(len(data))      # the second month begins here
+            month_starts.append(len(data))      # a new month begins here
         last_month = meeting_date[:7]
         data.append([
             p(f"{day:%b} {day.day}", st_["date"]),
@@ -640,7 +631,7 @@ def _weekend_table(meetings, schedules_df, words, st_, width, language="English"
     # five-weekend months share a sheet at full size
     grid = [1100, 2050, 2050, 5300, 2800, 2100]     # date fits "May 31" on one line
     table = Table(data, colWidths=[width * g / sum(grid) for g in grid],
-                  repeatRows=2)
+                  repeatRows=0)          # headings once, at the very top
     divider = []
     for i in month_starts:
         divider += [

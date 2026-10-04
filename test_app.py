@@ -510,8 +510,7 @@ def test_reopening_a_saved_week_and_saving_again_flags_nobody(people, core):
 
 
 def test_weekend_months_on_the_printing_page(people, core):
-    """Pick the months for the weekend schedule; the page says how many
-    sheets that makes, two months to a sheet."""
+    """Pick the months for the weekend schedule; they print as one list."""
     names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
     for d in ("2026-10-03", "2026-10-10", "2026-11-07", "2026-12-05"):
         slots = core.default_weekend_slots()
@@ -525,8 +524,8 @@ def test_weekend_months_on_the_printing_page(people, core):
 
     months.set_value(["2026-12", "2026-10", "2026-11"])
     run(at)
-    assert any("3 months → 2 sheets" in c.value for c in at.caption)
-    assert not at.radio or not any(r.label == "Weekend sheets" for r in at.radio)
+    assert not any("→" in c.value and "sheet" in c.value  # no "3 months → 2
+                   for c in at.caption)                   # sheets" note any more
     weekend = next(b for b in at.get("download_button") if "Weekend" in b.proto.label)
     assert "(4)" in weekend.proto.label                        # every picked weekend
 

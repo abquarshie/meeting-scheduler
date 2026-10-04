@@ -22,7 +22,6 @@ from db import (
 )
 from s140 import S140Error, fill_s140
 from sheets_pdf import (
-    WEEKEND_MONTHS_PER_SHEET,
     build_s140_data,
     generate_schedule_pdf,
     month_assignments_for,
@@ -147,7 +146,7 @@ def slips_and_sheets(chosen, rows, schedules_df, t, selected_lang, label_for_fil
                  "sheet — it is too tall to pair without shrinking it.")
     # The weekend schedule is a list for the noticeboard, often posted for
     # several months at once: its months are picked here, apart from the
-    # selection above, and print two to a sheet.
+    # selection above, and print as one continuous list under one header.
     weekend_file = label_for_file
     weekend_months = sorted({d[:7] for d, k in meetings if k == WEEKEND})
     if weekend_months:
@@ -157,13 +156,9 @@ def slips_and_sheets(chosen, rows, schedules_df, t, selected_lang, label_for_fil
             key=f"weekend_months|{month or label_for_file}",
             format_func=lambda ym: datetime.strptime(ym, "%Y-%m").strftime("%B %Y"),
             placeholder="Just the meeting chosen above",
-            help="Two months print on each sheet, at full size: four months "
-                 "make two sheets, in one file.")
+            help="The months print as one continuous list under a single "
+                 "header, running on to further pages as needed.")
         months_on_sheet = sorted(months_on_sheet)     # in the order clicked
-        if len(months_on_sheet) > 1:
-            n_sheets = -(-len(months_on_sheet) // WEEKEND_MONTHS_PER_SHEET)
-            st.caption(f"{len(months_on_sheet)} months → {n_sheets} sheet"
-                       f"{'s' if n_sheets > 1 else ''}, two months to a sheet.")
         if months_on_sheet:
             weekend = sorted(m for m in meetings
                              if m[1] == WEEKEND and m[0][:7] in months_on_sheet)

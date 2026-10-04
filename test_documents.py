@@ -870,27 +870,38 @@ def _month_days(page):
     return seen
 
 
-def test_weekend_months_print_two_to_a_sheet(core, people):
-    """Four months make two sheets and three make two (2 + 1), in date order,
-    each with one header — the title and the column headings once."""
-    rows_for = lambda n: (_weekends(core, people, _weekend_days(n)), core.get_schedules())
-    meetings, rows = rows_for(4)                        # October to January
+def test_weekend_months_flow_on_under_one_header(core, people):
+    """One continuous document: the title and the column headings once, at
+    the very top; every weekend in date order, running on across the pages
+    with nothing repeated at a break; "Prepared" once, at the end."""
+    meetings = _weekends(core, people, _weekend_days(4))   # October to January
+    rows = core.get_schedules()
     pages = _sheet_pages(core.generate_schedule_pdf(meetings, rows))
-    assert [_month_days(p) for p in pages] == [["Oct", "Nov"], ["Dec", "Jan"]]
-    for page in pages:
-        text = page.get_text()
-        assert text.count("Weekend Meeting Schedule") == 1      # one header each
-        assert text.count("Opening Prayer") == 1
-        assert page.rect.width > page.rect.height               # landscape
+    texts = [p.get_text() for p in pages]
+    assert len(pages) == 2                    # not a sheet per month, or per pair
 
-    three = [m for m in meetings if m[0] < "2027-01"]           # October–December
-    pages = _sheet_pages(core.generate_schedule_pdf(three, rows))
-    assert [_month_days(p) for p in pages] == [["Oct", "Nov"], ["Dec"]]
+    assert texts[0].count("Weekend Meeting Schedule") == 1
+    assert texts[0].count("Opening Prayer") == 1
+    for later in texts[1:]:                   # nothing restarted on later pages
+        assert "Weekend Meeting Schedule" not in later
+        assert "Opening Prayer" not in later and "Speaker" not in later
+    assert [t.count("Prepared") for t in texts] == [0] * (len(texts) - 1) + [1]
+
+    # every weekend once, in date order, straight across the page break
+    import re
+    from datetime import datetime
+    days = [d for t in texts for d in re.findall(r"^([A-Z][a-z]{2} \d{1,2})$", t, re.M)]
+    expected = [f"{datetime.strptime(d, '%Y-%m-%d'):%b} {int(d[-2:])}"
+                for d, _ in sorted(meetings)]
+    assert days == expected
+    # page 1 runs on into the next month rather than stopping at a month end
+    assert len(set(_month_days(pages[0]))) >= 2
+    assert all(p.rect.width > p.rect.height for p in pages)     # landscape
 
 
-def test_two_full_months_fit_one_sheet_at_full_size(core, people):
+def test_two_full_months_fit_one_page_at_full_size(core, people):
     """Nothing is shrunk: two five-weekend months, every row with the
-    longest title and two speakers, still fit one sheet with all text at its
+    longest title and two speakers, still fit one page with all text at its
     normal size and every date on one line."""
     long_title = ("Kwa Je Lɛŋ Yaka Yiŋsusumɔi Lɛ, Dii Maŋtsɛyeli Lɛ He Nibii "
                   "Ni Yɔɔ Diɛŋtsɛ Lɛ Asɛɛ")
