@@ -555,8 +555,8 @@ def test_dropdown_text_never_changes_with_what_is_picked(people, core):
 
 
 
-def test_weekly_reminders_on_the_messages_tab(people, core):
-    """Pick a week; each person with a part gets a message of their own."""
+def test_one_weekly_message_on_the_messages_tab(people, core):
+    """Pick a week; every assignment in it comes as one message."""
     from datetime import timedelta
     names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
     monday = date.today() - timedelta(days=date.today().weekday())
@@ -568,10 +568,9 @@ def test_weekly_reminders_on_the_messages_tab(people, core):
     at = app("Slips and printing")
     week = next(s for s in at.selectbox if s.label == "Week")
     assert week.value == monday.isoformat()                  # this week by default
-    messages = [c.value for c in at.code             # the weekly ones, not the
-                if c.value.startswith("Hello Brother")  # monthly message below
-                and "assignments for *Week" in c.value]
-    assert len(messages) == 2
-    assert any("Kofi Mensah" in m and "• Chairman" in m for m in messages)
-    assert any(c.value.startswith("*Meeting assignments") for c in at.code)
+    weekly = [c.value for c in at.code if c.value.startswith("*Meeting assignments")]
+    assert len(weekly) == 1                                # one message, not one each
+    assert "• Chairman: Kofi Mensah" in weekly[0]
+    assert "• Opening Prayer: Yaw Adjei" in weekly[0]
+    assert not any("assignments for *Week" in c.value for c in at.code)
     assert not any("Speaker reminders" in m.value for m in at.markdown)

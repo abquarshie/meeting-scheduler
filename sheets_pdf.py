@@ -757,24 +757,6 @@ def month_assignments_for(schedules_df, student_id, month):
                                f"{month}-31")
 
 
-def week_assignments_for(schedules_df, student_id, week_of):
-    """One person's parts in the meeting week (Monday to Sunday) holding
-    week_of, in meeting order."""
-    monday = week_start(week_of)
-    return assignments_between(schedules_df, student_id, monday.isoformat(),
-                               (monday + timedelta(days=6)).isoformat())
-
-
-def people_in_week(schedules_df, week_of):
-    """Everyone with a part (or assisting) in that meeting week, as ids."""
-    monday = week_start(week_of)
-    dates = schedules_df["meeting_date"].astype(str)
-    rows = schedules_df[(dates >= monday.isoformat())
-                        & (dates <= (monday + timedelta(days=6)).isoformat())]
-    ids = pd.concat([rows["student_id"], rows["assistant_id"]]).dropna()
-    return sorted({int(i) for i in ids})
-
-
 def _meeting_heading(meeting_date, meeting_type):
     """*Wednesday 14 October* · Midweek meeting — WhatsApp shows *text* bold.
 
@@ -833,16 +815,10 @@ def whatsapp_month_text(person, gender, month, items):
     return _personal_message(person, gender, month_name, items)
 
 
-def whatsapp_week_text(person, gender, week_of, items):
-    """A week of one person's assignments as a WhatsApp message, the week
-    named as it is everywhere in the app: "Week 2 of October (12–18 Oct)"."""
-    return _personal_message(person, gender, week_label(week_of), items)
-
-
 def week_overview_text(schedules_df, week_of):
-    """Every assignment in the meeting week, meeting by meeting, as one
-    message — for a group chat, or to check the week at a glance. A part
-    nobody has yet shows "—"."""
+    """Every assignment in the meeting week (Monday to Sunday), meeting by
+    meeting, as the one message sent for that week. A part nobody has yet
+    shows "—"."""
     monday = week_start(week_of)
     dates = schedules_df["meeting_date"].astype(str)
     rows = schedules_df[(dates >= monday.isoformat())

@@ -731,10 +731,8 @@ def test_symposium_prints_one_talk_line_with_both_speakers(core, people):
 
 def test_symposium_messages_and_checklist(core, people):
     rows = _symposium(core, people)
-    week = core.whatsapp_week_text(
-        "Kofi Mensah", "Brother", "2026-10-18",
-        core.week_assignments_for(rows, people["Kofi Mensah"], "2026-10-18"))
-    assert "• Public Talk — No. 12" in week and "shared with Nii Tetteh" in week
+    week = core.week_overview_text(rows, "2026-10-18")
+    assert "• Public Talk — No. 12 — “Rely on Jehovah”: Nii Tetteh & Kofi Mensah" in week
 
     items = core.month_assignments_for(rows, people["Kofi Mensah"], "2026-10")
     line = core.whatsapp_month_text("Kofi Mensah", "Brother", "2026-10", items)
@@ -949,45 +947,18 @@ def _week_of_meetings(core, people):
     return core.get_schedules()
 
 
-def test_weekly_reminder_covers_one_calendar_week(core, people):
-    """Midweek and weekend of the same Monday–Sunday week; the Sunday before
+def test_the_week_is_one_message_with_every_part(core, people):
+    """One message for the whole Monday–Sunday week: both meetings, every
+    part and who has it, assistants included, gaps marked. The Sunday before
     and the Wednesday after are other weeks and stay out."""
     rows = _week_of_meetings(core, people)
-    kofi = people["Kofi Mensah"]
-    items = core.week_assignments_for(rows, kofi, "2026-10-16")    # any day in it
-    assert [(i["meeting_date"], i["part"]) for i in items] == [
-        ("2026-10-14", "Chairman"), ("2026-10-18", "Closing Prayer")]
-
-    text = core.whatsapp_week_text("Kofi Mensah", "Brother", "2026-10-14", items)
-    assert text.startswith("Hello Brother Kofi Mensah! Here are your meeting "
-                           "assignments for *Week 2 of October (12–18 Oct)*:")
-    assert "*Wednesday 14 October* · Midweek meeting\n• Chairman" in text
-    assert "*Sunday 18 October* · Weekend meeting\n• Closing Prayer" in text
-    assert "11 October" not in text and "21 October" not in text
-    assert "That is 2 assignments" in text
-
-    # the assistant gets her own reminder, naming the student
-    ama = core.week_assignments_for(rows, people["Ama Owusu"], "2026-10-14")
-    ama_text = core.whatsapp_week_text("Ama Owusu", "Sister", "2026-10-14", ama)
-    assert "assisting Esi Mensah" in ama_text and "if you can't take it" in ama_text
-
-
-def test_weekly_reminder_goes_to_everyone_with_a_part_that_week(core, people):
-    rows = _week_of_meetings(core, people)
-    expected = {people[n] for n in ("Kofi Mensah", "Esi Mensah", "Ama Owusu",
-                                    "Yaw Adjei", "Nii Tetteh")}
-    assert set(core.people_in_week(rows, "2026-10-12")) == expected
-    assert core.people_in_week(rows, "2026-11-02") == []
-
-
-def test_week_overview_lists_every_part_with_gaps_marked(core, people):
-    rows = _week_of_meetings(core, people)
-    text = core.week_overview_text(rows, "2026-10-14")
+    text = core.week_overview_text(rows, "2026-10-16")        # any day in it
     assert text.startswith("*Meeting assignments — Week 2 of October (12–18 Oct)*")
     assert "• Chairman: Kofi Mensah" in text
     assert ": Esi Mensah & Ama Owusu" in text
     assert "• Public Talk — No. 12 — “Rely on Jehovah”: Nii Tetteh" in text
     assert "• Opening Prayer: —" in text                 # nobody yet
+    assert "• Closing Prayer: Kofi Mensah" in text       # the weekend's too
     assert text.index("Wednesday 14 October") < text.index("Sunday 18 October")
     assert "11 October" not in text and "Watchtower Conductor" not in text
     assert core.week_overview_text(rows, "2026-11-04").endswith(
