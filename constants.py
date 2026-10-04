@@ -36,13 +36,15 @@ PRIVILEGES = [
     "Aux Classroom Counselor",
     "Weekend Chairman",
     "Public Talk",
-    "Watchtower Conductor",
     "Watchtower Reader",
 ]
 # Each part (role) is taken by people holding the privilege of the same name,
 # so the two lists are one. Every part is for brothers only, apart from these.
 ROLES = PRIVILEGES
 SISTER_ROLES = {"Initial Presentation", "Making Disciples", "Explaining Beliefs"}
+# Roles the app no longer schedules. Saved assignments and privileges naming
+# them are cleared at start-up (db.init_db), after a restore, and on undo.
+REMOVED_ROLES = ("Watchtower Conductor",)
 STUDENT_ROLES = {
     "Bible Reading",
     "Initial Presentation",
@@ -90,7 +92,6 @@ ROLE_LABELS_GA = {
     "Chairman": "Sɛinɔtalɔ",
     "Weekend Chairman": "Sɛinɔtalɔ",
     "Reader": "Kanelɔ",
-    "Watchtower Conductor": "Buu Mɔɔ Nɔkwɛlɔ",
     "Watchtower Reader": "Kanelɔ",
     "Aux Classroom Counselor": "Ŋaawolɔ",
 }
@@ -128,7 +129,6 @@ ROLE_LABELS = {
     "Weekend Chairman": "Chairman",
     "Bible Study Conductor": "Conductor",
     "Reader": "Reader",
-    "Watchtower Conductor": "Conductor",
     "Watchtower Reader": "Reader",
     "Aux Classroom Counselor": "Auxiliary Classroom Counselor",
 }

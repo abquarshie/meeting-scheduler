@@ -729,19 +729,12 @@ def test_symposium_prints_one_talk_line_with_both_speakers(core, people):
     assert text.count("Public Talk") == 1              # one talk, not two
 
 
-def test_symposium_reminders_messages_and_checklist(core, people, monkeypatch):
-    import sheets_pdf
+def test_symposium_messages_and_checklist(core, people):
     rows = _symposium(core, people)
-
-    class Early(sheets_pdf.date):
-        @classmethod
-        def today(cls):
-            return cls(2026, 10, 1)
-    monkeypatch.setattr(sheets_pdf, "date", Early)
-    reminders = {c["person"]: c for c in core.upcoming_talk_reminders(rows)}
-    assert set(reminders) == {"Nii Tetteh", "Kofi Mensah"}
-    text = core.whatsapp_reminder_text(reminders["Kofi Mensah"])
-    assert "you share the Public Talk" in text and "with Brother Nii Tetteh" in text
+    week = core.whatsapp_week_text(
+        "Kofi Mensah", "Brother", "2026-10-18",
+        core.week_assignments_for(rows, people["Kofi Mensah"], "2026-10-18"))
+    assert "• Public Talk — No. 12" in week and "shared with Nii Tetteh" in week
 
     items = core.month_assignments_for(rows, people["Kofi Mensah"], "2026-10")
     line = core.whatsapp_month_text("Kofi Mensah", "Brother", "2026-10", items)
@@ -759,12 +752,6 @@ def test_a_single_speaker_reads_as_before(core, people):
     assert sum(1 for s in slots if s["role"] == "Public Talk") == 1
     both = core.apply_symposium(slots, True)
     assert core.apply_symposium(both, False) == slots   # switching back undoes it
-    reminder = core.whatsapp_reminder_text(
-        {"person": "Nii Tetteh", "meeting_date": "2026-10-18",
-         "talk_number": "12", "talk_title": "Rely on Jehovah"})
-    assert reminder == ('Hello Brother Nii Tetteh! This is a reminder that you '
-                        'have the Public Talk "Rely on Jehovah" (No. 12) on '
-                        '18 October 2026.')
 
 
 
@@ -937,3 +924,71 @@ def test_two_full_months_fit_one_sheet_at_full_size(core, people):
     assert len(dates_seen) == 10                        # each date on one line
     assert {round(s["size"], 1) for s in dates_seen} == {10.0}
     assert {round(s["size"], 1) for s in spans if s["text"].startswith("No. ")} == {10.0}
+
+
+# ------------------------------------------------------------ weekly reminders
+def _week_of_meetings(core, people):
+    """Week 2 of October 2026: midweek on Wed 14, weekend on Sun 18 — plus
+    the Sunday before (11 Oct, last week) and the Wednesday after (21 Oct)."""
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    mid = core.build_midweek_slots(core.default_midweek_parts())
+    ministry = next(i for i, s in enumerate(mid) if s["role"] == "Initial Presentation")
+    core.save_schedule("2026-10-14", core.MIDWEEK, mid,
+                       {0: (people["Kofi Mensah"], None),
+                        ministry: (people["Esi Mensah"], people["Ama Owusu"])},
+                       {}, names)
+    wk = core.default_weekend_slots()
+    core.save_schedule("2026-10-18", core.WEEKEND, wk,
+                       {0: (people["Yaw Adjei"], None), 2: (people["Nii Tetteh"], None),
+                        4: (people["Kofi Mensah"], None)},
+                       {"talk_number": "12", "talk_title": "Rely on Jehovah"}, names)
+    for day, kind, slots in (("2026-10-11", core.WEEKEND, wk),
+                             ("2026-10-21", core.MIDWEEK, mid)):
+        core.save_schedule(day, kind, slots, {0: (people["Kofi Mensah"], None)},
+                           {}, names)
+    return core.get_schedules()
+
+
+def test_weekly_reminder_covers_one_calendar_week(core, people):
+    """Midweek and weekend of the same Monday–Sunday week; the Sunday before
+    and the Wednesday after are other weeks and stay out."""
+    rows = _week_of_meetings(core, people)
+    kofi = people["Kofi Mensah"]
+    items = core.week_assignments_for(rows, kofi, "2026-10-16")    # any day in it
+    assert [(i["meeting_date"], i["part"]) for i in items] == [
+        ("2026-10-14", "Chairman"), ("2026-10-18", "Closing Prayer")]
+
+    text = core.whatsapp_week_text("Kofi Mensah", "Brother", "2026-10-14", items)
+    assert text.startswith("Hello Brother Kofi Mensah! Here are your meeting "
+                           "assignments for *Week 2 of October (12–18 Oct)*:")
+    assert "*Wednesday 14 October* · Midweek meeting\n• Chairman" in text
+    assert "*Sunday 18 October* · Weekend meeting\n• Closing Prayer" in text
+    assert "11 October" not in text and "21 October" not in text
+    assert "That is 2 assignments" in text
+
+    # the assistant gets her own reminder, naming the student
+    ama = core.week_assignments_for(rows, people["Ama Owusu"], "2026-10-14")
+    ama_text = core.whatsapp_week_text("Ama Owusu", "Sister", "2026-10-14", ama)
+    assert "assisting Esi Mensah" in ama_text and "if you can't take it" in ama_text
+
+
+def test_weekly_reminder_goes_to_everyone_with_a_part_that_week(core, people):
+    rows = _week_of_meetings(core, people)
+    expected = {people[n] for n in ("Kofi Mensah", "Esi Mensah", "Ama Owusu",
+                                    "Yaw Adjei", "Nii Tetteh")}
+    assert set(core.people_in_week(rows, "2026-10-12")) == expected
+    assert core.people_in_week(rows, "2026-11-02") == []
+
+
+def test_week_overview_lists_every_part_with_gaps_marked(core, people):
+    rows = _week_of_meetings(core, people)
+    text = core.week_overview_text(rows, "2026-10-14")
+    assert text.startswith("*Meeting assignments — Week 2 of October (12–18 Oct)*")
+    assert "• Chairman: Kofi Mensah" in text
+    assert ": Esi Mensah & Ama Owusu" in text
+    assert "• Public Talk — No. 12 — “Rely on Jehovah”: Nii Tetteh" in text
+    assert "• Opening Prayer: —" in text                 # nobody yet
+    assert text.index("Wednesday 14 October") < text.index("Sunday 18 October")
+    assert "11 October" not in text and "Watchtower Conductor" not in text
+    assert core.week_overview_text(rows, "2026-11-04").endswith(
+        "No meetings are scheduled that week.")

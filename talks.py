@@ -34,8 +34,6 @@ from sheets_pdf import (
     outgoing_speakers_letter_pdf,
     talk_checklist_pdf,
     talk_matrix_rows,
-    upcoming_talk_reminders,
-    whatsapp_reminder_text,
 )
 from ui import go, page_header
 from utils import fmt_date, nfc
@@ -45,12 +43,12 @@ def render(students_df, t, selected_lang, aux_default):
     page_header("Public talks",
                 "Guest speakers, our outgoing speakers, their letters, the talk list and the annual checklist.")
     schedules_df = get_schedules()
-    tab_coming, tab_outgoing, tab_checklist, tab_list, tab_details = st.tabs(
-        ["Coming up", "Outgoing speakers", "Annual checklist", "Talk list",
+    tab_letters, tab_outgoing, tab_checklist, tab_list, tab_details = st.tabs(
+        ["Invitation letters", "Outgoing speakers", "Annual checklist", "Talk list",
          "Letter details"])
 
-    with tab_coming:
-        coming_up(schedules_df)
+    with tab_letters:
+        invitation_letters(schedules_df)
     with tab_outgoing:
         outgoing(students_df)
     with tab_checklist:
@@ -62,43 +60,31 @@ def render(students_df, t, selected_lang, aux_default):
 
 
 # ------------------------------------------------------------------ coming up
-def coming_up(schedules_df):
-    st.subheader("Speaker reminders")
-    st.caption("A WhatsApp message for anyone with a Public Talk at least a "
-               "week away — copy it and send it yourself.")
-    reminders = upcoming_talk_reminders(schedules_df, min_days=7)
-    if not reminders:
-        st.info("Nobody has a Public Talk at least a week away yet.")
-    else:
-        for cand in reminders:
-            with st.container(border=True):
-                st.markdown(f"**{cand['person']}** — {fmt_date(cand['meeting_date'])}"
-                            + (" · guest speaker" if cand["is_guest"] else ""))
-                st.code(whatsapp_reminder_text(cand), language=None)
-
-    st.divider()
+def invitation_letters(schedules_df):
     st.subheader("Invitation letter")
     st.caption("A letter to a guest speaker's congregation, asking them to "
                "release him for the visit.")
     talk_rows = schedules_df[(schedules_df["role"] == "Public Talk")
                              & schedules_df["person"].notna()]
     is_guest = talk_rows["visitor"].map(lambda v: bool(clean_value(v))).astype(bool)
-    guests = talk_rows[is_guest].sort_values("meeting_date")
+    guests = talk_rows[is_guest].sort_values(["meeting_date", "sort_order"])
     if guests.empty:
         st.info("No weekend meeting has a guest speaker yet. Type the visiting "
                 "speaker's name into the Public Talk part when creating the "
                 "weekend schedule.")
         return
 
-    dates = guests["meeting_date"].tolist()
+    # one choice per guest speaker: a symposium can bring two to one meeting
+    choices = list(guests.index)
     today = date.today().isoformat()
-    upcoming = [d for d in dates if d >= today]
-    pick = st.selectbox(
-        "Weekend meeting", dates, key="letter_meeting",
-        index=dates.index(upcoming[0]) if upcoming else len(dates) - 1,
-        format_func=lambda d: f"{fmt_date(d)} — "
-        + guests[guests["meeting_date"] == d].iloc[0]["person"])
-    talk_row = guests[guests["meeting_date"] == pick].iloc[0]
+    upcoming = [i for i in choices if guests.at[i, "meeting_date"] >= today]
+    chosen = st.selectbox(
+        "Guest speaker", choices, key="letter_speaker",
+        index=choices.index(upcoming[0]) if upcoming else len(choices) - 1,
+        format_func=lambda i: f"{fmt_date(guests.at[i, 'meeting_date'])} — "
+        + str(guests.at[i, "person"]))
+    talk_row = guests.loc[chosen]
+    pick = talk_row["meeting_date"]
     meta = get_meeting_meta(pick, WEEKEND)
     guest_congregation = clean_value(talk_row["visitor_congregation"])
     settings = {key: get_setting(key, default) for key, default in (

@@ -64,7 +64,7 @@ def people(core):
                                 "Explaining Beliefs"])
     add("Efua Osei", "Sister", ["Initial Presentation", "Making Disciples"])
     add("Yaw Adjei", "Brother", ["Weekend Chairman", "Prayer", "Watchtower Reader"])
-    add("Nii Tetteh", "Brother", ["Public Talk", "Watchtower Conductor", "Bible Reading",
+    add("Nii Tetteh", "Brother", ["Public Talk", "Bible Reading",
                                   "Chairman"])
     df = core.get_students()
     return dict(zip(df["name"], df["id"]))

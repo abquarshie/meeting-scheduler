@@ -11,7 +11,14 @@ import pandas as pd
 import psycopg
 import streamlit as st
 
-from constants import GROUPS, MAIN_HALL, NO_FAMILY, SAME_ROLE_GAP_DAYS, STUDENT_ROLES
+from constants import (
+    GROUPS,
+    MAIN_HALL,
+    NO_FAMILY,
+    REMOVED_ROLES,
+    SAME_ROLE_GAP_DAYS,
+    STUDENT_ROLES,
+)
 from utils import (
     default_section,
     fmt_date,
@@ -394,6 +401,15 @@ def init_db():
             )""")
         conn.execute("UPDATE schedules SET hall = 'main_hall' WHERE hall IS NULL")
         conn.execute("UPDATE students SET active = 1 WHERE active IS NULL")
+        # roles no longer scheduled: their assignments and privileges go, so
+        # an old weekend never reopens with a part the app no longer has
+        for role in REMOVED_ROLES:
+            conn.execute("DELETE FROM schedules WHERE role = ?", (role,))
+            for sid, privileges in conn.execute(
+                    "SELECT id, privileges FROM students WHERE privileges LIKE ?",
+                    (f"%{role}%",)).fetchall():
+                conn.execute("UPDATE students SET privileges = ? WHERE id = ?",
+                             (", ".join(parse_privileges(privileges)), sid))
 
 
 
@@ -864,6 +880,8 @@ def undo_last(meeting_date, meeting_type):
         conn.execute("DELETE FROM meetings WHERE meeting_date = ? AND meeting_type = ?",
                      (str(meeting_date), meeting_type))
         for r in data["schedules"]:
+            if r.get("role") in REMOVED_ROLES:      # saved before it was removed
+                continue
             keep = {k: v for k, v in r.items() if k != "id"}
             conn.execute(
                 f"INSERT INTO schedules ({qcols(keep)}) "
@@ -873,7 +891,7 @@ def undo_last(meeting_date, meeting_type):
             conn.execute(
                 f"INSERT INTO meetings ({qcols(keep)}) "
                 f"VALUES ({', '.join('?' for _ in keep)})", list(keep.values()))
-    restored = len(data["schedules"])
+    restored = sum(1 for r in data["schedules"] if r.get("role") not in REMOVED_ROLES)
     _forget_schedules()
     log_change("Save undone", f"{meeting_type} {meeting_date}: {restored} row(s) put back")
     return restored

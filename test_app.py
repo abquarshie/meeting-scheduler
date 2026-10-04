@@ -449,7 +449,7 @@ def test_symposium_two_speakers_one_talk(people, core):
 
 def test_full_weekend_with_a_visiting_speaker_opens(people):
     """Every part filled and a visiting speaker with his congregation: the
-    congregation used to count as a part, pushing the bar to 7 of 6 and
+    congregation used to count as a part, pushing the bar past 100% and
     crashing the page."""
     at = app("Create or edit", schedule_mode="Create new",
              new_meeting_type="Weekend Meeting")
@@ -458,14 +458,13 @@ def test_full_weekend_with_a_visiting_speaker_opens(people):
     next(t for t in at.text_input if t.label == "Speaker's name").set_value("Jonathan Adjei")
     next(t for t in at.text_input if t.label == "His congregation").set_value("Dansoman Beach Ga")
     who = {"Chairman": "Yaw Adjei", "Opening Prayer": "Kofi Mensah",
-           "Watchtower Conductor": "Nii Tetteh", "Watchtower Reader": "Yaw Adjei",
-           "Closing Prayer": "Kofi Mensah"}
+           "Watchtower Reader": "Yaw Adjei", "Closing Prayer": "Kofi Mensah"}
     for s in at.selectbox:
         if s.label in who:
             s.set_value(people[who[s.label]])
     run(at)
     bar = at.get("progress")[0]
-    assert bar.proto.value == 100 and bar.proto.text == "All 6 filled"
+    assert bar.proto.value == 100 and bar.proto.text == "All 5 filled"
 
 
 def test_a_double_booking_shows_as_soon_as_it_is_picked(people, core):
@@ -554,3 +553,25 @@ def test_dropdown_text_never_changes_with_what_is_picked(people, core):
     assert box("Chairman", "Chairman").value == people["Kofi Mensah"]
     assert any("has 2 parts" in c.value for c in at.caption)       # still flagged
 
+
+
+def test_weekly_reminders_on_the_messages_tab(people, core):
+    """Pick a week; each person with a part gets a message of their own."""
+    from datetime import timedelta
+    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
+    monday = date.today() - timedelta(days=date.today().weekday())
+    wednesday = (monday + timedelta(days=2)).isoformat()
+    slots = core.build_midweek_slots(core.default_midweek_parts())
+    core.save_schedule(wednesday, core.MIDWEEK, slots,
+                       {0: (people["Kofi Mensah"], None),
+                        1: (people["Yaw Adjei"], None)}, {}, names)
+    at = app("Slips and printing")
+    week = next(s for s in at.selectbox if s.label == "Week")
+    assert week.value == monday.isoformat()                  # this week by default
+    messages = [c.value for c in at.code             # the weekly ones, not the
+                if c.value.startswith("Hello Brother")  # monthly message below
+                and "assignments for *Week" in c.value]
+    assert len(messages) == 2
+    assert any("Kofi Mensah" in m and "• Chairman" in m for m in messages)
+    assert any(c.value.startswith("*Meeting assignments") for c in at.code)
+    assert not any("Speaker reminders" in m.value for m in at.markdown)

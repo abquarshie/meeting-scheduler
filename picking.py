@@ -69,9 +69,6 @@ def person_label_factory(students, last_dates, away=frozenset(), role_dates=None
     the list is ordered by it, so the eye only has to go as far as the first
     green.
 
-    `role` lets the Watchtower Conductor skip the recency marker entirely:
-    only one or two people ever take that part, so a rotation colour would
-    misread as a warning where none is intended.
 
     `upcoming` ({person: (date, what)}) is each person's next assignment
     after this meeting, named when it falls this week or next.
@@ -89,7 +86,6 @@ def person_label_factory(students, last_dates, away=frozenset(), role_dates=None
     tags = dict(zip(students["id"], students["group_list"]))
     details = details or {}
     upcoming = upcoming or {}
-    no_recency = role == "Watchtower Conductor"
 
     def label(pid):
         if pid is None:
@@ -110,8 +106,6 @@ def person_label_factory(students, last_dates, away=frozenset(), role_dates=None
             when = as_date(nxt[0])
             flags += (f" · {nxt[1]} {relative_week(when, meeting_date)}"
                       f" ({when.day} {when:%b})").replace(" this week", " later this week")
-        if no_recency:
-            return f"{names.get(pid, '?')}{flags}"
         role_last = (role_dates or {}).get(pid)
         marker, wording = recency(role_last or last_dates.get(pid), meeting_date)
         if role_last:
@@ -239,11 +233,7 @@ def suggest_assignments(slots, students, away, meeting_date, skip=None):
         role_after = next_role_dates(slot["role"], meeting_date)
         ids = [p for p in eligible_ids(slot["role"], students, away)
                if p not in used]
-        if slot["role"] == "Watchtower Conductor":
-            # only one or two people ever take this part — "held it last
-            # week" isn't a reason to look elsewhere for this one.
-            pass
-        elif slot["student_part"]:
+        if slot["student_part"]:
             rested = [p for p in ids
                       if not held_close(student_before, student_after, p, meeting_date)]
             ids = rested or ids           # fall back rather than leave it empty
@@ -356,8 +346,6 @@ def assignment_issues(slots, picks, students, meeting_date, meeting_type,
         if i >= 10000 or i >= len(slots) or val[0] is None:
             continue
         sid, role = val[0], slots[i]["role"]
-        if role == "Watchtower Conductor":
-            continue                   # one or two brothers take it every week
         before = last_role_dates(role, meeting_date).get(sid)
         after = next_role_dates(role, meeting_date).get(sid)
         if held_recently({sid: before} if before else {}, sid, meeting_date, gap):

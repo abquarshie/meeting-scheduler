@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """Slips and printing: slips, schedule sheets, the S-140, the CSV and messages.
 
-Public-talk documents (reminders, letters, the checklist) are on the Public
+Public-talk documents (letters, the checklist) are on the Public
 talks page.
 """
-from datetime import datetime
+from datetime import date, datetime
 
 import pandas as pd
 import streamlit as st
@@ -25,12 +25,16 @@ from sheets_pdf import (
     build_s140_data,
     generate_schedule_pdf,
     month_assignments_for,
+    people_in_week,
     split_by_type,
+    week_assignments_for,
+    week_overview_text,
     whatsapp_month_text,
+    whatsapp_week_text,
 )
 from slips import S89Error, slip_rows_for, slips_pdf
 from ui import go, page_header
-from utils import fmt_date, make_slot, slot_label
+from utils import fmt_date, make_slot, relative_week, slot_label, week_label, week_start
 
 
 def render(students_df, t, selected_lang, aux_default):
@@ -81,6 +85,8 @@ def render(students_df, t, selected_lang, aux_default):
     with tab_export:
         s140_and_csv(meetings, schedules_df, t, selected_lang, month)
     with tab_messages:
+        weekly_messages(meetings, schedules_df, students_df)
+        st.divider()
         monthly_messages(meetings, schedules_df, students_df, month)
 
 
@@ -245,11 +251,47 @@ def s140_download(meetings, schedules_df, t, template, s140_month):
 
 
 # ------------------------------------------------------------------ messages
+def weekly_messages(meetings, schedules_df, students_df):
+    """A reminder for everyone with a part in one meeting week: a message
+    each, ready to copy, and the whole week in one message."""
+    st.subheader("Weekly reminders")
+    st.caption("Pick a week: everyone with a part in it, midweek and weekend, "
+               "gets a message listing theirs — copy each and send it yourself.")
+    weeks = sorted({week_start(d).isoformat() for d, _ in meetings})
+    this_week = week_start(date.today()).isoformat()
+    ahead = [w for w in weeks if w >= this_week]
+    week = st.selectbox(
+        "Week", weeks, key="reminder_week",
+        index=weeks.index(ahead[0]) if ahead else len(weeks) - 1,
+        format_func=lambda w: week_label(w) + (
+            f" · {relative_week(w, this_week)}"
+            if relative_week(w, this_week) in ("this week", "last week", "next week")
+            else ""))
+    people = people_in_week(schedules_df, week)
+    named = students_df[students_df["id"].isin(people)].sort_values("name")
+    if named.empty:
+        st.info("Nobody from the participants list has a part that week.")
+    else:
+        st.caption(f"{len(named)} people have parts that week. The copy button "
+                   "is at the top right of each message.")
+        for person in named.itertuples():
+            items = week_assignments_for(schedules_df, person.id, week)
+            with st.container(border=True):
+                st.markdown(f"**{person.name}** · {len(items)} "
+                            f"part{'s' if len(items) != 1 else ''}")
+                st.code(whatsapp_week_text(person.name, person.gender, week, items),
+                        language=None, wrap_lines=True)
+    with st.expander("The whole week in one message"):
+        st.caption("Every part that week, for a group chat or a last check. "
+                   "A part with nobody yet shows —.")
+        st.code(week_overview_text(schedules_df, week), language=None,
+                wrap_lines=True)
+
+
 def monthly_messages(meetings, schedules_df, students_df, month):
     st.subheader("Monthly assignments by WhatsApp")
     st.caption("Everything one person has in a month, parts and assisting, "
-               "in one message — copy it and send it yourself. Public Talk "
-               "reminders are on the Public talks page.")
+               "in one message — copy it and send it yourself.")
     all_months = sorted({d[:7] for d, _ in meetings}, reverse=True)
     wa_month = st.selectbox(
         "Month", all_months,

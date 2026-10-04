@@ -43,7 +43,6 @@ def default_weekend_slots():
         make_slot("Chairman", "Weekend Chairman", "Weekend"),
         make_slot("Opening Prayer", "Prayer", "Weekend"),
         {**make_slot("Public Talk Speaker", "Public Talk", "Weekend"), "allow_visitor": True},
-        make_slot("Watchtower Conductor", "Watchtower Conductor", "Weekend"),
         make_slot("Watchtower Reader", "Watchtower Reader", "Weekend"),
         make_slot("Closing Prayer", "Prayer", "Weekend"),
     ]

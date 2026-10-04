@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Printable schedule sheets and the data the S-140 filler needs."""
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import io
 from pathlib import Path
 import re
@@ -45,7 +45,7 @@ from constants import (
     WEEKEND,
 )
 from db import get_meeting_meta, get_setting, get_talks, talk_label, talk_text
-from utils import fmt_date
+from utils import fmt_date, week_label, week_start
 
 # =============================================================================
 # PDF OUTPUT
@@ -702,72 +702,38 @@ def co_speakers(schedules_df, meeting_date, meeting_type, person):
             if clean_value(p) and clean_value(p) != clean_value(person)]
 
 
-def upcoming_talk_reminders(schedules_df, min_days=7):
-    """Public Talk speakers whose meeting is at least `min_days` away.
-
-    Each entry: meeting_date, person (display name), talk_number, talk_title,
-    is_guest (True when the name was typed in for that meeting rather than
-    picked from the participants list — the `visitor` column is filled).
-    """
-    today = date.today()
-    talk_rows = schedules_df[(schedules_df["role"] == "Public Talk")
-                             & schedules_df["person"].notna()]
-    out = []
-    for r in talk_rows.itertuples():
-        try:
-            meeting = datetime.strptime(str(r.meeting_date), "%Y-%m-%d").date()
-        except ValueError:
-            continue
-        if (meeting - today).days < min_days:
-            continue
-        meta = get_meeting_meta(r.meeting_date, WEEKEND)
-        out.append({
-            "meeting_date": r.meeting_date,
-            "person": r.person,
-            "talk_number": clean_value(meta.get("talk_number")),
-            "talk_title": clean_value(meta.get("talk_title")),
-            "is_guest": bool(clean_value(getattr(r, "visitor", ""))),
-            "co_speakers": co_speakers(schedules_df, r.meeting_date,
-                                       r.meeting_type, r.person),
-        })
-    return sorted(out, key=lambda c: c["meeting_date"])
+def _part_title(r):
+    """How a schedule row's part reads in a message: "5. Making Disciples
+    (4 min)", "Chairman", "Public Talk" (one talk, whichever speaker)."""
+    if r.role == "Public Talk":
+        return "Public Talk"              # not "…Speaker 2" in a symposium
+    title = clean_value(r.part_name) or clean_value(r.role)
+    minutes = int(r.minutes) if pd.notna(r.minutes) else None
+    if minutes and "min" not in title.lower():
+        title += f" ({minutes} min)"
+    if pd.notna(r.part_no):
+        title = f"{int(r.part_no)}. {title}"
+    return title
 
 
-def whatsapp_reminder_text(candidate):
-    """The reminder text, exactly as agreed — copy-paste only, nothing sent
-    on the app's behalf."""
-    shared = candidate.get("co_speakers") or []
-    verb = "you share" if shared else "you have"
-    with_ = (" with Brother " + " and Brother ".join(shared)) if shared else ""
-    return (f'Hello Brother {candidate["person"]}! This is a reminder that '
-           f'{verb} the Public Talk "{candidate.get("talk_title") or ""}" '
-           f'(No. {candidate.get("talk_number") or ""}){with_} on '
-           f'{fmt_date(candidate["meeting_date"])}.')
-
-
-def month_assignments_for(schedules_df, student_id, month):
-    """One person's parts in a month ("YYYY-MM"), in meeting order.
+def assignments_between(schedules_df, student_id, start, end):
+    """One person's parts from start to end (ISO dates, both included), in
+    meeting order.
 
     Matched on the participant's id, not the printed name, so two people
     with the same name are never merged. Parts where they assist count too:
     the assistant needs to prepare as much as the student.
     """
-    rows = schedules_df[schedules_df["meeting_date"].astype(str).str.startswith(month)
+    dates = schedules_df["meeting_date"].astype(str)
+    rows = schedules_df[(dates >= str(start)) & (dates <= str(end))
                         & ((schedules_df["student_id"] == student_id)
                            | (schedules_df["assistant_id"] == student_id))]
     rows = rows.sort_values(["meeting_date", "meeting_type", "sort_order"])
     out = []
     for r in rows.itertuples():
         as_assistant = r.assistant_id == student_id and r.student_id != student_id
-        title = clean_value(r.part_name) or clean_value(r.role)
-        minutes = int(r.minutes) if pd.notna(r.minutes) else None
-        if minutes and "min" not in title.lower():
-            title += f" ({minutes} min)"
-        if pd.notna(r.part_no):
-            title = f"{int(r.part_no)}. {title}"
         talk, shared = "", []
         if r.role == "Public Talk":
-            title = "Public Talk"          # not "…Speaker 2" in a symposium
             talk = talk_text(get_meeting_meta(r.meeting_date, r.meeting_type))
             shared = co_speakers(schedules_df, r.meeting_date, r.meeting_type,
                                  r.person)
@@ -775,7 +741,7 @@ def month_assignments_for(schedules_df, student_id, month):
         out.append({
             "meeting_date": str(r.meeting_date),
             "meeting_type": r.meeting_type,
-            "part": title,
+            "part": _part_title(r),
             "hall": hall,
             "as_assistant": as_assistant,
             "partner": clean_value(r.person if as_assistant else r.assistant),
@@ -785,30 +751,49 @@ def month_assignments_for(schedules_df, student_id, month):
     return out
 
 
-def whatsapp_month_text(person, gender, month, items):
-    """A month of one person's assignments as a WhatsApp message.
+def month_assignments_for(schedules_df, student_id, month):
+    """One person's parts in a month ("YYYY-MM"), in meeting order."""
+    return assignments_between(schedules_df, student_id, f"{month}-01",
+                               f"{month}-31")
 
-    WhatsApp shows *text* as bold, so dates and the month stand out without
-    anything that could come through as stray symbols. Copy-paste only —
-    nothing is sent on the app's behalf.
+
+def week_assignments_for(schedules_df, student_id, week_of):
+    """One person's parts in the meeting week (Monday to Sunday) holding
+    week_of, in meeting order."""
+    monday = week_start(week_of)
+    return assignments_between(schedules_df, student_id, monday.isoformat(),
+                               (monday + timedelta(days=6)).isoformat())
+
+
+def people_in_week(schedules_df, week_of):
+    """Everyone with a part (or assisting) in that meeting week, as ids."""
+    monday = week_start(week_of)
+    dates = schedules_df["meeting_date"].astype(str)
+    rows = schedules_df[(dates >= monday.isoformat())
+                        & (dates <= (monday + timedelta(days=6)).isoformat())]
+    ids = pd.concat([rows["student_id"], rows["assistant_id"]]).dropna()
+    return sorted({int(i) for i in ids})
+
+
+def _meeting_heading(meeting_date, meeting_type):
+    """*Wednesday 14 October* · Midweek meeting — WhatsApp shows *text* bold.
+
+    No calendar emoji: it pictures a fixed date ("JUL 17" on an iPhone) that
+    sits misleadingly beside the real one.
     """
-    month_name = datetime.strptime(month, "%Y-%m").strftime("%B %Y")
-    title = "Sister" if gender == "Sister" else "Brother"
-    if not items:
-        return (f"Hello {title} {person}! You have no meeting assignments "
-                f"in {month_name}.")
-    lines = [f"Hello {title} {person}! Here are your meeting assignments "
-             f"for *{month_name}*:"]
-    current = None
+    d = datetime.strptime(meeting_date, "%Y-%m-%d").date()
+    kind = "Midweek" if meeting_type == MIDWEEK else "Weekend"
+    return f"*{d:%A} {d.day} {d:%B}* · {kind} meeting"
+
+
+def _assignment_lines(items):
+    """One person's assignments, grouped under each meeting's heading."""
+    lines, current = [], None
     for item in items:
         key = (item["meeting_date"], item["meeting_type"])
         if key != current:
             current = key
-            d = datetime.strptime(item["meeting_date"], "%Y-%m-%d").date()
-            kind = "Midweek" if item["meeting_type"] == MIDWEEK else "Weekend"
-            # no calendar emoji: it pictures a fixed date ("JUL 17" on an
-            # iPhone) that sits misleadingly beside the real one
-            lines += ["", f"*{d:%A} {d.day} {d:%B}* · {kind} meeting"]
+            lines += ["", _meeting_heading(*key)]
         line = f"• {item['part']}"
         if item["talk"]:
             line += f" — {item['talk']}"
@@ -822,10 +807,74 @@ def whatsapp_month_text(person, gender, month, items):
         elif item["partner"]:
             line += f" — with {item['partner']} assisting"
         lines.append(line)
+    return lines
+
+
+def _personal_message(person, gender, period, items):
+    """Hello …, the assignments for the period, and a request to say early if
+    one can't be taken. Copy-paste only — nothing is sent on the app's behalf."""
+    title = "Sister" if gender == "Sister" else "Brother"
+    if not items:
+        return (f"Hello {title} {person}! You have no meeting assignments "
+                f"in {period}.")
     count = len(items)
-    lines += ["", f"That is {count} assignment{'s' if count != 1 else ''}. "
-              "Please let me know as soon as possible if you can't take "
-              "any of them. Thank you!"]
+    return "\n".join(
+        [f"Hello {title} {person}! Here are your meeting assignments "
+         f"for *{period}*:"]
+        + _assignment_lines(items)
+        + ["", f"That is {count} assignment{'s' if count != 1 else ''}. "
+           "Please let me know as soon as possible if you can't take "
+           f"{'any of them' if count != 1 else 'it'}. Thank you!"])
+
+
+def whatsapp_month_text(person, gender, month, items):
+    """A month of one person's assignments as a WhatsApp message."""
+    month_name = datetime.strptime(month, "%Y-%m").strftime("%B %Y")
+    return _personal_message(person, gender, month_name, items)
+
+
+def whatsapp_week_text(person, gender, week_of, items):
+    """A week of one person's assignments as a WhatsApp message, the week
+    named as it is everywhere in the app: "Week 2 of October (12–18 Oct)"."""
+    return _personal_message(person, gender, week_label(week_of), items)
+
+
+def week_overview_text(schedules_df, week_of):
+    """Every assignment in the meeting week, meeting by meeting, as one
+    message — for a group chat, or to check the week at a glance. A part
+    nobody has yet shows "—"."""
+    monday = week_start(week_of)
+    dates = schedules_df["meeting_date"].astype(str)
+    rows = schedules_df[(dates >= monday.isoformat())
+                        & (dates <= (monday + timedelta(days=6)).isoformat())]
+    rows = rows.sort_values(["meeting_date", "meeting_type", "sort_order"])
+    lines = [f"*Meeting assignments — {week_label(week_of)}*"]
+    for (meeting_date, meeting_type), meeting in rows.groupby(
+            ["meeting_date", "meeting_type"], sort=False):
+        lines += ["", _meeting_heading(str(meeting_date), meeting_type)]
+        talk_done = False
+        for r in meeting.itertuples():
+            if r.role == "Public Talk":
+                if talk_done:
+                    continue          # a symposium's speakers share one line
+                talk_done = True
+                speakers = meeting[meeting["role"] == "Public Talk"]
+                who = " & ".join(clean_value(p) for p in speakers["person"]
+                                 if clean_value(p)) or UNFILLED
+                talk = talk_text(get_meeting_meta(str(meeting_date), meeting_type))
+                lines.append("• Public Talk" + (f" — {talk}" if talk else "")
+                             + f": {who}")
+                continue
+            hall = r.hall if isinstance(r.hall, str) else MAIN_HALL
+            part = _part_title(r)
+            if hall != MAIN_HALL:
+                part += f" · {HALL_NAMES.get(hall, hall)}"
+            who = clean_value(r.person) or UNFILLED
+            if clean_value(r.assistant):
+                who += f" & {clean_value(r.assistant)}"
+            lines.append(f"• {part}: {who}")
+    if len(lines) == 1:
+        lines.append("No meetings are scheduled that week.")
     return "\n".join(lines)
 
 

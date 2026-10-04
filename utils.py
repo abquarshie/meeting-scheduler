@@ -90,10 +90,8 @@ def infer_role(title, section=None):
         return "Chairman"
     if "prayer" in t:
         return "Prayer"
-    if "watchtower" in t and "reader" in t:
-        return "Watchtower Reader"
     if "watchtower" in t:
-        return "Watchtower Conductor"
+        return "Watchtower Reader"
     if "public talk" in t:
         return "Public Talk"
     if "reader" in t:

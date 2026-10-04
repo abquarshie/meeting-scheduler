@@ -540,41 +540,6 @@ def test_talks_import_in_bulk(core):
     assert total == 1 and len(core.get_talks()) == 1
 
 
-def test_upcoming_talk_reminders_filters_by_notice_and_flags_guests(core, people):
-    """Only talks at least a week away show up; a typed-in name is flagged as
-    a guest, a participant's own talk is not."""
-    from datetime import date, timedelta
-
-    slots = core.default_weekend_slots()
-    names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
-    far = (date.today() + timedelta(days=14)).isoformat()
-    soon = (date.today() + timedelta(days=3)).isoformat()   # under a week: excluded
-
-    # a guest speaker, far enough out
-    core.save_schedule(far, core.WEEKEND, slots, {2 + 10000: "Brother Laryea"},
-                       {"talk_number": "199", "talk_title": "How Can the Bible Help You?"},
-                       names)
-    # a congregation member, only 3 days out — excluded by the notice window
-    core.save_schedule(soon, core.WEEKEND, slots,
-                       {2: (people["Nii Tetteh"], None)},
-                       {"talk_number": "5", "talk_title": "A Different Talk"}, names)
-
-    reminders = core.upcoming_talk_reminders(core.get_schedules(), min_days=7)
-
-    assert [r["meeting_date"] for r in reminders] == [far]
-    assert reminders[0]["person"] == "Brother Laryea"
-    assert reminders[0]["is_guest"] is True
-    assert reminders[0]["talk_number"] == "199"
-
-
-def test_whatsapp_reminder_text_matches_agreed_wording(core):
-    candidate = {"person": "Laryea", "talk_title": "How Can the Bible Help You?",
-                "talk_number": "199", "meeting_date": "2026-09-26"}
-    assert core.whatsapp_reminder_text(candidate) == (
-        'Hello Brother Laryea! This is a reminder that you have the Public '
-        'Talk "How Can the Bible Help You?" (No. 199) on 26 September 2026.')
-
-
 def test_talk_matrix_shows_one_row_per_talk_by_year(core, people):
     """One row per talk number; a year with nothing given prints blank rather
     than being hidden — that's what flags a talk as overdue. Nothing is ever
@@ -605,36 +570,52 @@ def test_talk_matrix_shows_one_row_per_talk_by_year(core, people):
     assert old in schedules_df["meeting_date"].values
 
 
-def test_watchtower_conductor_has_no_recency_marker_and_ignores_rest_period(core, people):
-    """Only one or two people ever take this part, so a rotation colour would
-    misread as a warning, and 'held it last week' should not push Suggest to
-    look for someone else."""
-    from datetime import date, timedelta
+def test_the_watchtower_conductor_is_gone_and_old_data_is_cleared(core, people):
+    """No longer a privilege, a role or a weekend part. Assignments and
+    privileges saved before it was removed are cleared at start-up (and so
+    after a restore), and undo never puts one back."""
+    import db
 
-    slots = core.default_weekend_slots()
+    assert "Watchtower Conductor" not in core.PRIVILEGES
+    assert "Watchtower Conductor" not in core.ROLES
+    assert [s["role"] for s in core.default_weekend_slots()] == [
+        "Weekend Chairman", "Prayer", "Public Talk", "Watchtower Reader", "Prayer"]
+
+    # data as an older version of the app left it
+    with db.get_conn() as conn:
+        conn.execute("UPDATE students SET privileges = ? WHERE id = ?",
+                     ("Public Talk, Watchtower Conductor, Bible Reading",
+                      people["Nii Tetteh"]))
+        conn.execute("""INSERT INTO schedules (meeting_date, meeting_type, part_name,
+                            section, role, student_id, sort_order, hall)
+                        VALUES ('2026-09-27', ?, 'Watchtower Conductor', 'Weekend',
+                                'Watchtower Conductor', ?, 3, 'main_hall')""",
+                     (core.WEEKEND, people["Nii Tetteh"]))
+    core.init_db()
+    db._forget_schedules(); db._forget_students()
+    assert not (core.get_schedules()["role"] == "Watchtower Conductor").any()
+    with db.get_conn() as conn:
+        stored = conn.execute("SELECT privileges FROM students WHERE id = ?",
+                              (people["Nii Tetteh"],)).fetchone()[0]
+    assert stored == "Public Talk, Bible Reading"
+
+    # an undo snapshot taken while the conductor was still scheduled
+    import json
     names = dict(zip(core.get_students()["id"], core.get_students()["name"]))
-    last_week = (date.today() - timedelta(days=7)).isoformat()
-    today = date.today().isoformat()
-
-    core.save_schedule(last_week, core.WEEKEND, slots,
-                       {3: (people["Nii Tetteh"], None)}, {}, names)
-
-    role_dates = core.last_role_dates("Watchtower Conductor")
-    assert core.held_recently(role_dates, people["Nii Tetteh"], today)
-
-    students = core.get_students()
-    label = core.person_label_factory(students, {}, role_dates=role_dates,
-                                      meeting_date=today, role="Watchtower Conductor")
-    assert label(people["Nii Tetteh"]) == "Nii Tetteh"   # no marker, no wording
-
-    # an ordinary role still gets the marker, for comparison
-    normal_label = core.person_label_factory(students, {}, role_dates=role_dates,
-                                              meeting_date=today, role="Chairman")
-    assert normal_label(people["Nii Tetteh"]).startswith(("🔴", "🟢", "⭐"))
-
-    # Suggest keeps proposing him even though he "held it last week"
-    picks = core.suggest_assignments(slots, students, set(), today)
-    assert picks[3][0] == people["Nii Tetteh"]
+    core.save_schedule("2026-10-04", core.WEEKEND, core.default_weekend_slots(),
+                       {0: (people["Yaw Adjei"], None)}, {}, names)
+    with db.get_conn() as conn:
+        snap_id, data = conn.execute(
+            "SELECT id, data FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
+        data = json.loads(data)
+        data["schedules"] = [{"meeting_date": "2026-10-04", "meeting_type": core.WEEKEND,
+                              "part_name": "Watchtower Conductor", "section": "Weekend",
+                              "role": "Watchtower Conductor", "sort_order": 3,
+                              "student_id": people["Nii Tetteh"], "hall": "main_hall"}]
+        conn.execute("UPDATE snapshots SET data = ? WHERE id = ?",
+                     (json.dumps(data), snap_id))
+    assert core.undo_last("2026-10-04", core.WEEKEND) == 0
+    assert not (core.get_schedules()["role"] == "Watchtower Conductor").any()
 
 
 def test_month_whatsapp_text_lists_parts_and_assisting(core):
