@@ -763,6 +763,7 @@ def assignments_between(schedules_df, student_id, start, end):
             "hall": hall,
             "as_assistant": as_assistant,
             "partner": clean_value(r.person if as_assistant else r.assistant),
+            "section": clean_value(getattr(r, "section", "")),
             "talk": talk,
             "shared_with": shared,
         })

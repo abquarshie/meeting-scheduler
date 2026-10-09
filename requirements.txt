@@ -6,3 +6,4 @@ pypdf
 pymupdf
 reportlab
 python-docx
+pillow

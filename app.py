@@ -24,7 +24,7 @@ if _theme_src.is_file() and (not _theme_dst.exists()
         pass
 
 REQUIRED_FILES = [
-    "s140.py", "requirements.txt",
+    "s140.py", "requirements.txt", "card_image.py",
     "constants.py", "utils.py", "db.py", "parts.py", "workbook.py",
     "sheets_pdf.py", "slips.py",
     "picking.py", "backup.py", "auth.py", "ui.py",

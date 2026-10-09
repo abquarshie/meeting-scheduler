@@ -6,10 +6,14 @@ talks page.
 """
 from datetime import date
 from functools import partial
+import base64
+import json
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
+from card_image import person_card_spec, render_card, week_card_spec
 from constants import MAIN_HALL, MIDWEEK, WEEKEND
 from db import (
     event_weeks,
@@ -86,7 +90,7 @@ def render(students_df, t, selected_lang, aux_default):
     with tab_messages:
         weekly_messages(meetings, schedules_df, selected_lang)
         st.divider()
-        monthly_messages(meetings, schedules_df, students_df, month)
+        monthly_messages(meetings, schedules_df, students_df, month, selected_lang)
 
 
 def meeting_summary(meeting, rows):
@@ -254,9 +258,8 @@ def s140_download(meetings, schedules_df, t, template, s140_month):
 def weekly_messages(meetings, schedules_df, language="English"):
     """Every assignment in one meeting week, in a single message to copy."""
     st.subheader("Weekly assignments")
-    st.caption("Pick a week: every part in it, midweek and weekend, in one "
-               "message — copy it and send it yourself. A part with nobody "
-               "yet shows —.")
+    st.caption("Pick a week: every part in it, midweek and weekend, on one "
+               "card to share on WhatsApp. A part with nobody yet shows —.")
     # assembly and convention weeks have no saved meetings but are listed too
     weeks = sorted({week_start(d).isoformat() for d, _ in meetings}
                    | set(event_weeks()))
@@ -269,15 +272,16 @@ def weekly_messages(meetings, schedules_df, language="English"):
             f" · {relative_week(w, this_week)}"
             if relative_week(w, this_week) in ("this week", "last week", "next week")
             else ""))
-    st.code(week_overview_text(schedules_df, week, language), language=None,
-            wrap_lines=True)
-    st.caption("The copy button is at the top right of the message.")
+    spec = week_card_spec(schedules_df, week, language)
+    share_card(spec, f"assignments_{week}", "week",
+               lambda: week_overview_text(schedules_df, week, language))
 
 
-def monthly_messages(meetings, schedules_df, students_df, month):
-    st.subheader("Monthly assignments by WhatsApp")
+def monthly_messages(meetings, schedules_df, students_df, month,
+                     language="English"):
+    st.subheader("One person's month")
     st.caption("Everything one person has in a month, parts and assisting, "
-               "in one message — copy it and send it yourself.")
+               "on a card of their own.")
     all_months = sorted({d[:7] for d, _ in meetings}, reverse=True)
     wa_month = st.selectbox(
         "Month", all_months,
@@ -297,8 +301,68 @@ def monthly_messages(meetings, schedules_df, students_df, month):
         "Participant", list(wa_names), key="wa_person",
         format_func=lambda i: f"{wa_names[i]} ({counts[i]})")
     person = people_in_month[people_in_month["id"] == wa_pick].iloc[0]
-    st.code(whatsapp_month_text(
-        person["name"], person["gender"], wa_month,
-        month_assignments_for(schedules_df, wa_pick, wa_month)),
-        language=None, wrap_lines=True)
-    st.caption("The copy button is at the top right of the box.")
+    items = month_assignments_for(schedules_df, wa_pick, wa_month)
+    spec = person_card_spec(person["name"], person["gender"], wa_month, items,
+                            language)
+    stem = "_".join(str(person["name"]).split()) + f"_{wa_month}"
+    share_card(spec, stem, "person",
+               lambda: whatsapp_month_text(person["name"], person["gender"],
+                                           wa_month, items))
+
+
+@st.cache_data(show_spinner="Drawing the card…", max_entries=48)
+def _card_png(spec_json):
+    """Rendered once per distinct card; the spec carries everything drawn."""
+    return render_card(json.loads(spec_json))
+
+
+def share_card(spec, stem, key, text):
+    """The card, with Download and Copy beside it, and the old text message
+    still to hand underneath."""
+    png = _card_png(json.dumps(spec, ensure_ascii=False, sort_keys=True))
+    preview, actions = st.columns([3, 2], gap="large")
+    preview.image(png, width="stretch")
+    with actions:
+        st.download_button("Download image", data=png, file_name=f"{stem}.png",
+                           mime="image/png", icon=":material/download:",
+                           type="primary", width="stretch", key=f"dl_card_{key}")
+        copy_image_button(png)
+        st.caption("On a phone: download, then share the picture from your "
+                   "gallery to WhatsApp. On a computer: copy, then paste it "
+                   "straight into a WhatsApp chat.")
+        with st.expander("Text version", icon=":material/notes:"):
+            st.code(text(), language=None, wrap_lines=True)
+
+
+def copy_image_button(png):
+    """Puts the PNG on the clipboard, for pasting into WhatsApp Web or
+    Desktop. Browsers only allow this on a click, inside a secure page."""
+    data = base64.b64encode(png).decode("ascii")
+    components.html(f"""
+<style>
+  body {{ margin: 0; font-family: "Source Sans Pro", system-ui, sans-serif; }}
+  button {{ width: 100%; height: 40px; border-radius: 8px; cursor: pointer;
+           border: 1px solid #24527A; background: transparent; color: #24527A;
+           font: 600 15px/1 inherit; font-family: inherit; }}
+  button:hover {{ background: rgba(36,82,122,.08); }}
+  @media (prefers-color-scheme: dark) {{
+    button {{ color: #9cc3e6; border-color: #9cc3e6; }} }}
+  #m {{ display: block; margin-top: 6px; font-size: 13px; color: #808495; }}
+</style>
+<button id="b">Copy image</button><span id="m"></span>
+<script>
+  const b = document.getElementById("b"), m = document.getElementById("m");
+  b.onclick = async () => {{
+    try {{
+      // the Promise form keeps Safari's click permission while the blob loads
+      const blob = fetch("data:image/png;base64,{data}").then(r => r.blob());
+      await navigator.clipboard.write([new ClipboardItem({{"image/png": blob}})]);
+      b.textContent = "Copied ✓";
+      m.textContent = "Paste it into a WhatsApp chat.";
+      setTimeout(() => {{ b.textContent = "Copy image"; }}, 2500);
+    }} catch (e) {{
+      m.textContent = "This browser can't copy images — use Download image.";
+    }}
+  }};
+</script>""", height=74)
+
