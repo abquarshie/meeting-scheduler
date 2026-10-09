@@ -10,12 +10,44 @@ import pandas as pd
 
 from constants import HALLS, MAIN_HALL
 from db import load_template
-from sheets_pdf import FONT_CANDIDATES, register_fonts
+from sheets_pdf import FONT_CANDIDATES
 from utils import fmt_date
 
 
 class S89Error(Exception):
     pass
+
+
+def _open_blank(template_bytes):
+    """(the blank as a PyMuPDF document, its field rectangles in order).
+
+    Raises S89Error for anything that is not the fillable blank. Used both
+    when a blank is uploaded and when it is printed on, so a wrong file is
+    refused at the point it is chosen.
+    """
+    try:
+        import pymupdf
+    except ImportError as exc:                              # pragma: no cover
+        raise S89Error("PyMuPDF is needed to read the official form.") from exc
+    try:
+        doc = pymupdf.open(stream=template_bytes, filetype="pdf")
+        widgets = sorted(doc[0].widgets(),
+                         key=lambda w: int(w.field_name.split("_")[1]))
+    except Exception as exc:
+        # PyMuPDF raises its own error types for a damaged or non-PDF file
+        raise S89Error(
+            "This file couldn't be read as the fillable S-89 blank form: "
+            f"{str(exc)[:120]}") from exc
+    if len(widgets) < 7:
+        raise S89Error(
+            f"Expected the S-89's form fields; found {len(widgets)}. "
+            "Upload the fillable blank form, not a scan or a printout.")
+    return doc, [w.rect for w in widgets]
+
+
+def check_s89_template(template_bytes):
+    """Slips per page, or S89Error unless this is the fillable blank S-89."""
+    return len(_open_blank(template_bytes)[1]) // 7
 
 
 def fill_s89(template_bytes, slip_rows, lang=None):
@@ -25,36 +57,14 @@ def fill_s89(template_bytes, slip_rows, lang=None):
     rather than set as form values: the form's own font carries no ɛ ɔ ŋ, so a
     filled field would silently drop them from Ga names.
     """
-    try:
-        import pymupdf
-    except ImportError as exc:                              # pragma: no cover
-        raise S89Error("PyMuPDF is needed to fill the official form.") from exc
-    regular, _, supports_ga = register_fonts()
-    font_path = None
-    for candidate, _bold in FONT_CANDIDATES:
-        if candidate and Path(candidate).exists():
-            font_path = str(candidate)
-            break
+    font_path = next((str(regular) for regular, _ in FONT_CANDIDATES
+                      if regular and Path(regular).exists()), None)
     if font_path is None:
         raise S89Error("No font with ɛ, ɔ and ŋ was found for the slips.")
-
-    try:
-        template = pymupdf.open(stream=template_bytes, filetype="pdf")
-        widgets = sorted(template[0].widgets(),
-                         key=lambda w: int(w.field_name.split("_")[1]))
-    except Exception as exc:
-        # PyMuPDF raises its own error types for a damaged or non-PDF file;
-        # everything here has to arrive as S89Error so printing can fall back
-        raise S89Error(
-            "This file couldn't be read as the fillable S-89 blank form: "
-            f"{str(exc)[:120]}") from exc
-    if len(widgets) < 7:
-        raise S89Error(
-            f"Expected the S-89's form fields; found {len(widgets)}. "
-            "Upload the fillable blank form, not a scan or a printout.")
     # the rectangles come from the template: copying a page does not copy its
     # form fields, so the copies have none to read
-    boxes = [w.rect for w in widgets]
+    template, boxes = _open_blank(template_bytes)
+    import pymupdf                     # present: _open_blank needed it too
     per_page = len(boxes) // 7
 
     out = pymupdf.open()
@@ -92,32 +102,6 @@ def fill_s89(template_bytes, slip_rows, lang=None):
         for widget in list(page.widgets() or []):
             page.delete_widget(widget)
     return out.tobytes()
-
-
-def check_s89_template(template_bytes):
-    """Raise S89Error unless this looks like the fillable blank S-89.
-
-    Used before storing an upload, so a wrong file is refused at the point it
-    is chosen rather than when someone tries to print.
-    """
-    try:
-        import pymupdf
-    except ImportError as exc:                              # pragma: no cover
-        raise S89Error("PyMuPDF is needed to read the official form.") from exc
-    try:
-        doc = pymupdf.open(stream=template_bytes, filetype="pdf")
-        widgets = sorted(doc[0].widgets(),
-                         key=lambda w: int(w.field_name.split("_")[1]))
-    except Exception as exc:
-        raise S89Error(
-            "This file couldn't be read as the fillable S-89 blank form: "
-            f"{str(exc)[:120]}") from exc
-    if len(widgets) < 7:
-        raise S89Error(
-            f"Expected the S-89's form fields; found {len(widgets)}. "
-            "Upload the fillable blank form, not a scan or a printout.")
-    return len(widgets) // 7
-
 
 
 def slip_rows_for(rows):

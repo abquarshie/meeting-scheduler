@@ -38,7 +38,7 @@ try:
                     set_setting, status_text)
     from sheets_pdf import register_fonts  # noqa: E402
     from auth import logout_button, require_login  # noqa: E402
-    from ui import PAGE_NAMES, inject_css, sidebar  # noqa: E402
+    from ui import PAGE_NAMES, inject_css, show_flashes, sidebar  # noqa: E402
     import admin, dashboard, month, participants  # noqa: E402
     import reports, schedule, talks, view, workbook_page  # noqa: E402
 except ModuleNotFoundError as exc:
@@ -140,6 +140,8 @@ kind, text = status_text()
 icons = {"error": ":material/sync_problem:", "success": ":material/cloud_done:"}
 st.sidebar.caption(f"{icons[kind]} {text}")
 logout_button()
+
+show_flashes()
 
 # --- page ------------------------------------------------------------------------
 PAGES = {

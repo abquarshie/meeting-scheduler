@@ -34,7 +34,18 @@ CSS = """
 <style>
 /* typeface comes from the theme (config.toml); only sizes and spacing here */
 h1, h2, h3, h4 { letter-spacing: -0.01em; }
-.block-container { padding-top: 2.2rem; max-width: 1180px; }
+/* the toolbar overlapped the page title; give the title room below it */
+.block-container { padding-top: 3.4rem; padding-bottom: 4rem; max-width: 1180px; }
+[data-testid="stHeader"] { background: transparent; }
+
+/* Save stays in reach on the long schedule form */
+/* sticky goes on Streamlit's wrapper: the keyed box fills it exactly, so
+   on the box itself sticky has no room to move */
+div:has(> .st-key-savebar) { position: sticky; bottom: 0; z-index: 50; }
+.st-key-savebar { padding: .75rem 1rem;
+                  border-top: 1px solid rgba(128,128,128,.25);
+                  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+                  background: rgba(128,128,128,.10); border-radius: .6rem .6rem 0 0; }
 
 /* sidebar: brand + navigation list */
 .ms-brand { font-weight: 700; font-size: 1.05rem; margin: 0 0 .1rem 0; }
@@ -109,6 +120,27 @@ button:focus-visible { outline: 2px solid #24527A; outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 """
+
+
+def flash(message, icon=":material/check_circle:"):
+    """A confirmation that survives the rerun that follows a save.
+
+    st.success() followed by st.rerun() is wiped before anyone sees it; the
+    message is kept here and shown as a toast at the start of the next run.
+    """
+    st.session_state.setdefault("_flash", []).append((message, icon))
+
+
+def show_flashes():
+    for message, icon in st.session_state.pop("_flash", []):
+        st.toast(message, icon=icon)
+
+
+def choice(label, options, key, default, where=st, **kw):
+    """A segmented control that always holds one option, like a radio."""
+    if st.session_state.get(key) not in options:
+        st.session_state[key] = default
+    return where.segmented_control(label, options, key=key, required=True, **kw)
 
 
 def go(page, **state):

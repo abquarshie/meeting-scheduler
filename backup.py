@@ -11,6 +11,7 @@ from db import (  # underscored: not in *
     _forget_settings,
     _forget_students,
     _forget_templates,
+    _forget_unavailable,
     _talks,
     get_conn,
     init_db,
@@ -89,6 +90,7 @@ def import_all(data, log=True):
     _forget_settings()
     _forget_students()
     _forget_templates()
+    _forget_unavailable()
     _forget_no_meeting()
     _forget_outgoing_speakers()
     _forget_outgoing_engagements()

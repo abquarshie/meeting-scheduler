@@ -4,7 +4,8 @@
 Public-talk documents (letters, the checklist) are on the Public
 talks page.
 """
-from datetime import date, datetime
+from datetime import date
+from functools import partial
 
 import pandas as pd
 import streamlit as st
@@ -20,6 +21,7 @@ from db import (
     saved_meetings,
     talk_text,
 )
+from parts import FIRST_SPEAKER, TALK_AND_PRAYER
 from s140 import S140Error, fill_s140
 from sheets_pdf import (
     build_s140_data,
@@ -29,9 +31,9 @@ from sheets_pdf import (
     week_overview_text,
     whatsapp_month_text,
 )
-from slips import S89Error, slip_rows_for, slips_pdf
-from ui import go, page_header
-from utils import fmt_date, make_slot, relative_week, slot_label, week_label, week_start
+from slips import slip_rows_for, slips_pdf
+from ui import choice, go, page_header
+from utils import month_label, fmt_date, make_slot, relative_week, slot_label, week_label, week_start
 
 
 def render(students_df, t, selected_lang, aux_default):
@@ -44,8 +46,8 @@ def render(students_df, t, selected_lang, aux_default):
         st.stop()
 
     # what to print: one meeting or a whole month, shared by every tab
-    scope = st.radio("Print", ["One meeting", "A whole month"], horizontal=True,
-                     key="print_scope")
+    scope = choice("Print", ["One meeting", "A whole month"], "print_scope",
+                   "One meeting", label_visibility="collapsed")
     if scope == "One meeting":
         if st.session_state.get("view_meeting") not in meetings:
             st.session_state.pop("view_meeting", None)
@@ -58,7 +60,7 @@ def render(students_df, t, selected_lang, aux_default):
         months = sorted({d[:7] for d, _ in meetings}, reverse=True)
         month = st.selectbox(
             "Month", months, key="print_month",
-            format_func=lambda ym: datetime.strptime(ym, "%Y-%m").strftime("%B %Y"))
+            format_func=month_label)
         chosen = [m for m in meetings if m[0].startswith(month)]
         label_for_file = month
         st.caption(", ".join(meeting_label(m) for m in sorted(chosen)))
@@ -95,7 +97,8 @@ def meeting_summary(meeting, rows):
     if meeting_type == WEEKEND:
         st.markdown(f"**Public talk:** {talk_text(meta) or '— title not entered —'}")
     table = pd.DataFrame({
-        "Part": [slot_label(make_slot(r.part_name, r.role or "", r.section,
+        "Part": [TALK_AND_PRAYER if r.part_name == FIRST_SPEAKER else
+                 slot_label(make_slot(r.part_name, r.role or "", r.section,
                                       int(r.part_no) if pd.notna(r.part_no) else None,
                                       int(r.minutes) if pd.notna(r.minutes) else None,
                                       r.hall))
@@ -123,14 +126,17 @@ def slips_and_sheets(chosen, rows, schedules_df, t, selected_lang, label_for_fil
         if n_aux:
             st.caption(f"{len(slip_rows) - n_aux} main hall and {n_aux} auxiliary "
                        "classroom slip(s); each has its room ticked.")
-        try:
-            slips = slips_pdf(slip_rows, t, selected_lang)
-        except S89Error as exc:
-            st.error(str(exc), icon=":material/upload_file:")
+        if not load_template(f"s89_{selected_lang}")[0]:
+            st.error(f"No blank S-89 has been uploaded for {selected_lang}. "
+                     "Add one under Admin → Official S-89 blank.",
+                     icon=":material/upload_file:")
         else:
+            # Built when clicked, not on every rerun: this page used to draw
+            # every slip, sheet and the S-140 each time anything on it changed.
             st.download_button(
                 f"Download {len(slip_rows)} slip(s) ({selected_lang})",
-                icon=":material/receipt_long:", data=slips,
+                icon=":material/receipt_long:",
+                data=partial(slips_pdf, slip_rows, t, selected_lang),
                 file_name=f"S89_slips_{label_for_file}_{selected_lang}.pdf",
                 mime="application/pdf",
             )
@@ -154,7 +160,7 @@ def slips_and_sheets(chosen, rows, schedules_df, t, selected_lang, label_for_fil
             "Months on the weekend schedule", weekend_months,
             default=[month] if month in weekend_months else [],
             key=f"weekend_months|{month or label_for_file}",
-            format_func=lambda ym: datetime.strptime(ym, "%Y-%m").strftime("%B %Y"),
+            format_func=month_label,
             placeholder="Just the meeting chosen above",
             help="The months print as one continuous list under a single "
                  "header, running on to further pages as needed.")
@@ -174,8 +180,8 @@ def slips_and_sheets(chosen, rows, schedules_df, t, selected_lang, label_for_fil
             continue
         column.download_button(
             f"{kind} schedule ({len(picked)})", icon=":material/print:",
-            data=generate_schedule_pdf(picked, schedules_df, t,
-                                       compact=two_up and kind == "Midweek"),
+            data=partial(generate_schedule_pdf, picked, schedules_df, t,
+                         compact=two_up and kind == "Midweek"),
             file_name=(f"{kind.lower()}_schedule_"
                        f"{weekend_file if kind == 'Weekend' else label_for_file}.pdf"),
             mime="application/pdf", width="stretch", key=f"dl_{kind}",
@@ -193,7 +199,7 @@ def s140_and_csv(meetings, schedules_df, t, selected_lang, month):
         s140_month = st.selectbox(
             "Month", midweek_months, key="s140_month",
             index=midweek_months.index(month) if month in midweek_months else 0,
-            format_func=lambda ym: datetime.strptime(ym, "%Y-%m").strftime("%B %Y"))
+            format_func=month_label)
         template, _ = load_template(f"s140_{selected_lang}")
         if not template:
             st.warning(f"No {selected_lang} S-140 template. Upload the blank "
@@ -203,19 +209,20 @@ def s140_and_csv(meetings, schedules_df, t, selected_lang, month):
 
     st.divider()
     st.subheader("Spreadsheet")
-    talks = {}
-    for md, mt in meetings:
-        if mt == WEEKEND:
-            talks[(md, mt)] = talk_text(get_meeting_meta(md, mt))
-    csv_df = schedules_df.assign(talk=[
-        talks.get((r.meeting_date, r.meeting_type), "") if r.role == "Public Talk"
-        else "" for r in schedules_df.itertuples()])[
-        ["meeting_date", "meeting_type", "part_no", "part_name", "talk",
-         "minutes", "section", "role", "hall", "person", "assistant"]]
     st.download_button(
         "All schedules as CSV", icon=":material/table_view:",
-        data=csv_df.to_csv(index=False).encode("utf-8-sig"),  # BOM keeps ɛ/ɔ right
+        data=partial(schedules_csv, schedules_df),
         file_name="meeting_schedule.csv", mime="text/csv")
+
+
+def schedules_csv(schedules_df):
+    """Every saved part as CSV, with the talk beside each public talk."""
+    talk = [talk_text(get_meeting_meta(r.meeting_date, r.meeting_type))
+            if r.role == "Public Talk" else "" for r in schedules_df.itertuples()]
+    return schedules_df.assign(talk=talk)[
+        ["meeting_date", "meeting_type", "part_no", "part_name", "talk",
+         "minutes", "section", "role", "hall", "person", "assistant"]
+    ].to_csv(index=False).encode("utf-8-sig")       # BOM keeps ɛ/ɔ right in Excel
 
 
 def s140_download(meetings, schedules_df, t, template, s140_month):
@@ -235,7 +242,7 @@ def s140_download(meetings, schedules_df, t, template, s140_month):
     except (S140Error, KeyError, IndexError) as exc:
         st.error(f"Couldn't fill the template: {exc}")
         return
-    month_name = datetime.strptime(s140_month, "%Y-%m").strftime("%B %Y")
+    month_name = month_label(s140_month)
     st.download_button(
         f"S-140 for {month_name}", data=docx_bytes,
         icon=":material/description:", file_name=f"{month_name}.docx",
@@ -276,7 +283,7 @@ def monthly_messages(meetings, schedules_df, students_df, month):
         "Month", all_months,
         index=all_months.index(month) if month in all_months else 0,
         key="wa_month",
-        format_func=lambda ym: datetime.strptime(ym, "%Y-%m").strftime("%B %Y"))
+        format_func=month_label)
     in_month = schedules_df[schedules_df["meeting_date"].str.startswith(wa_month)]
     counts = pd.concat([in_month["student_id"], in_month["assistant_id"]]) \
         .dropna().astype(int).value_counts()

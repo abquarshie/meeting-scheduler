@@ -8,6 +8,7 @@ import streamlit as st
 
 from constants import MAIN_HALL, MIDWEEK
 from db import (
+    meeting_rows,
     event_label,
     event_text,
     fill_counts,
@@ -18,8 +19,8 @@ from db import (
     talk_text,
 )
 from picking import create_week
-from ui import go, mark_event_week_form, page_header
-from utils import fmt_date, nfc
+from ui import flash, go, mark_event_week_form, page_header
+from utils import month_label, fmt_date, nfc
 from workbook import load_workbook, midweek_workbook_weeks
 
 
@@ -36,14 +37,14 @@ def render(students_df, t, selected_lang, aux_default):
     this_month = date.today().isoformat()[:7]
     month = st.selectbox(
         "Month", months, index=months.index(this_month),
-        format_func=lambda ym: datetime.strptime(ym, "%Y-%m").strftime("%B %Y"),
+        format_func=month_label,
         key="month_view_month",
     )
 
     in_month = schedules_df[schedules_df["meeting_date"].str.startswith(month)]
     rows, to_create = [], []
     for md, mt in sorted(saved_meetings(in_month)):
-        r = in_month[(in_month["meeting_date"] == md) & (in_month["meeting_type"] == mt)]
+        r = meeting_rows(in_month, md, mt)
         meta = get_meeting_meta(md, mt)
         _filled, _needed = fill_counts(r)
         rows.append({
@@ -126,7 +127,7 @@ def render(students_df, t, selected_lang, aux_default):
                                                     use_aux, group)
                         made.append(f"{fmt_date(md, short=True)} ({filled}/{total})")
                     if made:
-                        st.success("Created " + ", ".join(made)
+                        flash("Created " + ", ".join(made)
                                    + ". Open each week to check it before printing.")
                         st.rerun()
                     else:

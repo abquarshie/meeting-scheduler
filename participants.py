@@ -21,7 +21,7 @@ from db import (
     upcoming_assignments,
     update_student,
 )
-from ui import page_header
+from ui import choice, flash, page_header
 from utils import fmt_date, nfc
 
 
@@ -48,7 +48,7 @@ def render(students_df, t, selected_lang, aux_default):
                     if nfc(name).lower() in students_df["name"].str.lower().tolist():
                         st.warning(f"There is already someone called {name}; added anyway.")
                     add_student(name, gender, privileges, family, groups)
-                    st.success(f"Added {name}.")
+                    flash(f"Added {name}.")
                     st.rerun()
 
     with tab_edit:
@@ -83,7 +83,7 @@ def render(students_df, t, selected_lang, aux_default):
                     else:
                         update_student(sid, e_name, e_gender, e_priv, e_active,
                                        e_family, e_groups)
-                        st.success("Saved. Existing schedules show the updated name.")
+                        flash("Saved. Existing schedules show the updated name.")
                         st.rerun()
 
             row_d = row.to_dict()
@@ -114,7 +114,7 @@ def render(students_df, t, selected_lang, aux_default):
                                             for d, t, p in clash))
                 if st.button("Save suspension", key=f"save_sus_{sid}"):
                     set_suspension(sid, sus, until)
-                    st.success("Suspension lifted." if not sus else "Suspension saved.")
+                    flash("Suspension lifted." if not sus else "Suspension saved.")
                     st.rerun()
 
             with st.expander("Away dates (dropped from those meetings)"):
@@ -135,7 +135,7 @@ def render(students_df, t, selected_lang, aux_default):
                         days = [(start + timedelta(days=n)).isoformat()
                                 for n in range((end - start).days + 1)]
                         set_unavailable(sid, sorted(set(current_away) | set(days)))
-                        st.success("Away period added.")
+                        flash("Away period added.")
                         st.rerun()
                 if current_away and a2.button("Clear all", key=f"clear_away_{sid}"):
                     set_unavailable(sid, [])
@@ -149,16 +149,14 @@ def render(students_df, t, selected_lang, aux_default):
                         "Untick 'Active' instead so the history stays intact."
                     )
                 elif st.button("Delete participant", type="primary"):
-                    delete_student(sid)
-                    st.warning("Participant deleted.")
-                    st.rerun()
+                    confirm_delete(sid, row["name"])
 
     with tab_list:
         if students_df.empty:
             st.info("No participants yet.")
         else:
-            show = st.radio("Show", ["Everyone", "Families", "Adults"] + GROUPS + ["Suspended"],
-                            horizontal=True, key="participant_filter")
+            show = choice("Show", ["Everyone", "Families", "Adults"] + GROUPS
+                          + ["Suspended"], "participant_filter", "Everyone")
             last = last_assignment_dates(exclude_date="")
             df = students_df
             if show == "Families":
@@ -192,3 +190,16 @@ def render(students_df, t, selected_lang, aux_default):
             else:
                 st.caption(f"{len(view)} participant(s)")
                 st.dataframe(view[cols], width="stretch", hide_index=True)
+
+
+@st.dialog("Delete this participant?")
+def confirm_delete(student_id, name):
+    st.write(f"{name} will be removed for good. They have no saved "
+             "assignments, so no schedule changes.")
+    yes, no = st.columns(2)
+    if yes.button("Delete", type="primary", width="stretch"):
+        delete_student(student_id)
+        flash(f"{name} deleted.", ":material/delete:")
+        st.rerun()
+    if no.button("Cancel", width="stretch"):
+        st.rerun()

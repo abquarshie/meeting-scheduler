@@ -182,15 +182,6 @@ def held_close(before, after, pid, meeting_date, gap=None):
     return bool(nxt and when and 0 < (nxt - when).days <= gap)
 
 
-def recent_student_part(students_parts, pid, meeting_date, gap=None):
-    """True if this person had any field-ministry part recently.
-
-    The ministry parts are separate roles, so a rule about the identical part
-    lets someone take Initial Presentation, then Making Disciples, then
-    Explaining Your Beliefs on three consecutive weeks. For taking turns, what
-    matters is that they had a student part at all.
-    """
-    return held_recently(students_parts, pid, meeting_date, gap)
 
 
 def suggest_assignments(slots, students, away, meeting_date, skip=None):

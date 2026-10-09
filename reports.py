@@ -7,7 +7,7 @@ import streamlit as st
 
 from constants import CATEGORIES, HALL_NAMES, MAIN_HALL, ROLES
 from db import get_schedules, role_history, suspension_text
-from ui import page_header
+from ui import choice, page_header
 from utils import fmt_date
 
 
@@ -53,8 +53,8 @@ def render(students_df, t, selected_lang, aux_default):
         return
 
     c1, c2 = st.columns([2, 3])
-    span = c1.radio("Period", ["Last 3 months", "Last 6 months", "Last 12 months",
-                               "Custom"], index=1, horizontal=False, key="report_span")
+    span = choice("Period", ["Last 3 months", "Last 6 months", "Last 12 months",
+                             "Custom"], "report_span", "Last 6 months", where=c1)
     today = date.today()
     if span == "Custom":
         rng = c2.date_input("From – to", (today - timedelta(days=182), today),

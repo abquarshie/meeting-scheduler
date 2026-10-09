@@ -55,7 +55,7 @@ from picking import (
     recover_person,
     suggest_assignments,
 )
-from ui import page_header, section_heading
+from ui import choice, flash, page_header, section_heading
 from utils import (
     apply_aux,
     fill_progress,
@@ -75,8 +75,8 @@ def render(students_df, t, selected_lang, aux_default):
     schedules_df = get_schedules()
     meetings = saved_meetings(schedules_df)
 
-    mode = st.radio("Mode", ["Create new", "Edit saved"], horizontal=True,
-                    key="schedule_mode")
+    mode = choice("Mode", ["Create new", "Edit saved"], "schedule_mode",
+                  "Create new", label_visibility="collapsed")
     if mode == "Edit saved":
         if not meetings:
             st.info("No saved schedules yet.")
@@ -257,6 +257,11 @@ def render(students_df, t, selected_lang, aux_default):
                        "inactive. They are left out of the lists below.")
 
     ns = f"{meeting_date}|{meeting_type}|{source}"
+
+    def widget_key(slot):
+        """The stem of every widget key for one part on this page."""
+        return (f"{ns}|{slot['hall']}|{slot['role']}|{slot['part_no']}"
+                f"|{slot['title']}")
     sugg_key = f"suggest|{meeting_date}|{meeting_type}|{source}"
 
     def already_filled():
@@ -264,8 +269,7 @@ def render(students_df, t, selected_lang, aux_default):
         whether saved earlier or chosen a moment ago."""
         taken = {}
         for i, slot in enumerate(slots):
-            wkey = (f"{ns}|{slot['hall']}|{slot['role']}|{slot['part_no']}"
-                    f"|{slot['title']}")
+            wkey = widget_key(slot)
             saved = saved_picks.get(slot_match_key(slot), (None, None))
             sid = st.session_state.get(f"{wkey}|student", saved[0])
             aid = st.session_state.get(f"{wkey}|assistant", saved[1])
@@ -357,8 +361,7 @@ def render(students_df, t, selected_lang, aux_default):
     def current_choices():
         out = {}
         for i, slot in enumerate(slots):
-            wkey = (f"{ns}|{slot['hall']}|{slot['role']}|{slot['part_no']}"
-                    f"|{slot['title']}")
+            wkey = widget_key(slot)
             if visitor_ok_for(slot) and st.session_state.get(
                     f"{wkey}|isvis", bool(saved_visitors.get(slot_match_key(slot)))):
                 continue
@@ -394,7 +397,7 @@ def render(students_df, t, selected_lang, aux_default):
         pre_sid, pre_aid = saved_picks.get(slot_match_key(slot), (None, None))
         if i in suggested:
             pre_sid, pre_aid = suggested[i]
-        wkey = f"{ns}|{slot['hall']}|{slot['role']}|{slot['part_no']}|{slot['title']}"
+        wkey = widget_key(slot)
         text = slot_label(slot)
         if slot["title"] == FIRST_SPEAKER:
             # the speaker says the closing prayer too; in a symposium, the first
@@ -542,14 +545,6 @@ def render(students_df, t, selected_lang, aux_default):
                         render_slot(i, slot)
                     pending = None
 
-    st.markdown("---")
-    # how much is left, where the Save button is, rather than only on Home
-    done, needed = fill_progress(slots, picks)
-    left = needed - done
-    st.progress(min(done / needed, 1.0) if needed else 1.0,
-                text=(f"{done} of {needed} filled — {left} still open" if left
-                      else f"All {needed} filled"))
-
     # the same check as each part showed, on the picks as they stand now
     issues = assignment_issues(slots, picks, students_df, meeting_date,
                                meeting_type, suspended, other_meeting)
@@ -565,9 +560,25 @@ def render(students_df, t, selected_lang, aux_default):
             if errors:
                 st.caption("Saving is blocked until the red items are fixed.")
 
-    b1, b2 = st.columns([1, 1])
-    if b1.button("Save schedule", icon=":material/save:", type="primary",
-                 width="stretch", disabled=bool(errors)):
+    snap = last_snapshot(meeting_date, meeting_type)
+    # Progress and Save stay pinned to the bottom of the window while the
+    # parts scroll past: the form is long and Save used to be off-screen.
+    with st.container(key="savebar"):
+        done, needed = fill_progress(slots, picks)
+        left = needed - done
+        bar, b1, b2, b3 = st.columns([3, 1.2, 1, 1], vertical_alignment="center")
+        bar.progress(min(done / needed, 1.0) if needed else 1.0,
+                     text=(f"{done} of {needed} filled — {left} still open" if left
+                           else f"All {needed} filled"))
+        save = b1.button("Save schedule", icon=":material/save:", type="primary",
+                         width="stretch", disabled=bool(errors))
+        if snap and b2.button("Undo", icon=":material/undo:", width="stretch",
+                              help="Put back what was saved before."):
+            confirm_undo(meeting_date, meeting_type, snap)
+        if saved_slots and b3.button("Delete", icon=":material/delete:",
+                                     width="stretch"):
+            confirm_delete(meeting_date, meeting_type)
+    if save:
         meta_in.update(talk_in)
         try:
             save_schedule(meeting_date, meeting_type, slots, picks, meta_in, names)
@@ -580,37 +591,37 @@ def render(students_df, t, selected_lang, aux_default):
                        + (" The checks above are still worth a look."
                           if warnings else ""))
 
-    snap = last_snapshot(meeting_date, meeting_type)
-    if snap:
-        note = ("the schedule before it was deleted" if snap["reason"] == "before delete"
-                else f"{snap['assigned']} assignment(s) as saved at "
-                     f"{snap['ts'][11:16]}" + (f" by {snap['user']}" if snap["user"] else ""))
-        u1, u2 = st.columns([1, 1])
-        if u1.button("Undo last save", icon=":material/undo:", width="stretch",
-                     help=f"Puts back {note}."):
-            st.session_state["confirm_undo"] = (meeting_date, meeting_type)
-        if st.session_state.get("confirm_undo") == (meeting_date, meeting_type):
-            st.warning(f"Replace what's saved now with {note}?")
-            y, n = st.columns(2)
-            if y.button("Yes, undo", type="primary", key="do_undo"):
-                undo_last(meeting_date, meeting_type)
-                st.session_state.pop("confirm_undo")
-                st.rerun()
-            if n.button("Cancel", key="cancel_undo"):
-                st.session_state.pop("confirm_undo")
-                st.rerun()
 
-    if (saved_slots
-            and b2.button("Delete this schedule", icon=":material/delete:",
-                          width="stretch")):
-        st.session_state["confirm_delete"] = (meeting_date, meeting_type)
-    if st.session_state.get("confirm_delete") == (meeting_date, meeting_type):
-        st.error(f"Delete the {meeting_type} for {fmt_date(meeting_date)}?")
-        y, n = st.columns(2)
-        if y.button("Yes, delete", type="primary"):
-            delete_schedule(meeting_date, meeting_type)
-            st.session_state.pop("confirm_delete")
-            st.rerun()
-        if n.button("Cancel"):
-            st.session_state.pop("confirm_delete")
-            st.rerun()
+def _snapshot_note(snap):
+    if snap["reason"] == "before delete":
+        return "the schedule as it was before it was deleted"
+    return (f"{snap['assigned']} assignment(s) as saved at {snap['ts'][11:16]}"
+            + (f" by {snap['user']}" if snap["user"] else ""))
+
+
+@st.dialog("Undo the last save?")
+def confirm_undo(meeting_date, meeting_type, snap):
+    st.write(f"This puts back {_snapshot_note(snap)}, replacing what is saved "
+             f"now for the {meeting_type.lower()} on {fmt_date(meeting_date)}.")
+    st.caption("Undo can itself be undone.")
+    yes, no = st.columns(2)
+    if yes.button("Undo", type="primary", width="stretch", key="do_undo"):
+        undo_last(meeting_date, meeting_type)
+        flash("Last save undone.", ":material/undo:")
+        st.rerun()
+    if no.button("Cancel", width="stretch", key="cancel_undo"):
+        st.rerun()
+
+
+@st.dialog("Delete this schedule?")
+def confirm_delete(meeting_date, meeting_type):
+    st.write(f"The {meeting_type.lower()} on {fmt_date(meeting_date)} and "
+             "everyone assigned to it will be removed.")
+    st.caption("Undo on this page can bring it back.")
+    yes, no = st.columns(2)
+    if yes.button("Delete", type="primary", width="stretch", key="do_delete"):
+        delete_schedule(meeting_date, meeting_type)
+        flash("Schedule deleted.", ":material/delete:")
+        st.rerun()
+    if no.button("Cancel", width="stretch", key="cancel_delete"):
+        st.rerun()

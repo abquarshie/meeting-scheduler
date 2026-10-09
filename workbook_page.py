@@ -8,7 +8,7 @@ import streamlit as st
 
 from constants import ROLES
 from db import get_setting, set_setting
-from ui import page_header
+from ui import flash, page_header
 from utils import make_slot, nfc
 from workbook import (
     ENGLISH_MONTHS,
@@ -123,7 +123,7 @@ def render(students_df, t, selected_lang, aux_default):
             save_workbook(dated, stored_file)
             set_setting("skip_past_weeks", "1" if skip_past else "0")
             set_setting("workbook_dates_sure", "1")
-            st.success("Week dates updated.")
+            flash("Week dates updated.")
             st.rerun()
 
         st.subheader("Weeks found")
@@ -158,7 +158,7 @@ def render(students_df, t, selected_lang, aux_default):
             else:
                 renamed = {(label if l == week else l): w for l, w in stored.items()}
                 save_workbook(renamed, stored_file)
-                st.success(f"Renamed to {label}.")
+                flash(f"Renamed to {label}.")
                 st.rerun()
         left, right = st.columns([3, 2])
         with left:
@@ -192,7 +192,7 @@ def render(students_df, t, selected_lang, aux_default):
                 stored[week]["parts"] = parts
                 stored[week]["gaps"] = [n for n in range(1, top + 1) if n not in numbers]
                 save_workbook(stored, stored_file)
-                st.success("Saved. Use Create or edit to assign this week.")
+                flash("Saved. Use Create or edit to assign this week.")
                 st.rerun()
         with right:
             st.text_area("Workbook text for this week", stored[week].get("text", ""),

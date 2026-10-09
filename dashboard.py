@@ -8,6 +8,7 @@ import streamlit as st
 
 from constants import MIDWEEK, TRANSLATIONS
 from db import (
+    meeting_rows,
     backup_overdue,
     fill_counts,
     get_meeting_meta,
@@ -117,8 +118,7 @@ def render(students_df, t, selected_lang, aux_default):
     with st.container(border=True):
         if upcoming:
             md, mt = upcoming[0]
-            rows = schedules_df[(schedules_df["meeting_date"] == md)
-                                & (schedules_df["meeting_type"] == mt)]
+            rows = meeting_rows(schedules_df, md, mt)
             meta = get_meeting_meta(md, mt)
             filled, needed = fill_counts(rows)
             open_n = needed - filled
@@ -196,8 +196,7 @@ def render(students_df, t, selected_lang, aux_default):
             if p[0] <= (today + timedelta(days=28)).isoformat()]
     open_soon = 0
     for md, mt in soon:
-        f_, n_ = fill_counts(schedules_df[(schedules_df["meeting_date"] == md)
-                                          & (schedules_df["meeting_type"] == mt)])
+        f_, n_ = fill_counts(meeting_rows(schedules_df, md, mt))
         open_soon += n_ - f_
     week_end = (today + timedelta(days=6)).isoformat()
     away = get_unavailable_between(today.isoformat(), week_end)
@@ -230,8 +229,7 @@ def render(students_df, t, selected_lang, aux_default):
         st.markdown("#### Coming up")
         table = []
         for md, mt in later:
-            rows = schedules_df[(schedules_df["meeting_date"] == md)
-                                & (schedules_df["meeting_type"] == mt)]
+            rows = meeting_rows(schedules_df, md, mt)
             meta = get_meeting_meta(md, mt)
             f_, n_ = fill_counts(rows)
             table.append({

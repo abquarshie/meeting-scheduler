@@ -35,6 +35,11 @@ def fmt_date(iso, short=False):
     return f"{d.day} {d:%b}" if short else f"{d.day} {d:%B %Y}"
 
 
+def month_label(ym):
+    """'2026-10' -> 'October 2026'."""
+    return datetime.strptime(ym, "%Y-%m").strftime("%B %Y")
+
+
 def parse_privileges(value):
     """Turn the stored comma string into a clean list."""
     result = []

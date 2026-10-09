@@ -22,7 +22,7 @@ from db import (
 )
 from s140 import S140Error, check_s140_template
 from slips import S89Error, check_s89_template
-from ui import mark_event_week_form, page_header
+from ui import flash, mark_event_week_form, page_header
 from utils import week_label
 
 
@@ -56,7 +56,7 @@ def render(students_df, t, selected_lang, aux_default):
                     st.error(str(exc))
                 else:
                     save_template(f"s89_{language}", blank.name, blank.getvalue())
-                    st.success(f"Saved the {language} blank form — "
+                    flash(f"Saved the {language} blank form — "
                                f"{per_page} slip(s) per page.")
                     st.rerun()
 
@@ -84,13 +84,16 @@ def render(students_df, t, selected_lang, aux_default):
                 else:
                     save_template(f"s140_{language}", s140_file.name,
                                   s140_file.getvalue())
-                    st.success(f"Saved the {language} S-140 — "
+                    flash(f"Saved the {language} S-140 — "
                                f"{blocks} week block(s) in the blank.")
                     st.rerun()
 
         st.subheader("Backup file")
         st.download_button(
-            "Download full backup (.json)", data=backup_bytes(), icon=":material/download:",
+            # built (and recorded as taken) only when clicked; building it on
+            # every visit also marked a backup as taken that nobody downloaded
+            "Download full backup (.json)", data=backup_bytes,
+            icon=":material/download:",
             file_name=f"meeting_scheduler_backup_{date.today()}.json",
             mime="application/json",
         )
@@ -151,7 +154,7 @@ def render(students_df, t, selected_lang, aux_default):
             set_setting("congregation", congregation)
             set_setting("use_aux", "1" if aux_default else "0")
             set_setting("ga_convert", "1" if ga_on else "0")
-            st.success("Saved.")
+            flash("Saved.")
             st.rerun()
 
         st.subheader("Meeting days")

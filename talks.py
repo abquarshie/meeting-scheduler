@@ -6,6 +6,7 @@ letters for both and the annual checklist used to be spread over Admin,
 Participants and Slips and printing.
 """
 from datetime import date
+from functools import partial
 
 import pandas as pd
 import streamlit as st
@@ -35,7 +36,7 @@ from sheets_pdf import (
     talk_checklist_pdf,
     talk_matrix_rows,
 )
-from ui import go, page_header
+from ui import flash, go, page_header
 from utils import fmt_date, nfc
 
 
@@ -111,7 +112,8 @@ def invitation_letters(schedules_df):
             "talk_number": clean_value(meta.get("talk_number")),
             "talk_title": clean_value(meta.get("talk_title")),
         }
-        letter = invitation_letter_pdf(
+        letter = partial(
+            invitation_letter_pdf,
             candidate, get_setting("congregation", ""), settings["hall_address"],
             settings["meeting_time"], settings["talk_coordinator_signoff"],
             settings["talk_coordinator_phone"], settings["talk_coordinator_email"])
@@ -165,7 +167,7 @@ def outgoing(students_df):
                         key=f"outgoing_edit_talks_{sid}")
                     if st.button("Save talks", key=f"save_outgoing_talks_{sid}"):
                         set_outgoing_speaker(sid, new_numbers)
-                        st.success("Saved.")
+                        flash("Saved.")
                         st.rerun()
                 else:
                     st.caption("No talks in the list yet — add them in the "
@@ -201,7 +203,7 @@ def outgoing(students_df):
                 if st.button("Add date", key=f"add_outgoing_{sid}"):
                     add_outgoing_engagement(sid, go_date, go_cong,
                                             "" if go_talk == "—" else go_talk)
-                    st.success("Added.")
+                    flash("Added.")
                     st.rerun()
 
     st.divider()
@@ -223,7 +225,7 @@ def outgoing(students_df):
             chosen_numbers = []
         if st.button("Approve as outgoing speaker", type="primary"):
             set_outgoing_speaker(pick, chosen_numbers)
-            st.success(f"{names[pick]} added.")
+            flash(f"{names[pick]} added.")
             st.rerun()
 
     st.divider()
@@ -238,8 +240,8 @@ def outgoing(students_df):
     if not speakers:
         st.info("Approve a speaker above and the letter can be printed.")
         return
-    letter = outgoing_speakers_letter_pdf(
-        get_setting("congregation", ""), get_setting("hall_address", ""),
+    letter = partial(
+        outgoing_speakers_letter_pdf, get_setting("congregation", ""), get_setting("hall_address", ""),
         speakers, get_setting("talk_coordinator_signoff", "Bernard Mensah"),
         get_setting("talk_coordinator_phone", ""),
         get_setting("talk_coordinator_email", ""))
@@ -274,7 +276,8 @@ def checklist(schedules_df):
     span = str(years[0]) if len(years) == 1 else f"{years[0]}–{years[-1]}"
     st.download_button(
         f"Download checklist ({span})", icon=":material/checklist:",
-        data=talk_checklist_pdf(matrix_rows, get_setting("congregation", ""), years),
+        data=partial(talk_checklist_pdf, matrix_rows,
+                     get_setting("congregation", ""), years),
         file_name=f"talk_checklist_{years[0]}_{years[-1]}.pdf",
         mime="application/pdf")
 
@@ -306,7 +309,7 @@ def talk_list():
         for number, _ in talks:
             if number not in seen:
                 delete_talk(number)
-        st.success(f"Saved {len(kept)} talk(s).")
+        flash(f"Saved {len(kept)} talk(s).")
         st.rerun()
     st.caption("Add a row with the + at the bottom; clear a row's number "
                "to remove that talk.")
@@ -331,7 +334,7 @@ def talk_list():
             st.error(f"Couldn't read that CSV: {str(exc)[:160]}")
         else:
             total, added = import_talks(pairs, replace=replace)
-            st.success(f"Imported {total} talk(s), {added} new.")
+            flash(f"Imported {total} talk(s), {added} new.")
             st.rerun()
 
     if talks:

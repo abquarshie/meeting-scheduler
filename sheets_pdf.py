@@ -45,6 +45,7 @@ from constants import (
     WEEKEND,
 )
 from db import (
+    meeting_rows,
     event_for,
     event_label,
     event_text,
@@ -56,7 +57,7 @@ from db import (
     talk_text,
 )
 from parts import SECOND_SPEAKER, TALK_AND_PRAYER
-from utils import fmt_date, week_label, week_start
+from utils import month_label, fmt_date, week_label, week_start
 from workbook import meeting_day
 
 # =============================================================================
@@ -136,40 +137,24 @@ COMPACT_ROW_PAD = 1.5
 COMPACT_PER_PAGE = 2          # ordinary weeks per sheet; classroom weeks get one
 
 
-def _sheet_styles(regular, bold, compact=False, scale=None):
-    """One place for the look of both sheets.
+def _sheet_styles(regular, bold, compact=False):
+    """One place for the look of the midweek sheet. compact tightens the
+    spacing so two weeks share an A4; it never shrinks the type."""
+    line = 12 * 0.98 if compact else 12
 
-    compact squeezes a midweek week to about two thirds of its height so two
-    fit on one A4. Everything shrinks together — type, leading and padding —
-    because taking it out of any one of them alone shows.
-    """
-    k = 1.0                       # compact tightens spacing, never the type
+    def style(name, size, leading, font=regular, **kw):
+        return ParagraphStyle(name, fontName=font, fontSize=size, leading=leading, **kw)
+
     return {
-        "title": ParagraphStyle("T", fontName=bold, fontSize=16 * k,
-                                leading=19 * k),
-        "cong": ParagraphStyle("C", fontName=bold, fontSize=11 * k,
-                               leading=19 * k, alignment=TA_RIGHT, textColor=MUTED),
-        "when": ParagraphStyle("W", fontName=bold, fontSize=11.5 * k,
-                               leading=15 * k, textColor=ACCENT,
-                               spaceBefore=5 if compact else 10,
-                               spaceAfter=2 if compact else 3),
-        "section": ParagraphStyle("S", fontName=bold, fontSize=12 * k,
-                                  leading=16 * k),
-        "part": ParagraphStyle("P", fontName=regular, fontSize=9 * k,
-                               leading=(12 * k * 0.98 if compact else 12),
-                               leftIndent=11, firstLineIndent=-11),
-        "name": ParagraphStyle("N", fontName=regular, fontSize=9 * k,
-                               leading=(12 * k * 0.98 if compact else 12)),
-        "label": ParagraphStyle("L", fontName=bold, fontSize=8 * k,
-                                leading=(12 * k * 0.98 if compact else 12),
-                                alignment=TA_RIGHT, textColor=MUTED),
-        "sub": ParagraphStyle("U", fontName=bold, fontSize=7 * k, leading=9 * k,
-                              textColor=MUTED),
-        "theme": ParagraphStyle("H", fontName=regular, fontSize=9 * k,
-                                leading=(12 * k * 0.98 if compact else 12),
-                                textColor=MUTED, leftIndent=11),
+        "title": style("T", 16, 19, bold),
+        "cong": style("C", 11, 19, bold, alignment=TA_RIGHT, textColor=MUTED),
+        "when": style("W", 11.5, 15, bold, textColor=ACCENT,
+                      spaceBefore=5 if compact else 10, spaceAfter=2 if compact else 3),
+        "section": style("S", 12, 16, bold),
+        "part": style("P", 9, line, leftIndent=11, firstLineIndent=-11),
+        "name": style("N", 9, line),
+        "label": style("L", 8, line, bold, alignment=TA_RIGHT, textColor=MUTED),
         "_compact": compact,
-        "_scale": k,
     }
 
 
@@ -406,8 +391,7 @@ def _midweek_pdf(meetings, schedules_df, lang=None, compact=False):
     story = []
 
     def uses_classroom(meeting_date, meeting_type):
-        rows = schedules_df[(schedules_df["meeting_date"] == meeting_date)
-                            & (schedules_df["meeting_type"] == meeting_type)]
+        rows = meeting_rows(schedules_df, meeting_date, meeting_type)
         return bool((rows["hall"] != MAIN_HALL).any())
 
     def sheets(items):
@@ -442,8 +426,7 @@ def _midweek_pdf(meetings, schedules_df, lang=None, compact=False):
             story.append(PageBreak())
         banner_shown = None      # each sheet is headed by the meeting name
         for meeting_date, meeting_type in page_meetings:
-            rows = schedules_df[(schedules_df["meeting_date"] == meeting_date)
-                                & (schedules_df["meeting_type"] == meeting_type)]
+            rows = meeting_rows(schedules_df, meeting_date, meeting_type)
             if rows.empty:
                 continue
             meta = get_meeting_meta(meeting_date, meeting_type)
@@ -594,8 +577,7 @@ def _weekend_table(meetings, schedules_df, words, st_, width, language="English"
                            st_["event"]),
                          "", "", "", ""])
             continue
-        rows = schedules_df[(schedules_df["meeting_date"] == meeting_date)
-                            & (schedules_df["meeting_type"] == meeting_type)]
+        rows = meeting_rows(schedules_df, meeting_date, meeting_type)
         if rows.empty:
             continue
         rows = rows.sort_values("sort_order")
@@ -661,8 +643,7 @@ def build_s140_data(meetings, schedules_df, congregation):
     """Shape saved midweek meetings like the S-140 filler's data.json."""
     weeks, skipped = [], []
     for meeting_date, meeting_type in sorted(meetings):
-        rows = schedules_df[(schedules_df["meeting_date"] == meeting_date)
-                            & (schedules_df["meeting_type"] == meeting_type)]
+        rows = meeting_rows(schedules_df, meeting_date, meeting_type)
         meta = get_meeting_meta(meeting_date, meeting_type)
         week = {
             "heading": meta.get("heading") or fmt_date(meeting_date).upper(),
@@ -848,7 +829,7 @@ def _personal_message(person, gender, period, items):
 
 def whatsapp_month_text(person, gender, month, items):
     """A month of one person's assignments as a WhatsApp message."""
-    month_name = datetime.strptime(month, "%Y-%m").strftime("%B %Y")
+    month_name = month_label(month)
     return _personal_message(person, gender, month_name, items)
 
 
@@ -911,85 +892,101 @@ def _letter_date(iso):
     return f"{d:%B} {d.day}, {d.year}"
 
 
+# The two letters share a letterhead and a closing, so they look like one set.
+def _letter_styles():
+    regular, bold, _ = register_fonts()
+
+    def style(name, size, leading, font=regular, **kw):
+        return ParagraphStyle(name, fontName=font, fontSize=size, leading=leading, **kw)
+
+    return {
+        "regular": regular, "bold": bold,
+        "name": style("ltr_name", 18, 22, bold, alignment=TA_CENTER, textColor=ACCENT),
+        "org": style("ltr_org", 13, 17, bold, alignment=TA_CENTER),
+        "addr": style("ltr_addr", 8.5, 11, alignment=TA_CENTER, textColor=MUTED),
+        "body": style("ltr_body", 10.5, 16),
+        "heading": style("ltr_heading", 11, 15, bold, alignment=TA_CENTER),
+        "sign": style("ltr_sign", 10.5, 15),
+        "cell": style("ltr_cell", 9.5, 13),
+        "head_cell": style("ltr_head_cell", 9.5, 13, bold, textColor=colors.white),
+    }
+
+
+def _esc(value):
+    return xml_escape(str(value or ""))
+
+
+def _letterhead(congregation, hall_address, s):
+    """Congregation, organisation, address, then today's date."""
+    story = [Paragraph(_esc(congregation).upper(), s["name"]),
+             Paragraph("CONGREGATION OF JEHOVAH’S WITNESSES", s["org"])]
+    if hall_address:
+        story.append(Paragraph(_esc(hall_address), s["addr"]))
+    return story + [Spacer(1, 22),
+                    Paragraph(_esc(_letter_date(date.today().isoformat())), s["body"]),
+                    Spacer(1, 20)]
+
+
+def _contact(signoff, phone, email):
+    contact = f"Talk Coordinator - {_esc(signoff)}"
+    if phone:
+        contact += f"  {_esc(phone)}"
+    if email:
+        contact += f", {_esc(email)}"
+    return contact
+
+
+def _signature(congregation, signoff, s, gap):
+    return [
+        Spacer(1, gap),
+        Paragraph(f"<i>Your Brothers,</i><br/>"
+                  f"{_esc(congregation)} Congregation of Jehovah's Witnesses", s["sign"]),
+        Spacer(1, 10),
+        HRFlowable(width="50%", thickness=1, color=ACCENT, hAlign="LEFT"),
+        Spacer(1, 4),
+        Paragraph(f"Talk Coordinator - {_esc(signoff)}", s["sign"]),
+    ]
+
+
+def _letter_bytes(story):
+    buffer = io.BytesIO()
+    SimpleDocTemplate(buffer, pagesize=A4, rightMargin=54, leftMargin=54,
+                      topMargin=60, bottomMargin=54).build(story)
+    return buffer.getvalue()
+
+
 def invitation_letter_pdf(candidate, congregation, hall_address, meeting_time,
                           signoff, phone="", email=""):
     """A formal request letter to a guest speaker's own congregation, asking
     them to release him for the visit — addressed to his congregation, not to
     him, matching the wording congregations exchange these requests in."""
-    regular, bold, _ = register_fonts()
-    person = candidate.get("person") or ""
-    guest_congregation = candidate.get("congregation") or ""
-    title = candidate.get("talk_title") or ""
+    s = _letter_styles()
     number = candidate.get("talk_number") or ""
+    title = candidate.get("talk_title") or ""
     theme = f"No. {number} {title}".strip() if number else title
-
-    def esc(value):
-        return xml_escape(str(value or ""))
-
-    name_style = ParagraphStyle("inv_name", fontName=bold, fontSize=18, leading=22,
-                                alignment=TA_CENTER, textColor=ACCENT)
-    org_style = ParagraphStyle("inv_org", fontName=bold, fontSize=13, leading=17,
-                               alignment=TA_CENTER)
-    addr_style = ParagraphStyle("inv_addr", fontName=regular, fontSize=8.5,
-                                leading=11, alignment=TA_CENTER, textColor=MUTED)
-    body_style = ParagraphStyle("inv_body", fontName=regular, fontSize=10.5,
-                                leading=16)
-    heading_style = ParagraphStyle("inv_heading", fontName=bold, fontSize=11,
-                                   leading=15, alignment=TA_CENTER)
-    sign_style = ParagraphStyle("inv_sign", fontName=regular, fontSize=10.5,
-                                leading=15)
-
-    contact = f"Talk Coordinator - {esc(signoff)}"
-    if phone:
-        contact += f"  {esc(phone)}"
-    if email:
-        contact += f", {esc(email)}"
-
-    story = [
-        Paragraph(esc(congregation).upper(), name_style),
-        Paragraph("CONGREGATION OF JEHOVAH’S WITNESSES", org_style),
-    ]
-    if hall_address:
-        story.append(Paragraph(esc(hall_address), addr_style))
-    story += [
-        Spacer(1, 22),
-        Paragraph(esc(_letter_date(date.today().isoformat())), body_style),
-        Spacer(1, 20),
-        Paragraph(esc(guest_congregation), body_style),
+    story = _letterhead(congregation, hall_address, s) + [
+        Paragraph(_esc(candidate.get("congregation")), s["body"]),
         Spacer(1, 16),
-        Paragraph("Dear Brothers,", body_style),
+        Paragraph("Dear Brothers,", s["body"]),
         Spacer(1, 6),
-        Paragraph("<u>REQUEST FOR PUBLIC SPEAKER</u>", heading_style),
+        Paragraph("<u>REQUEST FOR PUBLIC SPEAKER</u>", s["heading"]),
         Spacer(1, 10),
         Paragraph("We are writing to request that the brother mentioned below "
-                  "visit our congregation to give a public talk.", body_style),
+                  "visit our congregation to give a public talk.", s["body"]),
         Spacer(1, 12),
-        Paragraph(f"Name: {esc(person)}<br/>"
-                 f"Theme: {esc(theme)}<br/>"
-                 f"Date: {esc(_letter_date(candidate['meeting_date']))}<br/>"
-                 f"Time: {esc(meeting_time)}", body_style),
+        Paragraph(f"Name: {_esc(candidate.get('person'))}<br/>"
+                  f"Theme: {_esc(theme)}<br/>"
+                  f"Date: {_esc(_letter_date(candidate['meeting_date']))}<br/>"
+                  f"Time: {_esc(meeting_time)}", s["body"]),
         Spacer(1, 12),
         Paragraph("We are hopeful that you will take into account and approve "
                   "our request. If you need more information or clarification, "
-                  f"please feel free to call or send an email.<br/>{contact}",
-                  body_style),
+                  "please feel free to call or send an email.<br/>"
+                  + _contact(signoff, phone, email), s["body"]),
         Spacer(1, 12),
-        Paragraph("Please accept a warm expression of our Christian love.",
-                  body_style),
-        Spacer(1, 50),
-        Paragraph(f"<i>Your Brothers,</i><br/>"
-                 f"{esc(congregation)} Congregation of Jehovah's Witnesses",
-                 sign_style),
-        Spacer(1, 10),
-        HRFlowable(width="50%", thickness=1, color=ACCENT, hAlign="LEFT"),
-        Spacer(1, 4),
-        Paragraph(f"Talk Coordinator - {esc(signoff)}", sign_style),
-    ]
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=54, leftMargin=54,
-                            topMargin=60, bottomMargin=54)
-    doc.build(story)
-    return buffer.getvalue()
+        Paragraph("Please accept a warm expression of our Christian love.", s["body"]),
+    ] + _signature(congregation, signoff, s, 50)
+    return _letter_bytes(story)
 
 
 def outgoing_speakers_letter_pdf(congregation, hall_address, speakers, signoff,
@@ -997,52 +994,17 @@ def outgoing_speakers_letter_pdf(congregation, hall_address, speakers, signoff,
     """A letter for other congregations listing our approved outgoing
     speakers and the talks each has ready, so they can pick when inviting one.
 
-    speakers: [(name, [(talk_number, talk_title), ...]), ...]. Shares its
-    letterhead with invitation_letter_pdf so the two look like one set.
+    speakers: [(name, [(talk_number, talk_title), ...]), ...].
     """
-    regular, bold, _ = register_fonts()
-
-    def esc(value):
-        return xml_escape(str(value or ""))
-
-    name_style = ParagraphStyle("out_name", fontName=bold, fontSize=18, leading=22,
-                                alignment=TA_CENTER, textColor=ACCENT)
-    org_style = ParagraphStyle("out_org", fontName=bold, fontSize=13, leading=17,
-                               alignment=TA_CENTER)
-    addr_style = ParagraphStyle("out_addr", fontName=regular, fontSize=8.5,
-                                leading=11, alignment=TA_CENTER, textColor=MUTED)
-    body_style = ParagraphStyle("out_body", fontName=regular, fontSize=10.5,
-                                leading=16)
-    heading_style = ParagraphStyle("out_heading", fontName=bold, fontSize=11,
-                                   leading=15, alignment=TA_CENTER)
-    sign_style = ParagraphStyle("out_sign", fontName=regular, fontSize=10.5,
-                                leading=15)
-    cell_style = ParagraphStyle("out_cell", fontName=regular, fontSize=9.5, leading=13)
-    head_cell_style = ParagraphStyle("out_head_cell", fontName=bold, fontSize=9.5,
-                                     leading=13, textColor=colors.white)
-
-    contact = f"Talk Coordinator - {esc(signoff)}"
-    if phone:
-        contact += f"  {esc(phone)}"
-    if email:
-        contact += f", {esc(email)}"
-
-    story = [
-        Paragraph(esc(congregation).upper(), name_style),
-        Paragraph("CONGREGATION OF JEHOVAH’S WITNESSES", org_style),
-    ]
-    if hall_address:
-        story.append(Paragraph(esc(hall_address), addr_style))
-    story += [
-        Spacer(1, 22),
-        Paragraph(esc(_letter_date(date.today().isoformat())), body_style),
-        Spacer(1, 20),
-        Paragraph("<u>APPROVED OUTGOING SPEAKERS</u>", heading_style),
+    s = _letter_styles()
+    regular, bold = s["regular"], s["bold"]
+    story = _letterhead(congregation, hall_address, s) + [
+        Paragraph("<u>APPROVED OUTGOING SPEAKERS</u>", s["heading"]),
         Spacer(1, 12),
         Paragraph("Below are the approved outgoing speakers for our "
                   "congregation, and the talks they have prepared. Any "
                   "request should go through the Talk Coordinator before "
-                  "the brother is contacted.", body_style),
+                  "the brother is contacted.", s["body"]),
         Spacer(1, 14),
     ]
 
@@ -1051,7 +1013,7 @@ def outgoing_speakers_letter_pdf(congregation, hall_address, speakers, signoff,
     # text shrinks (not below 7.5pt) until every title sits on one line.
     usable = 487                             # A4 minus the letter's 54pt margins
     pad = 8                                  # cell padding, each side
-    size = cell_style.fontSize
+    size = s["cell"].fontSize
     name_w = max([pdfmetrics.stringWidth(n, regular, size) for n, _ in speakers]
                  + [pdfmetrics.stringWidth("Speaker", bold, size)]) + 2 * pad + 2
     name_w = min(name_w, usable * 0.4)
@@ -1063,17 +1025,14 @@ def outgoing_speakers_letter_pdf(congregation, hall_address, speakers, signoff,
     room = talk_w - 2 * pad - 2
     if longest > room:
         size = max(7.5, size * room / longest)
-    talk_style = ParagraphStyle("out_talk", parent=cell_style, fontSize=size,
+    talk_style = ParagraphStyle("ltr_talk", parent=s["cell"], fontSize=size,
                                 leading=round(size * 1.37, 1))
 
-    data = [[Paragraph("Speaker", head_cell_style),
-             Paragraph("Talks prepared", head_cell_style)]]
+    data = [[Paragraph("Speaker", s["head_cell"]),
+             Paragraph("Talks prepared", s["head_cell"])]]
     for name, talks in speakers:
-        talk_text = "<br/>".join(
-            esc(talk_label(number, title)) for number, title in talks
-        ) or "—"
-        data.append([Paragraph(esc(name), cell_style), Paragraph(talk_text, talk_style)])
-
+        listed = "<br/>".join(_esc(talk_label(n, t)) for n, t in talks) or "—"
+        data.append([Paragraph(_esc(name), s["cell"]), Paragraph(listed, talk_style)])
     table = Table(data, colWidths=[name_w, talk_w], repeatRows=1)
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), ACCENT),
@@ -1088,33 +1047,15 @@ def outgoing_speakers_letter_pdf(congregation, hall_address, speakers, signoff,
     story.append(table)
 
     # The closing moves as one block: the signature line on a page by itself,
-    # parted from the rest of the letter, is no signature at all. If the list
-    # is ever too long for one page, the whole closing goes to the next.
-    story += [
-        Spacer(1, 16),
-        KeepTogether([
-            Paragraph("If you need more information or clarification, please "
-                      f"feel free to call or send an email.<br/>{contact}",
-                      body_style),
-            Spacer(1, 10),
-            Paragraph("Please accept a warm expression of our Christian love.",
-                      body_style),
-            Spacer(1, 30),
-            Paragraph(f"<i>Your Brothers,</i><br/>"
-                      f"{esc(congregation)} Congregation of Jehovah's Witnesses",
-                      sign_style),
-            Spacer(1, 10),
-            HRFlowable(width="50%", thickness=1, color=ACCENT, hAlign="LEFT"),
-            Spacer(1, 4),
-            Paragraph(f"Talk Coordinator - {esc(signoff)}", sign_style),
-        ]),
-    ]
-
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=54, leftMargin=54,
-                            topMargin=60, bottomMargin=54)
-    doc.build(story)
-    return buffer.getvalue()
+    # parted from the rest of the letter, is no signature at all.
+    story += [Spacer(1, 16), KeepTogether([
+        Paragraph("If you need more information or clarification, please "
+                  "feel free to call or send an email.<br/>"
+                  + _contact(signoff, phone, email), s["body"]),
+        Spacer(1, 10),
+        Paragraph("Please accept a warm expression of our Christian love.", s["body"]),
+    ] + _signature(congregation, signoff, s, 30))]
+    return _letter_bytes(story)
 
 
 def talk_matrix_rows(schedules_df, years):

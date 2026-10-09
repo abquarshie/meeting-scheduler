@@ -109,13 +109,12 @@ def _pool(url, schema_name):
         psycopg.connect(url, connect_timeout=CONNECT_TIMEOUT).close()
     except Exception as exc:
         raise RuntimeError(f"{str(exc).strip() or exc.__class__.__name__}") from exc
-    from psycopg_pool import ConnectionPool as _CP
     return ConnectionPool(
         url, min_size=1, max_size=5, open=True, timeout=POOL_TIMEOUT,
         # Neon suspends its compute when idle and terminates the connections.
         # check runs a liveness test before handing one out, so a suspended
         # database costs one reconnect instead of an AdminShutdown crash.
-        check=_CP.check_connection,
+        check=ConnectionPool.check_connection,
         max_idle=60,        # recycle before Neon gets to them
         max_lifetime=600,
         # prepare_threshold=None turns off automatic server-side prepared
@@ -452,10 +451,6 @@ def _forget_settings():
     _all_settings.clear()
 
 
-def get_setting_uncached(key, default=""):
-    with get_conn() as conn:
-        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
-    return row[0] if row else default
 
 
 def set_setting(key, value):
@@ -715,8 +710,6 @@ def load_template(name):
         return None, ""
 
 
-def template_names():
-    return sorted(_templates(schema()))
 
 
 BACKUP_REMINDER_DAYS = 14
@@ -741,8 +734,10 @@ def backup_overdue():
     return days >= BACKUP_REMINDER_DAYS, days
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def status_text():
-    """What the sidebar says about storage."""
+    """What the sidebar says about storage. Checked once a minute rather than
+    on every rerun: every click in the app used to cost a round trip here."""
     try:
         with get_conn() as conn:
             conn.execute("SELECT 1")
@@ -760,9 +755,6 @@ def fill_counts(rows):
     return filled, needed
 
 
-def open_slots(rows):
-    filled, needed = fill_counts(rows)
-    return needed - filled
 
 
 def saved_meetings(schedules_df):
@@ -777,9 +769,16 @@ def meeting_label(pair):
     return f"{fmt_date(pair[0])} · {pair[1]}"
 
 
+def meeting_rows(schedules_df, meeting_date, meeting_type):
+    """The saved rows of one meeting."""
+    df = schedules_df
+    return df[(df["meeting_date"] == str(meeting_date))
+              & (df["meeting_type"] == meeting_type)]
+
+
 def load_schedule(meeting_date, meeting_type, schedules_df=None):
     df = get_schedules() if schedules_df is None else schedules_df
-    rows = df[(df["meeting_date"] == str(meeting_date)) & (df["meeting_type"] == meeting_type)]
+    rows = meeting_rows(df, meeting_date, meeting_type)
     slots, picks, visitors, visitor_congregations = [], {}, {}, {}
     for _, r in rows.iterrows():
         role = r["role"] or infer_role(r["part_name"])
@@ -1024,27 +1023,6 @@ def delete_schedule(meeting_date, meeting_type):
     log_change("Schedule deleted", f"{meeting_type} {meeting_date}")
 
 
-def last_assignments(exclude_date):
-    """student_id -> (date, part name, role) of their most recent assignment.
-
-    The date alone doesn't tell the person scheduling what someone last did,
-    which is what decides whether they are due this part or a different one.
-    """
-    with get_conn() as conn:
-        rows = conn.execute(
-            """SELECT DISTINCT ON (pid) pid, meeting_date, part_name, role FROM (
-                   SELECT student_id AS pid, meeting_date, part_name, role
-                     FROM schedules
-                    WHERE student_id IS NOT NULL AND meeting_date != ?
-                   UNION ALL
-                   SELECT assistant_id, meeting_date, part_name, role
-                     FROM schedules
-                    WHERE assistant_id IS NOT NULL AND meeting_date != ?
-               ) recent
-               ORDER BY pid, meeting_date DESC""",
-            (str(exclude_date), str(exclude_date)),
-        ).fetchall()
-    return {pid: (date_, part, role) for pid, date_, part, role in rows}
 
 
 # ---------------------------------------------------------------------------
@@ -1072,6 +1050,11 @@ def _assignment_rows(schema_name):
             for pid, when, role, part_name, assisted in rows]
 
 
+def _key(meeting_date):
+    """One cache entry per meeting, whether it arrives as a date or a string."""
+    return str(meeting_date) if meeting_date else ""
+
+
 def _nearest(meeting_date, keep, after=False):
     """{person: (date, row)} for the closest assignment before (or after)
     meeting_date among the rows `keep` accepts. With no meeting_date, the
@@ -1090,6 +1073,19 @@ def _nearest(meeting_date, keep, after=False):
     return out
 
 
+@st.cache_data(show_spinner=False, max_entries=512)
+def _lookup(schema_name, meeting_date, kind, role=None, after=False):
+    """_nearest() for one meeting and one kind of assignment, remembered.
+
+    The schedule page asks this once per part for the dropdown labels, and
+    twice more per pick for the checks, on every click; each answer walked
+    every assignment ever saved. Cleared by _forget_schedules().
+    """
+    keep = {"role": _is_own_part(role), "student": _is_student_part,
+            "any": lambda r: True}[kind]
+    return _nearest(meeting_date, keep, after)
+
+
 def _is_own_part(role):
     return lambda row: row[4] == 0 and row[2] == role
 
@@ -1101,13 +1097,14 @@ def _is_student_part(row):
 def last_role_dates(role, meeting_date=None):
     """person -> latest date before this meeting they had this same part
     (either hall). Without a meeting, the latest date overall."""
-    return {p: d for p, (d, _) in _nearest(meeting_date, _is_own_part(role)).items()}
+    return {p: d for p, (d, _) in
+            _lookup(schema(), _key(meeting_date), "role", role).items()}
 
 
 def next_role_dates(role, meeting_date):
     """person -> earliest date after this meeting they have this same part."""
     return {p: d for p, (d, _) in
-            _nearest(meeting_date, _is_own_part(role), after=True).items()}
+            _lookup(schema(), _key(meeting_date), "role", role, True).items()}
 
 
 def last_student_part_dates(meeting_date=None):
@@ -1118,12 +1115,13 @@ def last_student_part_dates(meeting_date=None):
     someone take a different one each week. Turn-taking needs them counted
     together.
     """
-    return {p: d for p, (d, _) in _nearest(meeting_date, _is_student_part).items()}
+    return {p: d for p, (d, _) in
+            _lookup(schema(), _key(meeting_date), "student").items()}
 
 
 def next_student_part_dates(meeting_date):
     return {p: d for p, (d, _) in
-            _nearest(meeting_date, _is_student_part, after=True).items()}
+            _lookup(schema(), _key(meeting_date), "student", None, True).items()}
 
 
 def last_assignment_dates(meeting_date=None, exclude_date=None):
@@ -1133,13 +1131,10 @@ def last_assignment_dates(meeting_date=None, exclude_date=None):
     latest date overall (the participants list).
     """
     meeting_date = meeting_date if meeting_date is not None else exclude_date
-    return {p: d for p, (d, _) in _nearest(meeting_date, lambda r: True).items()}
-
-
-def next_assignment_dates(meeting_date):
-    """person -> earliest date after this meeting they have any part."""
     return {p: d for p, (d, _) in
-            _nearest(meeting_date, lambda r: True, after=True).items()}
+            _lookup(schema(), _key(meeting_date), "any").items()}
+
+
 
 
 def last_assignment_details(meeting_date):
@@ -1150,7 +1145,7 @@ def last_assignment_details(meeting_date):
     deciding who to give a part to.
     """
     out = {}
-    for pid, (when, row) in _nearest(meeting_date, lambda r: True).items():
+    for pid, (when, row) in _lookup(schema(), _key(meeting_date), "any").items():
         _, _, role, part_name, assisted = row
         what = (role or part_name or "").strip()
         out[pid] = (when, f"assisted, {what}" if assisted else what)
@@ -1160,7 +1155,8 @@ def last_assignment_details(meeting_date):
 def next_assignment_details(meeting_date):
     """person -> (date, what) for their first assignment after this meeting."""
     out = {}
-    for pid, (when, row) in _nearest(meeting_date, lambda r: True, after=True).items():
+    for pid, (when, row) in _lookup(schema(), _key(meeting_date), "any",
+                                     None, True).items():
         _, _, role, part_name, assisted = row
         what = (role or part_name or "").strip()
         out[pid] = (when, f"assisting, {what}" if assisted else what)
@@ -1171,6 +1167,7 @@ def _forget_schedules():
     """Call after anything that changes the schedules table."""
     _schedules.clear()
     _assignment_rows.clear()
+    _lookup.clear()
     _meetings.clear()
 
 
@@ -1235,33 +1232,33 @@ def upcoming_assignments(student_id, until=None):
         return conn.execute(query + " ORDER BY meeting_date", params).fetchall()
 
 
-def get_unavailable_between(start, end):
-    """Everyone away on any date in the range. The dashboard needs a whole
-    week, which was seven separate queries."""
+@st.cache_data(show_spinner=False)
+def _unavailable(schema_name):
+    """[(person, date)] for every away day, in one query. The schedule page
+    asks on every rerun; cleared by set_unavailable() and a restore."""
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT student_id FROM unavailable WHERE meeting_date BETWEEN ? AND ?",
-            (str(start), str(end)),
-        ).fetchall()
-    return {r[0] for r in rows}
+            "SELECT student_id, meeting_date FROM unavailable "
+            "ORDER BY meeting_date").fetchall()
+    return [(sid, str(d)) for sid, d in rows]
+
+
+def _forget_unavailable():
+    _unavailable.clear()
+
+
+def get_unavailable_between(start, end):
+    """Everyone away on any date in the range."""
+    start, end = str(start), str(end)
+    return {sid for sid, d in _unavailable(schema()) if start <= d <= end}
 
 
 def get_unavailable(meeting_date):
-    with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT student_id FROM unavailable WHERE meeting_date = ?",
-            (str(meeting_date),),
-        ).fetchall()
-    return {r[0] for r in rows}
+    return get_unavailable_between(meeting_date, meeting_date)
 
 
 def unavailable_dates(student_id):
-    with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT meeting_date FROM unavailable WHERE student_id = ? ORDER BY meeting_date",
-            (student_id,),
-        ).fetchall()
-    return [r[0] for r in rows]
+    return [d for sid, d in _unavailable(schema()) if sid == student_id]
 
 
 def away_summary(dates):
@@ -1288,6 +1285,7 @@ def set_unavailable(student_id, dates):
             "INSERT INTO unavailable (student_id, meeting_date) VALUES (?, ?)",
             [(student_id, str(d)) for d in dates],
         )
+    _forget_unavailable()
     log_change("Away dates changed", f"id {student_id}: {len(dates)} day(s)")
 
 
@@ -1392,17 +1390,6 @@ def mark_event_week(day, kind):
     return cleared
 
 
-def add_no_meeting_period(start, end, note="", kind="assembly"):
-    start, end = str(start), str(end)
-    if end < start:
-        start, end = end, start
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO no_meeting_periods (start_date, end_date, note, kind) "
-            "VALUES (?, ?, ?, ?)", (start, end, nfc(note), kind))
-    _forget_no_meeting()
-    log_change("No-meeting period added",
-              f"{start} to {end}" + (f": {note}" if note else ""))
 
 
 def delete_no_meeting_period(period_id):

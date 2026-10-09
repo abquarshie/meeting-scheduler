@@ -546,12 +546,6 @@ def load_workbook():
     return _workbook(schema())
 
 
-def _load_workbook_uncached():
-    with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT label, data FROM workbook_weeks ORDER BY position").fetchall()
-        name = conn.execute("SELECT value FROM settings WHERE key = 'workbook_file'").fetchone()
-    return {label: json.loads(data) for label, data in rows}, (name[0] if name else "")
 
 
 def save_workbook(weeks, file_name):
