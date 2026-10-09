@@ -11,6 +11,7 @@ from db import (  # underscored: not in *
     _forget_settings,
     _forget_students,
     _forget_templates,
+    _talks,
     get_conn,
     init_db,
     log_change,
@@ -19,6 +20,7 @@ from db import (  # underscored: not in *
     set_setting,
     table_columns,
 )
+from workbook import _workbook  # underscored: not in *
 
 TABLES = [
     "students", "schedules", "meetings", "settings",
@@ -90,6 +92,8 @@ def import_all(data, log=True):
     _forget_no_meeting()
     _forget_outgoing_speakers()
     _forget_outgoing_engagements()
+    _talks.clear()            # the talk list and the workbook came back too
+    _workbook.clear()
     if log:
         log_change("Data restored",
                    f"{counts.get('students', 0)} participants, "

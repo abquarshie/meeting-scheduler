@@ -15,6 +15,7 @@ Secrets (Streamlit Cloud → Settings → Secrets, or .streamlit/secrets.toml):
     password = "second-password"
 """
 import hmac
+import unicodedata
 
 import streamlit as st
 
@@ -47,7 +48,12 @@ def login_enabled():
 
 
 def _matches(given, expected):
-    return bool(expected) and hmac.compare_digest(str(given), str(expected))
+    # compared as bytes: compare_digest raises TypeError on a str with any
+    # non-ASCII character (ɛ, ɔ, or a phone keyboard's curly quote), which
+    # crashed the sign-in page instead of saying the password was wrong
+    def raw(text):          # NFC without nfc()'s strip: spaces count here
+        return unicodedata.normalize("NFC", str(text)).encode("utf-8")
+    return bool(expected) and hmac.compare_digest(raw(given), raw(expected))
 
 
 def require_login():

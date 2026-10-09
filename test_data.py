@@ -295,6 +295,77 @@ def test_restoring_a_backup_clears_the_caches(core, people):
     assert core.last_role_dates("Treasures Talk") == {}
 
 
+def test_restoring_a_backup_clears_the_talk_list_and_workbook(core, english_workbook):
+    """The talk list and the workbook are restored too; their caches used to
+    keep showing what was there before until the app rebooted."""
+    core.save_talk("1", "Before")
+    weeks, _, _ = core.parse_brochure(english_workbook)
+    core.save_workbook(core.assign_dates(weeks, date(2026, 9, 14)), "before.pdf")
+    backup = json.loads(core.backup_bytes())
+
+    core.save_talk("1", "After")
+    core.save_talk("2", "Added later")
+    core.save_workbook({}, "")
+    assert dict(core.get_talks()) == {"1": "After", "2": "Added later"}
+    assert core.load_workbook() == ({}, "")
+
+    core.import_all(backup)
+    assert dict(core.get_talks()) == {"1": "Before"}
+    stored, name = core.load_workbook()
+    assert name == "before.pdf" and len(stored) == 2
+
+
+def test_meeting_details_are_cached_and_follow_every_write(core, monkeypatch):
+    """One query for every meeting's details, not one per meeting; and a save,
+    delete, undo or restore is seen straight away."""
+    slots = core.default_weekend_slots()
+    for n, d in enumerate(("2026-10-03", "2026-10-10", "2026-10-17")):
+        core.save_schedule(d, core.WEEKEND, slots, {},
+                           {"talk_number": str(n + 1), "talk_title": f"T{n}"}, {})
+    backup = json.loads(core.backup_bytes())
+    core.get_meeting_meta("2026-10-03", core.WEEKEND)
+
+    calls = _count_queries(monkeypatch)
+    for d in ("2026-10-03", "2026-10-10", "2026-10-17", "2026-10-24"):
+        core.get_meeting_meta(d, core.WEEKEND)
+    assert calls == [], "meeting details should come from the cache"
+
+    assert core.get_meeting_meta("2026-10-24", core.WEEKEND)["talk_number"] == ""
+    assert core.get_meeting_meta("2026-10-24", core.WEEKEND)["aux"] is None
+
+    core.save_schedule("2026-10-10", core.WEEKEND, slots, {},
+                       {"talk_number": "99", "talk_title": "Changed"}, {})
+    assert core.get_meeting_meta("2026-10-10", core.WEEKEND)["talk_title"] == "Changed"
+    core.undo_last("2026-10-10", core.WEEKEND)
+    assert core.get_meeting_meta("2026-10-10", core.WEEKEND)["talk_title"] == "T1"
+    core.delete_schedule("2026-10-17", core.WEEKEND)
+    assert core.get_meeting_meta("2026-10-17", core.WEEKEND)["talk_number"] == ""
+    core.import_all(backup)
+    assert core.get_meeting_meta("2026-10-17", core.WEEKEND)["talk_number"] == "3"
+
+    # a caller changing the dict it was given must not change the cache
+    core.get_meeting_meta("2026-10-03", core.WEEKEND)["talk_title"] = "scribbled"
+    assert core.get_meeting_meta("2026-10-03", core.WEEKEND)["talk_title"] == "T0"
+
+
+def test_undo_names_who_saved_not_the_database_login(core, people, monkeypatch):
+    import streamlit as st
+    monkeypatch.setitem(st.session_state, "user_name", "Ama")
+    slots = core.build_midweek_slots(core.default_midweek_parts())
+    core.save_schedule("2026-09-16", core.MIDWEEK, slots, {}, {}, {})
+    assert core.last_snapshot("2026-09-16", core.MIDWEEK)["user"] == "Ama"
+
+
+def test_passwords_with_ga_letters_or_curly_quotes_do_not_crash(core):
+    from auth import _matches
+    assert _matches("kpɔɔ’ɛ", "kpɔɔ’ɛ")
+    assert not _matches("kpɔɔ’ɛ", "plain")
+    assert not _matches("plain", "kpɔɔ’ɛ")
+    assert _matches("café", "café")            # composed either way
+    assert not _matches("secret ", "secret")              # spaces still count
+    assert not _matches("anything", None)
+
+
 def test_backup_reminder_tracks_the_last_backup(core, people):
     """The backup file is the only second copy now, and taking one is a button
     somebody has to remember to press."""

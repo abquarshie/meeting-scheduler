@@ -96,21 +96,42 @@ def render(students_df, t, selected_lang, aux_default):
         )
         st.caption("Includes participants, schedules, away dates, suspensions, "
                    "the workbook, settings and the change log.")
+        restored = st.session_state.pop("restore_done", None)
+        if restored:
+            st.success(restored)
+        # A new key after each restore empties the uploader and the tick box,
+        # so a second click can't restore the same file over again.
+        round_ = st.session_state.get("restore_round", 0)
         upload = st.file_uploader("Restore from a backup file", type=["json"],
-                                  key="restore_upload")
+                                  key=f"restore_upload_{round_}")
         if upload is not None:
             try:
                 data = json.loads(upload.getvalue().decode("utf-8"))
+                if not isinstance(data, dict):
+                    raise ValueError("This isn't a Meeting Scheduler backup.")
+            except (ValueError, UnicodeDecodeError) as exc:
+                st.error(f"That file can't be restored: {exc}")
+            else:
                 st.info(f"Backup from {data.get('_created', 'unknown date')}: "
                         f"{len(data.get('students', []))} participants, "
                         f"{len(data.get('schedules', []))} schedule rows.")
                 sure = st.checkbox("I understand this replaces all current data",
-                                   key="restore_sure")
+                                   key=f"restore_sure_{round_}")
                 if st.button("Restore this backup", type="primary", disabled=not sure):
-                    counts = import_all(data)
-                    st.success(f"Restored {counts.get('students', 0)} participants.")
-            except (ValueError, UnicodeDecodeError) as exc:
-                st.error(f"That file can't be restored: {exc}")
+                    try:
+                        counts = import_all(data)
+                    except ValueError as exc:
+                        st.error(f"That file can't be restored: {exc}")
+                    except Exception as exc:
+                        # the tables are replaced in one transaction, so a
+                        # failure there rolls back and the current data stays
+                        st.error(f"The restore failed: {str(exc)[:200]}")
+                    else:
+                        st.session_state["restore_round"] = round_ + 1
+                        st.session_state["restore_done"] = (
+                            f"Restored {counts.get('students', 0)} participants "
+                            f"and {counts.get('schedules', 0)} schedule rows.")
+                        st.rerun()
 
     with tab_settings:
         st.subheader("Printing")

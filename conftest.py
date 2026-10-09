@@ -32,6 +32,7 @@ def fresh_db(monkeypatch):
     db._schedules.clear()
     db._assignment_rows.clear()
     db._talks.clear()
+    db._meetings.clear()
     import workbook
     workbook._workbook.clear()
     with psycopg.connect(DSN, autocommit=True) as raw:

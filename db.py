@@ -800,16 +800,28 @@ def load_schedule(meeting_date, meeting_type, schedules_df=None):
     return slots, picks, visitors, visitor_congregations
 
 
-def get_meeting_meta(meeting_date, meeting_type):
+_META_KEYS = ["heading", "opening_song", "middle_song", "closing_song", "aux",
+              "talk_number", "talk_title", "book", "aux_group"]
+
+
+@st.cache_data(show_spinner=False)
+def _meetings(schema_name):
+    """{(date, type): row} for every meeting, in one query.
+
+    Pages ask for one meeting's details at a time, often in a loop over every
+    weekend ever saved; one round trip to the database each made the printing
+    page slow. Cleared by _forget_schedules() on every write.
+    """
     with get_conn() as conn:
-        row = conn.execute(
-            """SELECT heading, opening_song, middle_song, closing_song, aux,
-                      talk_number, talk_title, book, aux_group FROM meetings
-               WHERE meeting_date = ? AND meeting_type = ?""",
-            (str(meeting_date), meeting_type),
-        ).fetchone()
-    keys = ["heading", "opening_song", "middle_song", "closing_song", "aux",
-            "talk_number", "talk_title", "book", "aux_group"]
+        rows = conn.execute(
+            f"SELECT meeting_date, meeting_type, {', '.join(_META_KEYS)} "
+            "FROM meetings").fetchall()
+    return {(str(r[0]), r[1]): tuple(r[2:]) for r in rows}
+
+
+def get_meeting_meta(meeting_date, meeting_type):
+    row = _meetings(schema()).get((str(meeting_date), meeting_type))
+    keys = _META_KEYS
     meta = dict(zip(keys, row)) if row else {k: "" for k in keys}
     if not row:
         meta["aux"] = None
@@ -867,9 +879,10 @@ def last_snapshot(meeting_date, meeting_type):
     """The most recent undo point for this meeting: (id, ts, user, reason, rows)."""
     with get_conn() as conn:
         row = conn.execute(
-            """SELECT id, ts, user, reason, data FROM snapshots
+            # "user" quoted: bare, Postgres reads it as the database login
+            '''SELECT id, ts, "user", reason, data FROM snapshots
                WHERE meeting_date = ? AND meeting_type = ?
-               ORDER BY id DESC LIMIT 1""",
+               ORDER BY id DESC LIMIT 1''',
             (str(meeting_date), meeting_type)).fetchone()
     if not row:
         return None
@@ -1158,6 +1171,7 @@ def _forget_schedules():
     """Call after anything that changes the schedules table."""
     _schedules.clear()
     _assignment_rows.clear()
+    _meetings.clear()
 
 
 def role_history(student_id, limit=8):

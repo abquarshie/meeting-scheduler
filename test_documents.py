@@ -329,7 +329,6 @@ def test_official_s89_is_filled_not_redrawn(core):
 
 
 @pytest.mark.skipif(not S89_BLANK.is_file(), reason="blank S-89 not in the repo")
-@pytest.mark.skipif(not S89_BLANK.is_file(), reason="blank S-89 not in the repo")
 def test_slips_need_the_official_blank(core):
     """The app no longer draws its own imitation of the form: without the blank
     it says so, rather than printing something that only looks official."""
@@ -371,6 +370,7 @@ def test_songs_print_in_the_sheet_language(core, people):
     assert "Song" not in ga
 
 
+@pytest.mark.skipif(not S89_BLANK.is_file(), reason="blank S-89 not in the repo")
 def test_s89_edge_cases(core):
     """Zero rows, one row, and a wrong file — the three ways the uploader and
     the print button can be used that are not the happy path."""
@@ -528,7 +528,8 @@ def test_both_published_s140_blanks_fill(core, people):
         assert ("Song 74" in text) is (not ga)
 
 
-@pytest.mark.skipif(not S140_EN.is_file(), reason="S-140 blanks not in the repo")
+@pytest.mark.skipif(not (S140_EN.is_file() and S89_BLANK.is_file()),
+                    reason="S-140 and S-89 blanks not in the repo")
 def test_s140_template_check_rejects_the_wrong_file(core):
     with pytest.raises(core.S140Error):
         core.check_s140_template(b"not a docx")
