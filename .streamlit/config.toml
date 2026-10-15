@@ -1,0 +1,34 @@
+# Streamlit reads this file only when the app starts, and only from the
+# .streamlit folder next to app.py. On Streamlit Cloud, create it there on
+# GitHub: Add file → Create new file → type ".streamlit/config.toml".
+
+[client]
+# no developer menu items (Deploy, Clear cache, Record screencast…)
+toolbarMode = "minimal"
+
+[theme]
+baseRadius = "0.6rem"
+showSidebarBorder = true
+
+# Light and dark follow the phone or computer's own setting.
+[theme.light]
+primaryColor = "#24527A"            # ink blue: buttons, ticks, the chosen tab
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F2F4F7"
+textColor = "#17212B"
+linkColor = "#24527A"
+borderColor = "#DDE2E8"
+
+[theme.light.sidebar]
+backgroundColor = "#F6F7F9"
+
+[theme.dark]
+primaryColor = "#3A76AD"            # the same blue, light enough for dark, dark enough for white text
+backgroundColor = "#0F1620"
+secondaryBackgroundColor = "#1A2431"
+textColor = "#E6EAF0"
+linkColor = "#8DB8E0"
+borderColor = "#2A3646"
+
+[theme.dark.sidebar]
+backgroundColor = "#131C27"
