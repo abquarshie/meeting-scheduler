@@ -161,6 +161,13 @@ def s140_template(tmp_path):
 
 
 def run(at):
+    # AppTest does not follow st.switch_page from one run to the next; a
+    # browser does (it is in the address). Start each run on the page the
+    # last one ended on, as a browser would.
+    try:
+        at._page_hash = at.session_state["_nav_hash"]
+    except (KeyError, AttributeError):
+        pass
     at.run(timeout=90)
     assert not at.exception, at.exception
     return at

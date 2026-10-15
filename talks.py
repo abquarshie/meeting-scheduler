@@ -36,7 +36,7 @@ from sheets_pdf import (
     talk_checklist_pdf,
     talk_matrix_rows,
 )
-from ui import flash, go, page_header
+from ui import flash, go, lazy_tabs, page_header
 from utils import fmt_date, nfc
 
 
@@ -44,20 +44,25 @@ def render(students_df, t, selected_lang, aux_default):
     page_header("Public talks",
                 "Guest speakers, our outgoing speakers, their letters, the talk list and the annual checklist.")
     schedules_df = get_schedules()
-    tab_letters, tab_outgoing, tab_checklist, tab_list, tab_details = st.tabs(
+    tab_letters, tab_outgoing, tab_checklist, tab_list, tab_details = lazy_tabs(
         ["Invitation letters", "Outgoing speakers", "Annual checklist", "Talk list",
-         "Letter details"])
+         "Letter details"], "talks_tab")
 
     with tab_letters:
-        invitation_letters(schedules_df)
+        if tab_letters.open:
+            invitation_letters(schedules_df)
     with tab_outgoing:
-        outgoing(students_df)
+        if tab_outgoing.open:
+            outgoing(students_df)
     with tab_checklist:
-        checklist(schedules_df)
+        if tab_checklist.open:
+            checklist(schedules_df)
     with tab_list:
-        talk_list()
+        if tab_list.open:
+            talk_list()
     with tab_details:
-        letter_details()
+        if tab_details.open:
+            letter_details()
 
 
 # ------------------------------------------------------------------ coming up

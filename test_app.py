@@ -149,7 +149,7 @@ def test_login_required_when_password_set(people):
     at = AppTest.from_file(APP, default_timeout=90)
     at.secrets["auth"] = {"password": "open-sesame"}
     run(at)
-    assert not any(b.label == "Month overview" for b in at.button)
+    assert not any("Good " in m.value for m in at.markdown)   # still signing in
     at.text_input[0].set_value("Xan")
     at.text_input[1].set_value("wrong")
     at.button[0].click()
@@ -158,7 +158,7 @@ def test_login_required_when_password_set(people):
     at.text_input[1].set_value("open-sesame")
     at.button[0].click()
     run(at)
-    assert any(b.label == "Month overview" for b in at.button)
+    assert any("Good " in m.value for m in at.markdown)       # Home is shown
     import core
     assert "Xan" in set(core.get_log()["user"])
 
@@ -201,14 +201,21 @@ def test_home_empty_states(core):
     assert any("No meetings scheduled yet" in m.value for m in at.markdown)
 
 
-def test_sidebar_navigation(people):
+def test_navigation_follows_menu_and_menu_follows_navigation(people):
+    """The menu is Streamlit's own (with page addresses); code still changes
+    page through session_state["menu"], and choosing Create or edit from the
+    menu opens it ready for a new schedule, as the old menu did."""
+    import ui
     at = app()
-    next(b for b in at.button if b.label == "Reports").click()
+    assert at.session_state["menu"] == "Home"
+    at.session_state["menu"] = "Reports"
     run(at)
+    assert any("Reports" in m.value for m in at.markdown)
     assert at.session_state["menu"] == "Reports"
-    active = [b for b in at.button if b.key and b.key.startswith("nav_")
-              and b.proto.type == "primary"]
-    assert [b.label for b in active] == ["Reports"]
+    run(at)                                         # and it stays there
+    assert any("Reports" in m.value for m in at.markdown)
+    assert ui.PAGE_NAMES == [n for names in ui.NAV_SECTIONS.values() for n in names]
+    assert set(ui.PAGE_NAMES) == set(ui.NAV_ICONS)
 
 
 def test_a_past_meeting_day_is_not_offered(core, english_workbook, monkeypatch):
@@ -407,10 +414,14 @@ def test_printing_page_holds_every_document(people, core, s140_template=None):
     at = app("Slips and printing")
     labels = [b.label for b in at.get("download_button")]
     assert any(l.startswith("Midweek schedule") for l in labels), labels
+    at.session_state["print_tab"] = "S-140 & CSV"     # tabs build when opened
+    run(at)
+    labels = [b.label for b in at.get("download_button")]
     assert any("CSV" in l for l in labels), labels
 
     # and Export is no longer a page of its own
-    assert not any(b.key == "nav_Export" for b in at.button)
+    import ui
+    assert "Export" not in ui.PAGE_NAMES
 
 
 def test_symposium_two_speakers_one_talk(people, core):
@@ -565,7 +576,7 @@ def test_one_weekly_message_on_the_messages_tab(people, core):
     core.save_schedule(wednesday, core.MIDWEEK, slots,
                        {0: (people["Kofi Mensah"], None),
                         1: (people["Yaw Adjei"], None)}, {}, names)
-    at = app("Slips and printing")
+    at = app("Slips and printing", print_tab="Messages")
     week = next(s for s in at.selectbox if s.label == "Week")
     assert week.value == monday.isoformat()                  # this week by default
     weekly = [c.value for c in at.code if c.value.startswith("*Meeting assignments")]
@@ -604,7 +615,7 @@ def test_marking_a_week_from_admin_asks_before_clearing(people, core):
     core.save_schedule((monday + timedelta(days=2)).isoformat(), core.MIDWEEK,
                        core.build_midweek_slots(core.default_midweek_parts()),
                        {0: (people["Kofi Mensah"], None)}, {}, names)
-    at = app("Admin")
+    at = app("Admin", admin_tab="Settings")
     go = next(b for b in at.button if b.label == "Mark as Circuit Assembly week")
     assert go.disabled                                   # a meeting would be cleared
     next(c for c in at.checkbox if c.label.startswith("Clear them")).check()

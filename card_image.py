@@ -384,7 +384,8 @@ def _footer(img, y, left, right):
 
 def _png(img):
     out = BytesIO()
-    img.save(out, "PNG", optimize=True)
+    # level 6 is a quarter of optimize=True's time for a file 2% larger
+    img.save(out, "PNG", compress_level=6)
     return out.getvalue()
 
 

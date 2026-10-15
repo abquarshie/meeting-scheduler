@@ -36,7 +36,7 @@ from sheets_pdf import (
     whatsapp_month_text,
 )
 from slips import slip_rows_for, slips_pdf
-from ui import choice, go, page_header
+from ui import choice, go, lazy_tabs, page_header
 from utils import month_label, fmt_date, make_slot, relative_week, slot_label, week_label, week_start
 
 
@@ -79,18 +79,21 @@ def render(students_df, t, selected_lang, aux_default):
     if scope == "One meeting":
         meeting_summary(chosen[0], rows)
 
-    tab_print, tab_export, tab_messages = st.tabs(
-        ["Slips & sheets", "S-140 & CSV", "Messages"])
+    tab_print, tab_export, tab_messages = lazy_tabs(
+        ["Slips & sheets", "S-140 & CSV", "Messages"], "print_tab")
     with tab_print:
-        slips_and_sheets(chosen, rows, schedules_df, t, selected_lang,
-                         label_for_file, meetings,
-                         month if scope == "A whole month" else None)
+        if tab_print.open:
+            slips_and_sheets(chosen, rows, schedules_df, t, selected_lang,
+                             label_for_file, meetings,
+                             month if scope == "A whole month" else None)
     with tab_export:
-        s140_and_csv(meetings, schedules_df, t, selected_lang, month)
+        if tab_export.open:
+            s140_and_csv(meetings, schedules_df, t, selected_lang, month)
     with tab_messages:
-        weekly_messages(meetings, schedules_df, selected_lang)
-        st.divider()
-        monthly_messages(meetings, schedules_df, students_df, month, selected_lang)
+        if tab_messages.open:
+            weekly_messages(meetings, schedules_df, selected_lang)
+            st.divider()
+            monthly_messages(meetings, schedules_df, students_df, month, selected_lang)
 
 
 def meeting_summary(meeting, rows):

@@ -8,27 +8,32 @@ from datetime import date
 from html import escape as html_escape
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from constants import EVENT_KINDS, EVENT_NAMES, SECTION_COLORS, SECTION_TITLES
 from db import event_text, fill_counts, mark_event_week, meetings_in_week
 from utils import fmt_date, week_label
 
 APP_NAME = "Meeting Scheduler"
-APP_TAGLINE = "Life and Ministry assignments"
 
-# One name per page: the sidebar label, the heading and what go() is given.
-NAV = [
-    ("Home", ":material/space_dashboard:"),
-    ("Month overview", ":material/calendar_month:"),
-    ("Create or edit", ":material/edit_calendar:"),
-    ("Slips and printing", ":material/print:"),
-    ("Public talks", ":material/record_voice_over:"),
-    ("Participants", ":material/group:"),
-    ("Workbook PDF", ":material/menu_book:"),
-    ("Reports", ":material/bar_chart:"),
-    ("Admin", ":material/admin_panel_settings:"),
-]
-PAGE_NAMES = [name for name, _ in NAV]
+# One name per page: the menu label, the page heading and what go() is given.
+NAV_SECTIONS = {
+    "Schedule": ["Home", "Month overview", "Create or edit", "Slips and printing"],
+    "Congregation": ["Public talks", "Participants", "Workbook PDF"],
+    "Records": ["Reports", "Admin"],
+}
+NAV_ICONS = {
+    "Home": ":material/space_dashboard:",
+    "Month overview": ":material/calendar_month:",
+    "Create or edit": ":material/edit_calendar:",
+    "Slips and printing": ":material/print:",
+    "Public talks": ":material/record_voice_over:",
+    "Participants": ":material/group:",
+    "Workbook PDF": ":material/menu_book:",
+    "Reports": ":material/bar_chart:",
+    "Admin": ":material/admin_panel_settings:",
+}
+PAGE_NAMES = [name for names in NAV_SECTIONS.values() for name in names]
 
 CSS = """
 <style>
@@ -46,23 +51,6 @@ div:has(> .st-key-savebar) { position: sticky; bottom: 0; z-index: 50; }
                   border-top: 1px solid rgba(128,128,128,.25);
                   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
                   background: rgba(128,128,128,.10); border-radius: .6rem .6rem 0 0; }
-
-/* sidebar: brand + navigation list */
-.ms-brand { font-weight: 700; font-size: 1.05rem; margin: 0 0 .1rem 0; }
-.ms-brand-sub { font-size: .8rem; opacity: .65; margin: 0 0 1rem 0; }
-[class*="st-key-nav_"] button {
-    justify-content: flex-start;
-    padding-left: .75rem;
-    border-radius: .45rem;
-}
-[class*="st-key-nav_"] button > div,
-[class*="st-key-nav_"] button [data-testid="stMarkdownContainer"] {
-    justify-content: flex-start;
-    text-align: left;
-    width: 100%;
-}
-[class*="st-key-nav_"] button p { font-weight: 500; }
-[class*="st-key-nav_"] { margin-bottom: -0.55rem; }
 
 /* page header */
 .ms-page-title { font-size: 1.75rem; font-weight: 700; margin: 0; line-height: 1.2; }
@@ -100,6 +88,18 @@ div:has(> .st-key-savebar) { position: sticky; bottom: 0; z-index: 50; }
                  font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 .ms-stat-label { opacity: .65; font-size: .85rem; margin-top: .35rem; }
 @media (max-width: 640px) {
+  /* the save bar stays two short rows on a phone instead of stacking four
+     full-width blocks over the form: progress, then the buttons side by side */
+  .st-key-savebar { padding: .5rem .75rem; }
+  .st-key-savebar [data-testid="stHorizontalBlock"] { flex-direction: row !important;
+      flex-wrap: wrap !important; gap: .4rem !important; }
+  .st-key-savebar [data-testid="stColumn"] { flex: 1 1 0 !important;
+      width: auto !important; min-width: 0 !important; }
+  .st-key-savebar [data-testid="stColumn"]:first-child { flex-basis: 100% !important; }
+  .st-key-savebar [data-testid="stColumn"]:nth-child(2) { flex-grow: 3 !important; }
+  /* Undo and Delete as their icons alone; the words don't fit */
+  .st-key-savebar [data-testid="stColumn"]:nth-child(n+3) [data-testid="stMarkdownContainer"] {
+      display: none; }
   .ms-bar-row { grid-template-columns: 1fr 3.5rem; }
   .ms-bar-track { grid-column: 1 / -1; grid-row: 2; }
   .ms-next-when { font-size: 1.6rem; }
@@ -143,6 +143,39 @@ def choice(label, options, key, default, where=st, **kw):
     return where.segmented_control(label, options, key=key, required=True, **kw)
 
 
+_CLOSE_MENU_ON_PHONES = """<script>
+// On a phone the open sidebar covers the page, and Streamlit leaves it open
+// after a page is chosen. Close it then. Installed once per browser tab: the
+// listener sits on the app's own document (this frame shares its origin).
+const doc = window.parent.document;
+if (!window.parent.__msCloseMenu) {
+  window.parent.__msCloseMenu = true;
+  doc.addEventListener("click", (e) => {
+    if (!e.target.closest('[data-testid="stSidebarNavLink"]')) return;
+    if (window.parent.innerWidth >= 768) return;
+    setTimeout(() => {
+      const b = doc.querySelector('[data-testid="stSidebarCollapseButton"] button');
+      if (b) b.click();
+    }, 150);
+  }, true);
+}
+</script>"""
+
+
+def close_menu_on_phones():
+    with st.sidebar:
+        components.html(_CLOSE_MENU_ON_PHONES, height=0)
+
+
+def lazy_tabs(labels, key):
+    """Tabs that build only the open one, and keep it in the address.
+
+    Plain st.tabs runs every tab on every rerun — on the printing page that
+    meant drawing both WhatsApp cards while someone was choosing slips.
+    """
+    return st.tabs(labels, key=key, on_change="rerun", bind="query-params")
+
+
 def go(page, **state):
     """Switch page, optionally presetting widget state, and rerun."""
     st.session_state["menu"] = page
@@ -155,21 +188,29 @@ def inject_css():
     st.markdown(CSS, unsafe_allow_html=True)
 
 
-def sidebar(current):
-    """App name, then one row per page."""
-    with st.sidebar:
-        st.markdown(f'<div class="ms-brand">{html_escape(APP_NAME)}</div>'
-                    f'<div class="ms-brand-sub">{html_escape(APP_TAGLINE)}</div>',
-                    unsafe_allow_html=True)
-        for page, icon in NAV:
-            active = page == current
-            if st.button(page, icon=icon, key=f"nav_{page.replace(' ', '_')}",
-                         type="primary" if active else "tertiary", width="stretch"):
-                if not active:
-                    state = ({"schedule_mode": "Create new"}
-                             if page == "Create or edit" else {})
-                    go(page, **state)
-        st.divider()
+def follow_menu(shown, pages):
+    """Keep st.navigation and session_state["menu"] in step.
+
+    Someone choosing from the menu changes the page shown; code changing
+    page (go(), a test) sets "menu". Whichever changed since the last run
+    wins: a menu choice is written back to "menu", a new "menu" switches
+    the page.
+    """
+    last = st.session_state.get("_nav_shown")
+    if last is not None and shown != last:            # chosen from the menu
+        st.session_state["menu"] = shown
+        if shown == "Create or edit":                  # as the old menu did
+            st.session_state["schedule_mode"] = "Create new"
+    wanted = st.session_state.get("menu")
+    if wanted not in pages:                            # unset, or renamed
+        wanted = shown
+    st.session_state["menu"] = wanted
+    st.session_state["_nav_shown"] = wanted
+    # the page actually shown, for the test runner (see conftest.run): a
+    # browser keeps it in the address, AppTest forgets st.switch_page
+    st.session_state["_nav_hash"] = pages[wanted]._script_hash
+    if wanted != shown:
+        st.switch_page(pages[wanted])
 
 
 def page_header(title, subtitle=None):

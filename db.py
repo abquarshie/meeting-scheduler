@@ -875,20 +875,26 @@ def _take_snapshot(conn, meeting_date, meeting_type, reason):
 
 
 def last_snapshot(meeting_date, meeting_type):
-    """The most recent undo point for this meeting: (id, ts, user, reason, rows)."""
+    """The most recent undo point for this meeting: (id, ts, user, reason, rows).
+
+    Counted in the database: the schedule page asks on every rerun, and the
+    snapshot itself is a full copy of the meeting that only Undo needs.
+    """
     with get_conn() as conn:
         row = conn.execute(
             # "user" quoted: bare, Postgres reads it as the database login
-            '''SELECT id, ts, "user", reason, data FROM snapshots
-               WHERE meeting_date = ? AND meeting_type = ?
-               ORDER BY id DESC LIMIT 1''',
+            '''SELECT id, ts, "user", reason,
+                      json_array_length(data::json -> 'schedules'),
+                      (SELECT COUNT(*) FROM json_array_elements(data::json -> 'schedules') r
+                        WHERE r ->> 'student_id' IS NOT NULL)
+                 FROM snapshots
+                WHERE meeting_date = ? AND meeting_type = ?
+                ORDER BY id DESC LIMIT 1''',
             (str(meeting_date), meeting_type)).fetchone()
     if not row:
         return None
-    data = json.loads(row[4])
     return {"id": row[0], "ts": row[1], "user": row[2], "reason": row[3],
-            "rows": len(data["schedules"]),
-            "assigned": sum(1 for r in data["schedules"] if r.get("student_id"))}
+            "rows": row[4], "assigned": row[5]}
 
 
 def undo_last(meeting_date, meeting_type):

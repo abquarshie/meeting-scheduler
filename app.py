@@ -38,7 +38,8 @@ try:
                     set_setting, status_text)
     from sheets_pdf import register_fonts  # noqa: E402
     from auth import logout_button, require_login  # noqa: E402
-    from ui import PAGE_NAMES, inject_css, show_flashes, sidebar  # noqa: E402
+    from ui import (NAV_ICONS, NAV_SECTIONS, close_menu_on_phones,  # noqa: E402
+                    follow_menu, inject_css, show_flashes)
     import admin, dashboard, month, participants  # noqa: E402
     import reports, schedule, talks, view, workbook_page  # noqa: E402
 except ModuleNotFoundError as exc:
@@ -89,14 +90,36 @@ except Exception as exc:
 require_login()
 FONT_REGULAR, FONT_BOLD, FONT_SUPPORTS_GA = register_fonts()
 
-if "menu" not in st.session_state:
-    st.session_state["menu"] = "Home"
+# --- pages ---------------------------------------------------------------------
+# Streamlit's own navigation: each page has its address (…/create-or-edit),
+# refresh and the back button work, and on a phone the sidebar closes after
+# a page is chosen. "menu" in session state stays the way code changes page
+# (go() and the tests set it), so the two are kept in step below.
+RENDER = {
+    "Home": dashboard.render,
+    "Month overview": month.render,
+    "Create or edit": schedule.render,
+    "Slips and printing": view.render,
+    "Public talks": talks.render,
+    "Participants": participants.render,
+    "Workbook PDF": workbook_page.render,
+    "Reports": reports.render,
+    "Admin": admin.render,
+}
 
-# --- sidebar -------------------------------------------------------------------
-if st.session_state["menu"] not in PAGE_NAMES:   # a page renamed since last visit
-    st.session_state["menu"] = "Home"
-menu = st.session_state["menu"]
-sidebar(menu)
+
+def _page(name):
+    def run():
+        RENDER[name](get_students(), t, selected_lang, aux_default)
+    slug = name.lower().replace(" ", "-")
+    return st.Page(run, title=name, icon=NAV_ICONS[name], url_path=slug,
+                   default=name == "Home")
+
+
+PAGES = {name: _page(name) for name in RENDER}
+current = st.navigation({section: [PAGES[n] for n in names]
+                         for section, names in NAV_SECTIONS.items()})
+follow_menu(current.title, PAGES)
 
 # Settings are kept together on the Admin page; the sidebar holds the one
 # control that is changed while working, and a way out of a stuck form.
@@ -122,7 +145,7 @@ with st.sidebar.expander("Settings", icon=":material/settings:"):
     if st.button("Clear filters and unsaved picks", icon=":material/restart_alt:",
                  type="tertiary"):
         keep = {k: st.session_state[k]
-                for k in ("auth_ok", "user_name", "slip_lang", "menu")
+                for k in ("auth_ok", "user_name", "slip_lang", "menu", "_nav_shown")
                 if k in st.session_state}
         st.session_state.clear()
         st.session_state.update(keep)
@@ -142,18 +165,7 @@ st.sidebar.caption(f"{icons[kind]} {text}")
 logout_button()
 
 show_flashes()
+close_menu_on_phones()
 
 # --- page ------------------------------------------------------------------------
-PAGES = {
-    "Home": dashboard.render,
-    "Participants": participants.render,
-    "Create or edit": schedule.render,
-    "Slips and printing": view.render,
-    "Public talks": talks.render,
-    "Workbook PDF": workbook_page.render,
-    "Month overview": month.render,
-    "Reports": reports.render,
-    "Admin": admin.render,
-}
-students_df = get_students()
-PAGES[menu](students_df, t, selected_lang, aux_default)
+current.run()

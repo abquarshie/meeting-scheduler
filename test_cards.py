@@ -155,6 +155,7 @@ def test_messages_tab_offers_the_image(people, core):
     at = AppTest.from_file(APP, default_timeout=90)
     at.run()
     at.session_state["menu"] = "Slips and printing"
+    at.session_state["print_tab"] = "Messages"
     run(at)
     labels = [b.label for b in at.get("download_button")]
     assert labels.count("Download image") == 2      # the week, and one person
