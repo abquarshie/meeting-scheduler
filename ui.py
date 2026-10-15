@@ -42,6 +42,9 @@ h1, h2, h3, h4 { letter-spacing: -0.01em; }
 /* the toolbar overlapped the page title; give the title room below it */
 .block-container { padding-top: 3.4rem; padding-bottom: 4rem; max-width: 1180px; }
 [data-testid="stHeader"] { background: transparent; }
+/* Streamlit's own buttons in the top bar (Share, star, edit, GitHub, Fork,
+   Deploy) are for the developer, not for the congregation */
+[data-testid="stToolbarActions"], [data-testid="stAppDeployButton"] { display: none; }
 
 /* Save stays in reach on the long schedule form */
 /* sticky goes on Streamlit's wrapper: the keyed box fills it exactly, so
@@ -91,6 +94,9 @@ div:has(> .st-key-savebar) { position: sticky; bottom: 0; z-index: 50; }
   /* the save bar stays two short rows on a phone instead of stacking four
      full-width blocks over the form: progress, then the buttons side by side */
   .st-key-savebar { padding: .5rem .75rem; }
+  /* Streamlit Cloud draws its badge over the bottom-right corner of the
+     page; keep the save bar clear of it */
+  div:has(> .st-key-savebar) { bottom: 4.25rem; }
   .st-key-savebar [data-testid="stHorizontalBlock"] { flex-direction: row !important;
       flex-wrap: wrap !important; gap: .4rem !important; }
   .st-key-savebar [data-testid="stColumn"] { flex: 1 1 0 !important;

@@ -9,19 +9,10 @@ st.set_page_config(page_title="Meeting Scheduler", page_icon=":material/event_no
 
 # If an upload went wrong, say exactly which files are missing instead of crashing.
 from pathlib import Path  # noqa: E402
-import shutil  # noqa: E402
 
-# Streamlit only reads the theme from .streamlit/config.toml. When the repo keeps
-# config.toml next to app.py, copy it into place (used from the next reboot).
-_here = Path(__file__).resolve().parent
-_theme_src, _theme_dst = _here / "config.toml", _here / ".streamlit" / "config.toml"
-if _theme_src.is_file() and (not _theme_dst.exists()
-                             or _theme_dst.read_bytes() != _theme_src.read_bytes()):
-    try:
-        (_here / ".streamlit").mkdir(exist_ok=True)
-        shutil.copy(_theme_src, _theme_dst)
-    except OSError:
-        pass
+# The theme lives in .streamlit/config.toml, which Streamlit reads at start-up.
+# (Copying a config.toml into place from here never worked on Streamlit Cloud:
+# every boot is a fresh copy of the repo, so the copy always came too late.)
 
 REQUIRED_FILES = [
     "s140.py", "requirements.txt", "card_image.py",
