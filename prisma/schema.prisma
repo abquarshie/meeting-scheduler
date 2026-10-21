@@ -1,0 +1,128 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model audit_log {
+  id      Int     @id @default(autoincrement())
+  ts      String?
+  user    String?
+  action  String?
+  details String?
+}
+
+model meetings {
+  meeting_date String
+  meeting_type String
+  heading      String?
+  opening_song String?
+  middle_song  String?
+  closing_song String?
+  aux          Int?
+  book         String?
+  aux_group    String?
+  talk_number  String?
+  talk_title   String?
+
+  @@id([meeting_date, meeting_type])
+}
+
+model no_meeting_periods {
+  id         Int     @id @default(autoincrement())
+  start_date String
+  end_date   String
+  note       String?
+  kind       String?
+}
+
+model outgoing_engagements {
+  id           Int     @id @default(autoincrement())
+  student_id   Int
+  meeting_date String
+  congregation String?
+  talk_number  String?
+
+  @@unique([student_id, meeting_date])
+}
+
+model outgoing_speakers {
+  student_id   Int     @id
+  talk_numbers String?
+  active       Int?    @default(1)
+}
+
+model schedules {
+  id                   Int     @id @default(autoincrement())
+  meeting_date         String?
+  meeting_type         String?
+  part_name            String?
+  assigned_person      String?
+  part_no              Int?
+  minutes              Int?
+  section              String?
+  role                 String?
+  student_part         Int?    @default(0)
+  needs_assistant      Int?    @default(0)
+  student_id           Int?
+  assistant_id         Int?
+  assistant_name       String?
+  sort_order           Int?    @default(0)
+  hall                 String? @default("main_hall")
+  visitor              String?
+  visitor_congregation String?
+}
+
+model settings {
+  key   String  @id
+  value String?
+}
+
+model snapshots {
+  id           Int     @id @default(autoincrement())
+  ts           String?
+  user         String?
+  reason       String?
+  meeting_date String?
+  meeting_type String?
+  data         String?
+}
+
+model students {
+  id              Int     @id @default(autoincrement())
+  name            String
+  gender          String?
+  privileges      String?
+  active          Int?    @default(1)
+  family          String?
+  groups          String?
+  suspended       Int?    @default(0)
+  suspended_until String?
+}
+
+model talks {
+  number String  @id
+  title  String?
+}
+
+model templates {
+  name      String  @id
+  file_name String?
+  data      String?
+}
+
+model unavailable {
+  student_id   Int
+  meeting_date String
+
+  @@id([student_id, meeting_date])
+}
+
+model workbook_weeks {
+  label    String  @id
+  position Int?
+  data     String?
+}

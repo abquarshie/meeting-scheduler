@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/py.py": {
+      "maxDuration": 60,
+      "excludeFiles": "{node_modules/**,.next/**,src/**,public/**,prisma/**,test_*.py,conftest.py,app.py,admin.py,dashboard.py,month.py,participants.py,reports.py,schedule.py,talks.py,view.py,workbook_page.py,ui.py,auth.py,core.py,*.md}"
+    }
+  }
+}
