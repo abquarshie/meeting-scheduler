@@ -1,0 +1,12 @@
+# Packages for the Vercel Python function (api/py.py). Vercel uses the requirements.txt nearest the function, so this
+# one wins over the Streamlit app's list in the repository root. Streamlit itself is left out: api/st_shim.py stands
+# in for it. PyMuPDF 2 adds about 150 MB of layout-analysis packages the app doesn't use, and together with Streamlit
+# took the function past Vercel's 500 MB limit.
+pandas
+psycopg[binary]>=3.1
+psycopg_pool
+pypdf
+pymupdf>=1.24,<2
+reportlab
+python-docx
+pillow
