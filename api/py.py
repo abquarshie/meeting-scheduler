@@ -30,8 +30,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import st_shim  # noqa: E402  (must come before the app's modules)
 
-if not os.environ.get("MEETING_DSN") and os.environ.get("DATABASE_URL"):
-    os.environ["MEETING_DSN"] = os.environ["DATABASE_URL"]
+# The direct (unpooled) Neon endpoint when there is one: this function opens a plain connection per request (below),
+# which needs no PgBouncer in front, and PgBouncer's transaction mode is what breaks prepared statements and startup
+# options. Vercel's Neon integration sets DATABASE_URL_UNPOOLED; otherwise "-pooler" is dropped from the host name.
+if not os.environ.get("MEETING_DSN"):
+    _url = os.environ.get("DATABASE_URL_UNPOOLED") or os.environ.get("DATABASE_URL", "")
+    if _url:
+        os.environ["MEETING_DSN"] = _url.replace("-pooler.", ".", 1)
 
 import pandas as pd  # noqa: E402
 
@@ -39,6 +44,7 @@ from backup import backup_bytes, import_all  # noqa: E402
 from card_image import person_card_spec, render_card, week_card_spec  # noqa: E402
 from constants import MAIN_HALL, MIDWEEK, SISTER_ROLES, TRANSLATIONS, WEEKEND  # noqa: E402
 import db  # noqa: E402
+import psycopg  # noqa: E402
 from parts import (FIRST_SPEAKER, TALK_AND_PRAYER, apply_symposium,  # noqa: E402
                    build_midweek_slots, default_midweek_parts, default_weekend_slots,
                    is_symposium)
@@ -55,6 +61,33 @@ from utils import (apply_aux, fmt_date, make_slot, month_label, nfc,  # noqa: E4
 import workbook as wb  # noqa: E402
 
 COOKIE = "ms_session"
+
+
+class _PerRequestPool:
+    """Stands in for db._pool's psycopg_pool.ConnectionPool inside this function.
+
+    A serverless instance is frozen between requests, and a background-threaded pool frozen with it wakes up holding
+    connections Neon has already closed and worker threads mid-wait, so getconn can stall for its full timeout. A fresh
+    connection per request costs one connect and can't go stale. db.get_conn only calls getconn and putconn.
+    """
+
+    def __init__(self, url, schema_name):
+        self.url = url
+        self.kwargs = {"connect_timeout": db.CONNECT_TIMEOUT, "prepare_threshold": None}
+        if schema_name != "public":  # the tests' own schemas; public is already the default search path
+            self.kwargs["options"] = f"-c search_path={schema_name}"
+
+    def getconn(self, timeout=None):
+        return psycopg.connect(self.url, **self.kwargs)
+
+    def putconn(self, conn):
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+db._pool = lambda url, schema_name: _PerRequestPool(url, schema_name)
 
 
 class Refused(Exception):
@@ -686,6 +719,15 @@ def _years(q):
     return list(range(date.today().year - n + 1, date.today().year + 1))
 
 
+def op_ping(q):
+    """Open /api/py?op=ping while signed in to see whether this function reaches the database, and how fast."""
+    started = time.monotonic()
+    with db.get_conn() as conn:
+        conn.execute("SELECT 1")
+    return {"ok": True, "database_ms": round((time.monotonic() - started) * 1000),
+            "host": urlparse(db.dsn()).hostname or ""}
+
+
 def op_checklist(q):
     years = _years(q)
     rows = talk_matrix_rows(db.get_schedules(), years)
@@ -715,7 +757,7 @@ JSON_OPS = {
     "week_preview": op_week_preview, "mark_event": op_mark_event,
     "workbook_dates": op_workbook_dates, "workbook_rename": op_workbook_rename,
     "workbook_week": op_workbook_week, "workbook_remove": op_workbook_remove,
-    "message_text": op_message_text, "checklist": op_checklist,
+    "message_text": op_message_text, "checklist": op_checklist, "ping": op_ping,
 }
 BODY_OPS = {"workbook_upload": op_workbook_upload, "template_upload": op_template_upload,
             "restore": op_restore}
@@ -723,7 +765,7 @@ DOCS = {"slips": doc_slips, "sheet": doc_sheet, "s140": doc_s140, "csv": doc_csv
         "card": doc_card, "invitation": doc_invitation, "outgoing_letter": doc_outgoing_letter,
         "checklist_pdf": doc_checklist, "backup": doc_backup}
 # GET requests are only for reading: documents, and a few read-only JSON ops
-GET_JSON = {"message_text", "checklist", "week_preview"}
+GET_JSON = {"message_text", "checklist", "week_preview", "ping"}
 
 
 def handle(method, path, headers, body):
