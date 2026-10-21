@@ -7,6 +7,17 @@ export type Result = { ok: true; message: string } | { ok: false; error: string 
 
 export class Refusal extends Error {}
 
+/** Server actions can be called with anything, so ids from the page are checked before they reach a query. */
+export function needId(id: unknown): number {
+  if (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0) throw new Refusal("That record wasn't found. Reload the page and try again.");
+  return id;
+}
+
+/** A list of strings from the page, or an empty list. */
+export function strings(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+}
+
 export function ok(message: string): Result {
   revalidatePath("/", "layout"); // every page reads the same data, so all of them refresh
   return { ok: true, message };

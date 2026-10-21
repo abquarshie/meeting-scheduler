@@ -21,7 +21,11 @@ const ITEMS: NavItem[] = [
 ];
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const [user, lang] = await Promise.all([requireUser(), prisma.settings.findUnique({ where: { key: "slip_language" } })]);
+  // the frame must render even when the database is down, so the page's own error screen shows inside it
+  const [user, lang] = await Promise.all([
+    requireUser(),
+    prisma.settings.findUnique({ where: { key: "slip_language" } }).catch((e) => { console.error(e); return null; }),
+  ]);
   const language = (LANGUAGES as readonly string[]).includes(lang?.value ?? "") ? lang!.value! : LANGUAGES[0];
   return (
     <div className="min-h-dvh md:grid md:grid-cols-[240px_minmax(0,1fr)]">

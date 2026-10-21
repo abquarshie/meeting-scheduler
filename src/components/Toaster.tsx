@@ -5,7 +5,7 @@ type Toast = { id: number; text: string; tone?: "warn"; action?: { label: string
 type Push = (text: string, opts?: { tone?: "warn"; action?: Toast["action"]; ms?: number }) => void;
 const Ctx = createContext<Push>(() => {});
 
-/** Short messages after saving ("Saved GH₵50.00 expense to Staples"), with an optional Undo. */
+/** Short messages after saving ("Saved. Existing schedules show the updated name."), with an optional action. */
 export function Toaster({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<Toast[]>([]);
   const push = useCallback<Push>((text, opts = {}) => {

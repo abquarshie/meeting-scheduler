@@ -1,18 +1,15 @@
 import type { Metadata } from "next";
 import { PageHead } from "@/components/ui";
-import { familyNames, getPeople, getRows, lastAssignment } from "@/lib/data";
+import { assignmentStats, familyNames, getPeople } from "@/lib/data";
 import { prisma } from "@/lib/db";
 import { People } from "./People";
 
 export const metadata: Metadata = { title: "Participants" };
 
 export default async function ParticipantsPage({ searchParams }: { searchParams: Promise<{ tab?: string; id?: string }> }) {
-  const [sp, people, rows, away] = await Promise.all([
-    searchParams, getPeople(), getRows(), prisma.unavailable.findMany({ orderBy: { meeting_date: "asc" } }),
+  const [sp, people, { used, last }, away] = await Promise.all([
+    searchParams, getPeople(), assignmentStats(), prisma.unavailable.findMany({ orderBy: { meeting_date: "asc" } }),
   ]);
-  const last = lastAssignment(rows);
-  const used = new Map<number, number>();
-  for (const r of rows) for (const id of new Set([r.student_id, r.assistant_id])) if (id !== null) used.set(id, (used.get(id) ?? 0) + 1);
   const awayBy: Record<number, string[]> = {};
   for (const a of away) (awayBy[a.student_id] ??= []).push(a.meeting_date);
   return (

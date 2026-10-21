@@ -19,7 +19,7 @@ function talkOrder(a: string, b: string) {
 
 export default async function TalksPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const [sp, rows, people, settings, talkRows, speakerRows, engagementRows] = await Promise.all([
-    searchParams, getRows(), getPeople(), getSettings(), prisma.talks.findMany(),
+    searchParams, getRows({ role: "Public Talk" }), getPeople(), getSettings(), prisma.talks.findMany(),
     prisma.outgoing_speakers.findMany({ where: { active: 1 } }),
     prisma.outgoing_engagements.findMany({ orderBy: { meeting_date: "asc" } }),
   ]);
@@ -27,7 +27,7 @@ export default async function TalksPage({ searchParams }: { searchParams: Promis
 
   // one choice per guest speaker: a symposium can bring two to one meeting
   const guests = rows
-    .filter((r) => r.role === "Public Talk" && r.person && nfc(r.visitor))
+    .filter((r) => r.person && nfc(r.visitor))
     .sort((a, b) => a.meeting_date.localeCompare(b.meeting_date) || a.sort_order - b.sort_order)
     .map((r) => ({ id: r.id, date: r.meeting_date, label: `${fmtDate(r.meeting_date)} — ${r.person}`, congregation: nfc(r.visitor_congregation) }));
   const upcoming = guests.find((g) => g.date >= today());

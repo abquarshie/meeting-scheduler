@@ -12,7 +12,7 @@ const SPANS = ["3", "6", "12", "custom"] as const;
 type SP = { span?: string; from?: string; to?: string; future?: string; all?: string; cat?: string; person?: string };
 
 export default async function ReportsPage({ searchParams }: { searchParams: Promise<SP> }) {
-  const [sp, people, rows] = await Promise.all([searchParams, getPeople(), getRows()]);
+  const [sp, people] = await Promise.all([searchParams, getPeople()]);
   const head = <PageHead title="Reports" sub="How often each person had a part, to spot anyone left out." />;
   if (!people.length) return <>{head}<Note>No participants yet.</Note></>;
 
@@ -31,7 +31,8 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   const activeOnly = sp.all !== "1";
   const cats = sp.cat ? sp.cat.split(",").filter((c) => (CATEGORIES as readonly string[]).includes(c)) : [...CATEGORIES];
 
-  const period = rows.filter((r) => start <= r.meeting_date && r.meeting_date <= end);
+  const personId = Number(sp.person) || people[0].id;
+  const [period, personRows] = await Promise.all([getRows({ from: start, to: end }), getRows({ person: personId })]);
   const chosen = people.filter((p) => (!activeOnly || p.active) && cats.includes(p.gender));
   const report = chosen.map((p) => {
     const own = period.filter((r) => r.student_id === p.id);
@@ -52,10 +53,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   const header = ["Name", "Category", "Group", "Status", "Parts", "Assisting", "Total", "Last", ...roleCols];
   const csvRows = report.map((r) => [r.name, r.category, r.group, r.status, r.parts, r.assisting, r.total, r.last, ...roleCols.map((c) => r.roles[c] ?? 0)]);
 
-  const personId = Number(sp.person) || people[0].id;
-  const history = rows
-    .filter((r) => r.student_id === personId || r.assistant_id === personId)
-    .sort((a, b) => b.meeting_date.localeCompare(a.meeting_date))
+  const history = personRows // newest first already
     .slice(0, 100)
     .map((r) => ({
       date: r.meeting_date,

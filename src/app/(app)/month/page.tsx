@@ -4,10 +4,10 @@ import { MarkEventWeek } from "@/components/MarkEventWeek";
 import { Bar, Note, PageHead } from "@/components/ui";
 import { EVENT_TEXT, HALL_NAMES, MAIN_HALL, MIDWEEK } from "@/lib/constants";
 import {
-  eventLabel, fillCounts, getEvents, getMetas, getRows, getSettings, getWorkbook, key, meetingRows, savedMeetings,
+  eventLabel, fillCounts, getEvents, getMeetingList, getMetas, getRows, getSettings, getWorkbook, key, meetingRows, savedMeetings,
   setting, workbookStatus,
 } from "@/lib/data";
-import { fmtDate, lastDayOfMonth, monthLabel, today } from "@/lib/dates";
+import { addDays, fmtDate, lastDayOfMonth, monthLabel, today } from "@/lib/dates";
 import { talkText } from "@/lib/text";
 import { CreateWeeks } from "./CreateWeeks";
 import { MonthPick } from "./MonthPick";
@@ -17,14 +17,16 @@ export const metadata: Metadata = { title: "Month overview" };
 type Line = { date: string; meeting: string; pct: number | null; open: number | null; aux: string; heading: string; href?: string };
 
 export default async function MonthPage({ searchParams }: { searchParams: Promise<{ m?: string }> }) {
-  const [{ m }, rows, metas, settings, workbook, events] = await Promise.all([
-    searchParams, getRows(), getMetas(), getSettings(), getWorkbook(), getEvents(),
+  const [{ m }, saved, metas, settings, workbook, events] = await Promise.all([
+    searchParams, getMeetingList(), getMetas(), getSettings(), getWorkbook(), getEvents(),
   ]);
   const thisMonth = today().slice(0, 7);
-  const months = new Set([thisMonth, ...rows.map((r) => r.meeting_date.slice(0, 7)),
+  const months = new Set([thisMonth, ...saved.map((x) => x.date.slice(0, 7)),
     ...workbook.weeks.filter((w) => w.start).map((w) => w.start!.slice(0, 7))]);
   const list = [...months].sort().reverse();
   const month = m && months.has(m) ? m : thisMonth;
+  // the month plus a week either side, for workbook weeks that start in the month before
+  const rows = await getRows({ from: addDays(`${month}-01`, -7), to: addDays(lastDayOfMonth(month), 7) });
 
   const lines: Line[] = [];
   for (const mt of savedMeetings(rows).filter((x) => x.date.startsWith(month))) {
