@@ -1,5 +1,5 @@
 "use server";
-import { attempt, logChange, ok, Refusal } from "@/lib/action";
+import { attempt, logChange, needId, ok, Refusal, strings } from "@/lib/action";
 import { isISODate } from "@/lib/dates";
 import { prisma } from "@/lib/db";
 import { nfc, talkLabel } from "@/lib/text";
@@ -9,7 +9,8 @@ import { nfc, talkLabel } from "@/lib/text";
 function cleanPairs(rows: { number: string; title: string }[]) {
   const seen = new Set<string>();
   const out: { number: string; title: string }[] = [];
-  for (const r of rows) {
+  for (const r of Array.isArray(rows) ? rows : []) {
+    if (!r || typeof r !== "object") continue;
     const number = nfc(r.number);
     if (!number || seen.has(number)) continue;
     seen.add(number);
@@ -59,7 +60,8 @@ export async function importTalks(rows: { number: string; title: string }[], rep
 
 export async function setOutgoingSpeaker(studentId: number, numbers: string[]) {
   return attempt(async (user) => {
-    const talks = [...new Set(numbers.map(nfc).filter(Boolean))].join(", ");
+    needId(studentId);
+    const talks = [...new Set(strings(numbers).map(nfc).filter(Boolean))].join(", ");
     await prisma.outgoing_speakers.upsert({
       where: { student_id: studentId },
       create: { student_id: studentId, talk_numbers: talks, active: 1 },
@@ -72,7 +74,7 @@ export async function setOutgoingSpeaker(studentId: number, numbers: string[]) {
 
 export async function removeOutgoingSpeaker(studentId: number) {
   return attempt(async (user) => {
-    await prisma.outgoing_speakers.updateMany({ where: { student_id: studentId }, data: { active: 0 } });
+    await prisma.outgoing_speakers.updateMany({ where: { student_id: needId(studentId) }, data: { active: 0 } });
     await logChange(user, "Outgoing speaker removed", `id ${studentId}`);
     return ok("Removed.");
   });
@@ -80,6 +82,7 @@ export async function removeOutgoingSpeaker(studentId: number) {
 
 export async function addEngagement(studentId: number, date: string, congregation: string, talkNumber: string) {
   return attempt(async (user) => {
+    needId(studentId);
     if (!isISODate(date)) throw new Refusal("Pick a date.");
     const data = { congregation: nfc(congregation), talk_number: nfc(talkNumber) };
     await prisma.outgoing_engagements.upsert({
@@ -93,7 +96,7 @@ export async function addEngagement(studentId: number, date: string, congregatio
 
 export async function removeEngagement(id: number) {
   return attempt(async (user) => {
-    await prisma.outgoing_engagements.deleteMany({ where: { id } });
+    await prisma.outgoing_engagements.deleteMany({ where: { id: needId(id) } });
     await logChange(user, "Outgoing engagement removed", `id ${id}`);
     return ok("Removed.");
   });

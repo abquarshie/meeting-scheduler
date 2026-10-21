@@ -471,10 +471,10 @@ export function Editor({ date, type, mode, saved }: {
             <div className="mb-1 text-sm font-semibold">{needed - filled ? `${filled} of ${needed} filled, ${needed - filled} still open` : `All ${needed} filled`}</div>
             <Bar pct={needed ? (100 * filled) / needed : 100} label="Filled" />
           </div>
-          <div className="btns">
-            <button type="button" className="btn primary" onClick={save} disabled={busy || errors.length > 0}><Icon name="save" /> Save schedule</button>
-            {data.snapshot ? <button type="button" className="btn" onClick={() => setConfirm("undo")} disabled={busy}><Icon name="undo" /> Undo</button> : null}
-            {data.saved ? <button type="button" className="btn danger" onClick={() => setConfirm("delete")} disabled={busy}><Icon name="trash" /> Delete</button> : null}
+          <div className="btns max-sm:w-full max-sm:flex-nowrap">
+            <button type="button" className="btn primary max-sm:flex-1" onClick={save} disabled={busy || errors.length > 0}><Icon name="save" /> Save schedule</button>
+            {data.snapshot ? <button type="button" className="btn" onClick={() => setConfirm("undo")} disabled={busy}><Icon name="undo" /><span className="max-sm:sr-only">Undo</span></button> : null}
+            {data.saved ? <button type="button" className="btn danger" onClick={() => setConfirm("delete")} disabled={busy}><Icon name="trash" /><span className="max-sm:sr-only">Delete</span></button> : null}
           </div>
         </div>
       </div>

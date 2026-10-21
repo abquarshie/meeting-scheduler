@@ -8,6 +8,7 @@ import {
   meetingRows, savedMeetings, setting, templateNames, workbookStatus,
 } from "@/lib/data";
 import { addDays, daysAway, daysBetween, longDate, shortDay, today } from "@/lib/dates";
+import { prisma } from "@/lib/db";
 import { talkText } from "@/lib/text";
 
 const editHref = (date: string, type: string) =>
@@ -21,10 +22,12 @@ function greeting(name: string | null) {
 }
 
 export default async function Home() {
-  const [user, people, rows, metas, settings, workbook, events, templates] = await Promise.all([
-    getUser(), getPeople(), getRows(), getMetas(), getSettings(), getWorkbook(), getEvents(), templateNames(),
-  ]);
   const now = today();
+  // only this week onwards: everything below is about what is coming up
+  const [user, people, rows, metas, settings, workbook, events, templates, anySaved] = await Promise.all([
+    getUser(), getPeople(), getRows({ from: addDays(now, -7) }), getMetas(), getSettings(), getWorkbook(), getEvents(),
+    templateNames(), prisma.schedules.findFirst({ select: { id: true } }),
+  ]);
 
   // what a new installation still needs before it can print
   const gaps: [string, string][] = [];
@@ -130,7 +133,7 @@ export default async function Home() {
                 <Link className="btn small" href={createHref(gap.meeting)}><Icon name="add" /> Create it</Link></span></Note>
             ) : null}
 
-            {rows.length && (backupDays === null || backupDays >= BACKUP_REMINDER_DAYS) ? (
+            {anySaved && (backupDays === null || backupDays >= BACKUP_REMINDER_DAYS) ? (
               <Note tone="warn"><span className="flex flex-wrap items-center justify-between gap-2">
                 {backupDays === null ? "No backup file has been downloaded yet." : `Last backup was ${backupDays} days ago.`} The database is the only copy of your schedules until you take one.
                 <Link className="btn small" href="/admin">Back up now</Link></span></Note>

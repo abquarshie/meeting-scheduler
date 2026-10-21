@@ -42,7 +42,7 @@ export default async function PrintPage({ searchParams }: { searchParams: Promis
       part: partLabel(r), person: r.person ?? "— unassigned —", assistant: r.needs_assistant === 1 ? r.assistant ?? "— needed —" : "",
     })),
   } : null;
-  const chosenRows = rows.filter((r) => chosen.some((m) => m.date === r.meeting_date && m.type === r.meeting_type));
+  const chosenRows = chosen.flatMap((m) => meetingRows(rows, m.date, m.type));
   const slipCount = chosenRows.filter((r) => r.student_part === 1 && r.person).length;
   const slipAux = chosenRows.filter((r) => r.student_part === 1 && r.person && r.hall !== "main_hall").length;
 
@@ -55,10 +55,16 @@ export default async function PrintPage({ searchParams }: { searchParams: Promis
   });
   const allMonths = months.map((m) => ({ value: m, label: monthLabel(m) }));
   // who has something in each month, for the one-person card
+  const perMonth = new Map<string, Map<number, number>>();
+  for (const r of rows) {
+    const m = r.meeting_date.slice(0, 7);
+    let counts = perMonth.get(m);
+    if (!counts) perMonth.set(m, counts = new Map());
+    for (const id of [r.student_id, r.assistant_id]) if (id !== null) counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
   const monthPeople: Record<string, { id: number; label: string }[]> = {};
   for (const m of months) {
-    const counts = new Map<number, number>();
-    for (const r of rows) if (r.meeting_date.startsWith(m)) for (const id of [r.student_id, r.assistant_id]) if (id !== null) counts.set(id, (counts.get(id) ?? 0) + 1);
+    const counts = perMonth.get(m) ?? new Map<number, number>();
     monthPeople[m] = people.filter((p) => counts.has(p.id)).map((p) => ({ id: p.id, label: `${p.name} (${counts.get(p.id)})` }));
   }
 

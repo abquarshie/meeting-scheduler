@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import "@fontsource-variable/inter/wght.css"; // self-hosted, so no request to Google and no layout shift
 import { Toaster } from "@/components/Toaster";
 import "./globals.css";
 

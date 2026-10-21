@@ -1,5 +1,5 @@
 "use server";
-import { attempt, logChange, ok, Refusal, setSetting } from "@/lib/action";
+import { attempt, logChange, needId, ok, Refusal, setSetting } from "@/lib/action";
 import { LANGUAGES, SAME_ROLE_GAP_DAYS, WEEKDAYS } from "@/lib/constants";
 import { prisma } from "@/lib/db";
 import { nfc } from "@/lib/text";
@@ -26,8 +26,10 @@ export async function savePrinting(input: { congregation: string; useAux: boolea
 export async function saveMeetingDays(midweek: string, weekend: string) {
   return attempt(async (user) => {
     if (!WEEKDAYS.includes(midweek) || !WEEKDAYS.includes(weekend)) throw new Refusal("Pick a day.");
-    await setSetting("midweek_day", midweek);
-    await setSetting("weekend_day", weekend);
+    await prisma.$transaction(async (tx) => {
+      await setSetting("midweek_day", midweek, tx);
+      await setSetting("weekend_day", weekend, tx);
+    });
     await logChange(user, "Meeting days changed", `midweek ${midweek}, weekend ${weekend}`);
     return ok("Saved.");
   });
@@ -35,7 +37,7 @@ export async function saveMeetingDays(midweek: string, weekend: string) {
 
 export async function saveRotation(days: number) {
   return attempt(async (user) => {
-    const n = Math.round(days);
+    const n = Math.round(Number(days));
     if (!Number.isFinite(n) || n < 1 || n > 90) throw new Refusal(`Use a number from 1 to 90 (the default is ${SAME_ROLE_GAP_DAYS}).`);
     await setSetting("same_role_gap_days", String(n));
     await logChange(user, "Rotation rest period changed", `${n} day(s)`);
@@ -55,7 +57,7 @@ export async function saveLetterDetails(input: Record<string, string>) {
 
 export async function removeEventWeek(id: number) {
   return attempt(async (user) => {
-    await prisma.no_meeting_periods.deleteMany({ where: { id } });
+    await prisma.no_meeting_periods.deleteMany({ where: { id: needId(id) } });
     await logChange(user, "Assembly/convention week removed", `id ${id}`);
     return ok("Removed.");
   });

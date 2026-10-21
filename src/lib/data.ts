@@ -1,6 +1,7 @@
 import "server-only";
 import { EVENT_KINDS, EVENT_TEXT, GROUPS, MIDWEEK, PRIVILEGES, SAME_ROLE_GAP_DAYS, WEEKDAYS } from "./constants";
 import { addDays, fmtDate, today, weekStart } from "./dates";
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "./db";
 import { nfc } from "./text";
 
@@ -55,8 +56,15 @@ export type Row = {
   visitor_congregation: string | null; person: string | null; assistant: string | null;
 };
 
-/** Every saved part with the names joined in, newest meeting first (db._schedules). */
-export async function getRows(): Promise<Row[]> {
+/** Saved parts with the names joined in, newest meeting first (db._schedules). Pass a date range or a person to read
+ * only those rows: the full table grows by about thirty rows a week, and most pages need a few weeks of it. */
+export async function getRows(only: { from?: string; to?: string; person?: number; role?: string } = {}): Promise<Row[]> {
+  const where: Prisma.Sql[] = [];
+  if (only.from) where.push(Prisma.sql`sc.meeting_date >= ${only.from}`);
+  if (only.to) where.push(Prisma.sql`sc.meeting_date <= ${only.to}`);
+  if (only.person !== undefined) where.push(Prisma.sql`(sc.student_id = ${only.person} OR sc.assistant_id = ${only.person})`);
+  if (only.role !== undefined) where.push(Prisma.sql`sc.role = ${only.role}`);
+  const filter = where.length ? Prisma.sql`WHERE ${Prisma.join(where, " AND ")}` : Prisma.empty;
   const rows = await prisma.$queryRaw<Row[]>`
     SELECT sc.id, sc.meeting_date, sc.meeting_type, sc.part_no, sc.part_name, sc.minutes, sc.section, sc.role,
            COALESCE(sc.student_part, 0) AS student_part, COALESCE(sc.needs_assistant, 0) AS needs_assistant,
@@ -67,8 +75,30 @@ export async function getRows(): Promise<Row[]> {
       FROM schedules sc
       LEFT JOIN students s ON s.id = sc.student_id
       LEFT JOIN students a ON a.id = sc.assistant_id
+      ${filter}
      ORDER BY sc.meeting_date DESC, sc.meeting_type, sc.sort_order, sc.id`;
   return rows.map((r) => ({ ...r, person: r.person || null, assistant: r.assistant || null }));
+}
+
+/** Every saved meeting, newest first, without reading the parts. */
+export async function getMeetingList(): Promise<{ date: string; type: string }[]> {
+  const rows = await prisma.$queryRaw<{ meeting_date: string; meeting_type: string }[]>`
+    SELECT DISTINCT meeting_date, meeting_type FROM schedules ORDER BY meeting_date DESC, meeting_type`;
+  return rows.map((r) => ({ date: r.meeting_date, type: r.meeting_type }));
+}
+
+/** person -> how many saved parts they are on (as the person or the assistant) and their latest date. */
+export async function assignmentStats(): Promise<{ used: Map<number, number>; last: Map<number, string> }> {
+  const rows = await prisma.$queryRaw<{ id: number; n: bigint; last: string }[]>`
+    SELECT id, COUNT(DISTINCT row_id) AS n, MAX(meeting_date) AS last FROM (
+      SELECT student_id AS id, id AS row_id, meeting_date FROM schedules WHERE student_id IS NOT NULL
+      UNION ALL
+      SELECT assistant_id, id, meeting_date FROM schedules WHERE assistant_id IS NOT NULL
+    ) x GROUP BY id`;
+  return {
+    used: new Map(rows.map((r) => [r.id, Number(r.n)])),
+    last: new Map(rows.map((r) => [r.id, r.last])),
+  };
 }
 
 export type MeetingKey = `${string}|${string}`;
@@ -85,8 +115,22 @@ export function savedMeetings(rows: Row[]): { date: string; type: string }[] {
   return out;
 }
 
+// Pages look up one meeting's rows many times over (a table of meetings, a fill count each), so the rows are grouped
+// once per list instead of scanned on every lookup.
+const byMeeting = new WeakMap<Row[], Map<MeetingKey, Row[]>>();
+
 export function meetingRows(rows: Row[], date: string, type: string): Row[] {
-  return rows.filter((r) => r.meeting_date === date && r.meeting_type === type);
+  let index = byMeeting.get(rows);
+  if (!index) {
+    index = new Map();
+    for (const r of rows) {
+      const k = key(r.meeting_date, r.meeting_type);
+      const list = index.get(k);
+      if (list) list.push(r); else index.set(k, [r]);
+    }
+    byMeeting.set(rows, index);
+  }
+  return [...(index.get(key(date, type)) ?? [])]; // a copy, so a caller's sort leaves the index alone
 }
 
 /** (filled, needed): a part plus, where the part calls for one, its assistant (db.fill_counts). */
@@ -206,15 +250,4 @@ export async function awayBetween(start: string, end: string): Promise<Set<numbe
 export async function templateNames(): Promise<Map<string, string>> {
   const rows = await prisma.templates.findMany({ select: { name: true, file_name: true } });
   return new Map(rows.map((r) => [r.name, r.file_name ?? ""]));
-}
-
-/** person -> latest assignment date up to today or overall, for the participants list. */
-export function lastAssignment(rows: Row[]): Map<number, string> {
-  const out = new Map<number, string>();
-  for (const r of rows) {
-    for (const id of [r.student_id, r.assistant_id]) {
-      if (id !== null && (out.get(id) ?? "") < r.meeting_date) out.set(id, r.meeting_date);
-    }
-  }
-  return out;
 }
