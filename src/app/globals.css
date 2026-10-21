@@ -1,0 +1,150 @@
+@import "tailwindcss";
+
+/* Design tokens. The brand is the Streamlit app's ink blue (.streamlit/config.toml), so both apps look related while
+ * they run side by side. Pages use Tailwind utilities (bg-surface, text-muted…); the building blocks repeated on every
+ * form (buttons, inputs, cards, tables) are named classes below, built from the same tokens. */
+:root {
+  --bg: #f6f7f9; --surface: #ffffff; --subtle: #f2f4f7; --line: #dde2e8; --ink: #17212b; --muted: #637080;
+  --brand: #24527a; --brand-ink: #24527a; --brand-soft: #e6eef6; --on-brand: #ffffff;
+  --ok: #15803d; --ok-soft: #e5f6ea; --bad: #c62828; --bad-soft: #fdecec; --warn: #a15c07; --warn-soft: #fdf3e2;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1620; --surface: #151e2a; --subtle: #1a2431; --line: #2a3646; --ink: #e6eaf0; --muted: #9aa6b5;
+    --brand: #3a76ad; --brand-ink: #8db8e0; --brand-soft: #18293b; --on-brand: #ffffff;
+    --ok: #4ade80; --ok-soft: #11291b; --bad: #f87171; --bad-soft: #351717; --warn: #fbbf24; --warn-soft: #33270f;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-subtle: var(--subtle);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-brand: var(--brand);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-soft: var(--brand-soft);
+  --color-on-brand: var(--on-brand);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --shadow-soft: 0 1px 2px rgb(15 23 42 / .04), 0 4px 16px -4px rgb(15 23 42 / .08);
+  --shadow-lift: 0 12px 32px -8px rgb(15 23 42 / .22);
+  --breakpoint-md: 900px;
+}
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; }
+  body { @apply bg-bg text-ink font-sans text-[15px] leading-normal antialiased; -webkit-tap-highlight-color: transparent; }
+  a { @apply text-brand-ink; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  h1, h2, h3 { @apply tracking-tight; }
+}
+
+@layer components {
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ---- page structure ---- */
+  .page-head { @apply mb-5; }
+  .page-title { @apply m-0 text-2xl font-bold tracking-tight md:text-[1.75rem]; }
+  .page-sub { @apply mt-1 text-sm text-muted; }
+  .section-title { @apply mt-0 mb-3 text-base font-semibold; }
+  .caption { @apply mt-2 text-[13px] text-muted; }
+  .stack { @apply grid min-w-0 content-start gap-4; }
+  .card { @apply min-w-0 rounded-2xl border border-line bg-surface p-4 shadow-soft md:p-5; }
+  details.card > summary { @apply -my-0.5 flex cursor-pointer list-none items-center gap-2 font-semibold; }
+  details.card > summary::-webkit-details-marker { display: none; }
+  details.card > summary::after { content: "›"; @apply ml-auto text-xl leading-none text-muted transition-transform; }
+  details.card[open] > summary::after { transform: rotate(90deg); }
+  details.card[open] > summary { @apply mb-3; }
+
+  .tabs { @apply -mt-1 mb-5 flex gap-1 overflow-x-auto border-b border-line; scrollbar-width: none; }
+  .tabs a, .tabs button { @apply -mb-px cursor-pointer whitespace-nowrap border-0 border-b-2 border-solid border-transparent bg-transparent px-3 py-2 text-sm font-semibold text-muted no-underline; }
+  .tabs [aria-current="page"] { @apply border-brand text-brand-ink; }
+
+  /* ---- pills and messages ---- */
+  .pill { @apply inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-px align-middle text-[11px] font-semibold leading-relaxed; }
+  .pill.ok { @apply bg-ok-soft text-ok; }
+  .pill.bad { @apply bg-bad-soft text-bad; }
+  .pill.warn { @apply bg-warn-soft text-warn; }
+  .pill.accent { @apply bg-brand-soft text-brand-ink; }
+  .pill.neutral { @apply bg-subtle text-muted; }
+  .msg { @apply text-[13px] font-medium leading-snug; }
+  .msg.error { @apply text-bad; }
+  .msg.warn { @apply text-warn; }
+  .msg.hint { @apply font-normal text-muted; }
+  .note { @apply rounded-xl bg-brand-soft px-3.5 py-3 text-sm leading-snug; }
+  .note.warn { @apply bg-warn-soft; }
+  .note.error { @apply bg-bad-soft text-bad; }
+  .note.ok { @apply bg-ok-soft; }
+  .empty { @apply py-1 text-sm text-muted; }
+
+  /* ---- forms ---- */
+  .form { @apply grid gap-3; }
+  .row2 { @apply grid gap-3 sm:grid-cols-2; }
+  .row3 { @apply grid gap-3 sm:grid-cols-3; }
+  .field { @apply grid min-w-0 content-start gap-1.5; }
+  .field > span, .label { @apply text-[13px] font-semibold; }
+  .input { @apply min-h-10 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-2 outline-none transition-shadow focus:border-brand focus:ring-4 focus:ring-brand-soft; }
+  select.input { @apply pr-8; }
+  textarea.input { @apply min-h-24 resize-y; }
+  .check { @apply flex cursor-pointer items-center gap-2 text-sm; }
+  .check input { @apply size-[18px] flex-none accent-brand; }
+
+  .btn { @apply inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-line bg-surface px-4 py-2 text-sm font-semibold text-ink no-underline transition-colors hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-50; }
+  .btn.primary { @apply border-brand bg-brand text-on-brand shadow-sm hover:brightness-110; }
+  .btn.danger { @apply text-bad; }
+  .btn.ghost { @apply border-transparent bg-transparent px-2 text-brand-ink shadow-none; }
+  .btn.small { @apply min-h-8 rounded-lg px-2.5 py-1 text-[13px]; }
+  .btn svg { @apply size-[18px]; }
+  .btns { @apply flex flex-wrap items-center gap-2; }
+  .seg { @apply inline-grid auto-cols-fr grid-flow-col rounded-xl bg-subtle p-[3px]; }
+  .seg button { @apply grid cursor-pointer place-items-center rounded-[10px] border-0 bg-transparent px-3 py-1.5 text-sm font-semibold text-muted; }
+  .seg button[aria-pressed="true"] { @apply bg-surface text-ink shadow-soft; }
+
+  /* ---- dialog (a bottom sheet on phones) ---- */
+  dialog.sheet { @apply m-auto w-full max-w-[min(520px,100vw)] border-0 bg-transparent p-0 text-ink max-md:mb-0 max-md:max-w-full; }
+  dialog.sheet::backdrop { background: rgb(8 16 20 / .45); }
+  .sheet-body { @apply max-h-[92vh] overflow-y-auto rounded-3xl bg-surface p-5 shadow-lift max-md:rounded-b-none max-md:pb-[calc(1.25rem+env(safe-area-inset-bottom))]; }
+  .sheet-head { @apply mb-3 flex items-center justify-between; }
+  .sheet-head h2 { @apply m-0 text-lg font-bold; }
+
+  /* ---- toasts ---- */
+  .toasts { @apply pointer-events-none fixed top-4 left-1/2 z-60 grid w-[min(440px,calc(100vw-32px))] -translate-x-1/2 gap-2; }
+  .toast { @apply pointer-events-auto flex items-center gap-3 rounded-2xl bg-ink px-4 py-3 text-sm font-semibold text-bg shadow-lift; animation: toast-in .18s ease-out; }
+  .toast.warn { @apply bg-amber-800 text-white; }
+
+  /* ---- tables ---- */
+  .table-wrap { @apply -mx-1 overflow-x-auto; }
+  table.table { @apply w-full border-collapse text-sm; }
+  .table th { @apply border-b border-line px-2 py-1.5 text-left text-xs font-semibold whitespace-nowrap text-muted; }
+  .table td { @apply border-b border-line p-2 align-top; }
+  .table tr:last-child td { @apply border-b-0; }
+  .table td.r, .table th.r { @apply text-right; }
+  .table tr.link { @apply cursor-pointer hover:bg-subtle; }
+  .cell-input { @apply min-h-9 px-2 py-1; }
+
+  /* ---- progress ---- */
+  .bar { @apply h-2 overflow-hidden rounded-full bg-subtle; }
+  .fill { @apply h-full rounded-full bg-brand; }
+  .savebar { @apply sticky bottom-3 z-20 flex flex-wrap items-center gap-3 border-brand shadow-lift max-md:bottom-[4.75rem]; }
+
+  /* ---- the schedule editor ---- */
+  .slot { @apply grid min-w-0 content-start gap-1.5; }
+  .slot-title { @apply text-sm font-semibold; }
+  .slot-issue { @apply text-[12.5px] font-medium leading-snug; }
+  .slot-issue.error { @apply text-bad; }
+  .slot-issue.warning { @apply text-warn; }
+  .section-head { @apply mt-1 mb-2 flex items-center gap-2 text-sm font-bold; }
+  .swatch { @apply inline-block size-2.5 flex-none rounded-full; }
+}
+
+@keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } }
