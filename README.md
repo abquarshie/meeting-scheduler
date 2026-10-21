@@ -20,6 +20,10 @@ existing modules (`db.py`, `picking.py`, `sheets_pdf.py`, ...) run there unchang
      password per person; names then show in the change log.
 3. Deploy.
 
+The function installs the packages in `api/requirements.txt` (not the root `requirements.txt`, which is the Streamlit
+app's). Keep the two in step when adding a package, and keep Streamlit out of the function: it would push it past
+Vercel's 500 MB limit.
+
 Files uploaded through the web app (workbook PDF, blank forms, a backup to restore) must be under about 4 MB, the
 Vercel request limit.
 
