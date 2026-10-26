@@ -1,6 +1,7 @@
 // Small building blocks shared by every page (server or client).
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { Icon, type IconName } from "./icons";
 
 export function PageHead({ title, sub, children }: { title: string; sub?: string; children?: ReactNode }) {
   return (
@@ -36,11 +37,15 @@ export function Bar({ pct, color, label }: { pct: number; color?: string; label:
   );
 }
 
-export function Stat({ label, value }: { label: string; value: ReactNode }) {
+export function Stat({ label, value, icon, sub, tone }: {
+  label: string; value: ReactNode; icon?: IconName; sub?: ReactNode; tone?: "bad" | "warn" | "ok";
+}) {
+  const color = tone === "bad" ? "text-bad" : tone === "warn" ? "text-warn" : tone === "ok" ? "text-ok" : "";
   return (
-    <div className="min-w-0 rounded-2xl border border-line bg-surface p-3.5 shadow-soft md:p-4">
-      <div className="num text-2xl font-bold tracking-tight">{value}</div>
-      <div className="mt-0.5 text-xs font-medium text-muted">{label}</div>
+    <div className="stat">
+      <div className="stat-top"><span>{label}</span>{icon ? <span className="stat-icon"><Icon name={icon} /></span> : null}</div>
+      <div className={`stat-value ${color}`}>{value}</div>
+      {sub ? <div className="stat-sub">{sub}</div> : null}
     </div>
   );
 }

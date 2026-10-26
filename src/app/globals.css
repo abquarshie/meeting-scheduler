@@ -1,19 +1,23 @@
 @import "tailwindcss";
 
-/* Design tokens. The brand is the Streamlit app's ink blue (.streamlit/config.toml), so both apps look related while
- * they run side by side. Pages use Tailwind utilities (bg-surface, text-muted…); the building blocks repeated on every
- * form (buttons, inputs, cards, tables) are named classes below, built from the same tokens. */
+/* Design tokens. The brand is the ink blue of the app icon and the printed sheets; the same token names as the other
+ * apps in this family (Susu, Assembly Portal), so they read as one set. Pages use Tailwind utilities (bg-surface,
+ * text-muted…); the building blocks repeated on every form (buttons, inputs, cards, tables) are named classes below. */
 :root {
-  --bg: #f6f7f9; --surface: #ffffff; --subtle: #f2f4f7; --line: #dde2e8; --ink: #17212b; --muted: #637080;
-  --brand: #24527a; --brand-ink: #24527a; --brand-soft: #e6eef6; --on-brand: #ffffff;
-  --ok: #15803d; --ok-soft: #e5f6ea; --bad: #c62828; --bad-soft: #fdecec; --warn: #a15c07; --warn-soft: #fdf3e2;
+  --bg: #f4f6f9; --surface: #ffffff; --subtle: #eef2f6; --line: #e2e7ee; --line-strong: #cfd7e2;
+  --ink: #0f1b2a; --muted: #5b6878; --faint: #8a96a6;
+  --brand: #1f5288; --brand-ink: #1f5288; --brand-soft: #e8f0f9; --on-brand: #ffffff;
+  --hero-a: #0f2a48; --hero-b: #1f5288;
+  --ok: #12804a; --ok-soft: #e3f5eb; --bad: #c7362f; --bad-soft: #fdeceb; --warn: #a35a00; --warn-soft: #fdf2e0;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f1620; --surface: #151e2a; --subtle: #1a2431; --line: #2a3646; --ink: #e6eaf0; --muted: #9aa6b5;
-    --brand: #3a76ad; --brand-ink: #8db8e0; --brand-soft: #18293b; --on-brand: #ffffff;
-    --ok: #4ade80; --ok-soft: #11291b; --bad: #f87171; --bad-soft: #351717; --warn: #fbbf24; --warn-soft: #33270f;
+    --bg: #0a1018; --surface: #111a25; --subtle: #17222f; --line: #223042; --line-strong: #2e3f55;
+    --ink: #e7ecf3; --muted: #97a3b4; --faint: #6c788a;
+    --brand: #3b7fc4; --brand-ink: #8fbfee; --brand-soft: #142a42; --on-brand: #ffffff;
+    --hero-a: #0d2440; --hero-b: #1d4b7c;
+    --ok: #4ade80; --ok-soft: #10291b; --bad: #f87171; --bad-soft: #351618; --warn: #fbbf24; --warn-soft: #33260c;
     color-scheme: dark;
   }
 }
@@ -23,8 +27,10 @@
   --color-surface: var(--surface);
   --color-subtle: var(--subtle);
   --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
   --color-ink: var(--ink);
   --color-muted: var(--muted);
+  --color-faint: var(--faint);
   --color-brand: var(--brand);
   --color-brand-ink: var(--brand-ink);
   --color-brand-soft: var(--brand-soft);
@@ -36,8 +42,9 @@
   --color-warn: var(--warn);
   --color-warn-soft: var(--warn-soft);
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --shadow-soft: 0 1px 2px rgb(15 23 42 / .04), 0 4px 16px -4px rgb(15 23 42 / .08);
-  --shadow-lift: 0 12px 32px -8px rgb(15 23 42 / .22);
+  --shadow-soft: 0 1px 2px rgb(15 23 42 / .04), 0 1px 3px rgb(15 23 42 / .03);
+  --shadow-card: 0 1px 2px rgb(15 23 42 / .04), 0 8px 24px -12px rgb(15 23 42 / .10);
+  --shadow-lift: 0 16px 40px -12px rgb(15 23 42 / .28);
   --breakpoint-md: 900px;
 }
 
@@ -60,25 +67,58 @@
   .num { font-variant-numeric: tabular-nums; }
 
   /* ---- page structure ---- */
-  .page-head { @apply mb-5; }
-  .page-title { @apply m-0 text-2xl font-bold tracking-tight md:text-[1.75rem]; }
-  .page-sub { @apply mt-1 text-sm text-muted; }
-  .section-title { @apply mt-0 mb-3 text-base font-semibold; }
+  .page-head { @apply mb-6; }
+  .page-title { @apply m-0 text-[1.6rem] leading-tight font-semibold tracking-[-0.02em] md:text-[1.85rem]; }
+  .page-sub { @apply mt-1.5 max-w-2xl text-sm text-muted; }
+  .eyebrow { @apply text-[11px] font-semibold tracking-[0.08em] text-faint uppercase; }
+  .section-title { @apply mt-0 mb-3 text-[15px] font-semibold tracking-[-0.01em]; }
   .caption { @apply mt-2 text-[13px] text-muted; }
-  .stack { @apply grid min-w-0 content-start gap-4; }
-  .card { @apply min-w-0 rounded-2xl border border-line bg-surface p-4 shadow-soft md:p-5; }
+  .stack { @apply grid min-w-0 content-start gap-4 md:gap-5; }
+  .card { @apply min-w-0 rounded-2xl border border-line bg-surface p-4 shadow-card md:p-6; }
+  .card-head { @apply mb-4 flex flex-wrap items-center justify-between gap-2; }
+  .card-head h2 { @apply m-0 text-[15px] font-semibold tracking-[-0.01em]; }
   details.card > summary { @apply -my-0.5 flex cursor-pointer list-none items-center gap-2 font-semibold; }
   details.card > summary::-webkit-details-marker { display: none; }
   details.card > summary::after { content: "›"; @apply ml-auto text-xl leading-none text-muted transition-transform; }
   details.card[open] > summary::after { transform: rotate(90deg); }
   details.card[open] > summary { @apply mb-3; }
 
-  .tabs { @apply -mt-1 mb-5 flex gap-1 overflow-x-auto border-b border-line; scrollbar-width: none; }
-  .tabs a, .tabs button { @apply -mb-px cursor-pointer whitespace-nowrap border-0 border-b-2 border-solid border-transparent bg-transparent px-3 py-2 text-sm font-semibold text-muted no-underline; }
-  .tabs [aria-current="page"] { @apply border-brand text-brand-ink; }
+  /* section tabs: a pill track, the chosen one lifted */
+  .tabs { @apply mb-5 flex w-full max-w-full gap-1 overflow-x-auto rounded-xl border border-line bg-surface p-1 shadow-soft sm:w-fit; scrollbar-width: none; }
+  .tabs a, .tabs button { @apply cursor-pointer rounded-lg border-0 bg-transparent px-3.5 py-1.5 text-sm font-medium whitespace-nowrap text-muted no-underline transition-colors hover:text-ink; }
+  .tabs [aria-current="page"] { @apply bg-brand-soft font-semibold text-brand-ink; }
+
+  /* ---- the hero card at the top of Home ---- */
+  .hero { @apply relative isolate overflow-hidden rounded-3xl p-5 text-white shadow-lift md:p-8;
+    background: radial-gradient(120% 140% at 100% 0%, var(--hero-b) 0%, var(--hero-a) 60%); }
+  .hero::before { content: ""; @apply absolute inset-0 -z-10 opacity-[.18];
+    background-image: radial-gradient(rgb(255 255 255 / .55) 1px, transparent 1px); background-size: 18px 18px;
+    mask-image: linear-gradient(110deg, transparent 35%, #000 100%); }
+  .hero .btn { @apply border-white/20 bg-white/10 text-white hover:bg-white/20; }
+  .hero .btn.primary { @apply border-white bg-white text-[#0f2a48] hover:bg-white/90 hover:brightness-100; }
+  .hero-bar { @apply h-1.5 w-full min-w-12 overflow-hidden rounded-full bg-white/15; }
+  .hero-bar > div { @apply h-full rounded-full; }
+
+  /* ---- figures ---- */
+  .stat { @apply flex min-w-0 flex-col rounded-2xl border border-line bg-surface p-3 shadow-card sm:p-4 md:p-5; }
+  .stat-top { @apply flex items-start justify-between gap-2 text-xs leading-snug font-medium text-muted sm:text-[13px]; }
+  .stat-icon { @apply grid size-8 flex-none max-sm:hidden place-items-center rounded-lg bg-subtle text-muted [&_svg]:size-[18px]; }
+  .stat-value { font-variant-numeric: tabular-nums; @apply mt-auto pt-2 text-2xl sm:text-[1.65rem] leading-none font-semibold tracking-[-0.02em]; }
+  .stat-sub { @apply mt-1.5 text-xs text-muted max-sm:text-[11px]; }
+
+  /* ---- list rows (needs attention, coming up) ---- */
+  .rows { @apply -mx-2 grid; }
+  .row-link { @apply flex min-w-0 items-center gap-3 rounded-xl px-2 py-2.5 text-ink no-underline transition-colors hover:bg-subtle; }
+  .rows > * + * { @apply border-t border-line; }
+  .row-icon { @apply grid size-9 flex-none place-items-center rounded-full [&_svg]:size-[18px]; }
+  .chev { @apply ml-auto flex-none text-faint [&_svg]:size-4; }
+  .datebox { @apply grid w-12 flex-none place-items-center rounded-xl border border-line bg-subtle py-1.5 leading-none; }
+  .datebox b { font-variant-numeric: tabular-nums; @apply text-lg font-semibold; }
+  .datebox span { @apply mt-0.5 text-[10px] font-semibold tracking-wider text-muted uppercase; }
+  .avatar { @apply grid size-9 flex-none place-items-center rounded-full bg-brand-soft text-[13px] font-semibold text-brand-ink; }
 
   /* ---- pills and messages ---- */
-  .pill { @apply inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-px align-middle text-[11px] font-semibold leading-relaxed; }
+  .pill { @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 align-middle text-[11px] font-semibold leading-snug whitespace-nowrap; }
   .pill.ok { @apply bg-ok-soft text-ok; }
   .pill.bad { @apply bg-bad-soft text-bad; }
   .pill.warn { @apply bg-warn-soft text-warn; }
@@ -88,45 +128,50 @@
   .msg.error { @apply text-bad; }
   .msg.warn { @apply text-warn; }
   .msg.hint { @apply font-normal text-muted; }
-  .note { @apply rounded-xl bg-brand-soft px-3.5 py-3 text-sm leading-snug; }
-  .note.warn { @apply bg-warn-soft; }
-  .note.error { @apply bg-bad-soft text-bad; }
-  .note.ok { @apply bg-ok-soft; }
+  .note { @apply rounded-xl border border-brand/15 bg-brand-soft px-4 py-3 text-sm leading-snug; }
+  .note.warn { @apply border-warn/20 bg-warn-soft; }
+  .note.error { @apply border-bad/20 bg-bad-soft text-bad; }
+  .note.ok { @apply border-ok/20 bg-ok-soft; }
   .empty { @apply py-1 text-sm text-muted; }
 
   /* ---- forms ---- */
-  .form { @apply grid gap-3; }
-  .row2 { @apply grid gap-3 sm:grid-cols-2; }
-  .row3 { @apply grid gap-3 sm:grid-cols-3; }
+  .form { @apply grid gap-3.5; }
+  .row2 { @apply grid gap-3.5 sm:grid-cols-2; }
+  .row3 { @apply grid gap-3.5 sm:grid-cols-3; }
   .field { @apply grid min-w-0 content-start gap-1.5; }
-  .field > span, .label { @apply text-[13px] font-semibold; }
-  .input { @apply min-h-10 w-full min-w-0 rounded-xl border border-line bg-surface px-3 py-2 outline-none transition-shadow focus:border-brand focus:ring-4 focus:ring-brand-soft; }
-  select.input { @apply pr-8; }
+  .field > span, .label { @apply text-[13px] font-medium text-ink; }
+  .field > span.eyebrow { @apply text-[11px] font-semibold text-faint; }
+  .input { @apply min-h-10 w-full min-w-0 rounded-xl border border-line-strong/70 bg-surface px-3 py-2 shadow-soft outline-none transition-[border-color,box-shadow] placeholder:text-faint hover:border-line-strong focus:border-brand focus:ring-4 focus:ring-brand/15 disabled:opacity-60; }
+  select.input { @apply cursor-pointer appearance-none bg-no-repeat pr-9;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a96a6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-position: right .7rem center; background-size: 1rem; }
+  input[type="file"].input { @apply cursor-pointer py-1.5 text-sm text-muted file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-subtle file:px-3 file:py-1.5 file:text-[13px] file:font-semibold file:text-ink hover:file:bg-line; }
   textarea.input { @apply min-h-24 resize-y; }
-  .check { @apply flex cursor-pointer items-center gap-2 text-sm; }
-  .check input { @apply size-[18px] flex-none accent-brand; }
+  .check { @apply flex cursor-pointer items-center gap-2.5 text-sm; }
+  .check input { @apply size-[18px] flex-none rounded accent-brand; }
 
-  .btn { @apply inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-line bg-surface px-4 py-2 text-sm font-semibold text-ink no-underline transition-colors hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-50; }
-  .btn.primary { @apply border-brand bg-brand text-on-brand shadow-sm hover:brightness-110; }
-  .btn.danger { @apply text-bad; }
-  .btn.ghost { @apply border-transparent bg-transparent px-2 text-brand-ink shadow-none; }
+  .btn { @apply inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border border-line-strong/70 bg-surface px-4 py-2 text-sm font-semibold whitespace-nowrap text-ink no-underline shadow-soft transition-[background-color,border-color,filter,transform] hover:border-line-strong hover:bg-subtle active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 disabled:active:translate-y-0; }
+  .btn.primary { @apply border-brand bg-brand text-on-brand hover:bg-brand hover:brightness-110; box-shadow: 0 1px 2px rgb(15 23 42 / .12), inset 0 1px 0 rgb(255 255 255 / .12); }
+  .btn.danger { @apply text-bad hover:border-bad/40 hover:bg-bad-soft; }
+  .btn.ghost { @apply border-transparent bg-transparent px-2 text-brand-ink shadow-none hover:border-transparent; }
   .btn.small { @apply min-h-8 rounded-lg px-2.5 py-1 text-[13px]; }
-  .btn svg { @apply size-[18px]; }
+  .btn svg { @apply size-[18px] flex-none; }
+  .btn.small svg { @apply size-4; }
   .btns { @apply flex flex-wrap items-center gap-2; }
-  .seg { @apply inline-grid auto-cols-fr grid-flow-col rounded-xl bg-subtle p-[3px]; }
-  .seg button { @apply grid cursor-pointer place-items-center rounded-[10px] border-0 bg-transparent px-3 py-1.5 text-sm font-semibold text-muted; }
-  .seg button[aria-pressed="true"] { @apply bg-surface text-ink shadow-soft; }
+  .seg { @apply inline-grid auto-cols-fr grid-flow-col rounded-xl border border-line bg-subtle p-[3px]; }
+  .seg button { @apply grid cursor-pointer place-items-center rounded-[9px] border-0 bg-transparent px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-ink; }
+  .seg button[aria-pressed="true"] { @apply bg-surface font-semibold text-ink shadow-soft; }
 
   /* ---- dialog (a bottom sheet on phones) ---- */
   dialog.sheet { @apply m-auto w-full max-w-[min(520px,100vw)] border-0 bg-transparent p-0 text-ink max-md:mb-0 max-md:max-w-full; }
-  dialog.sheet::backdrop { background: rgb(8 16 20 / .45); }
-  .sheet-body { @apply max-h-[92vh] overflow-y-auto rounded-3xl bg-surface p-5 shadow-lift max-md:rounded-b-none max-md:pb-[calc(1.25rem+env(safe-area-inset-bottom))]; }
+  dialog.sheet::backdrop { background: rgb(8 14 22 / .5); backdrop-filter: blur(2px); }
+  .sheet-body { @apply max-h-[92vh] overflow-y-auto rounded-3xl border border-line bg-surface p-5 shadow-lift md:p-6 max-md:rounded-b-none max-md:pb-[calc(1.25rem+env(safe-area-inset-bottom))]; }
   .sheet-head { @apply mb-3 flex items-center justify-between; }
-  .sheet-head h2 { @apply m-0 text-lg font-bold; }
+  .sheet-head h2 { @apply m-0 text-lg font-semibold; }
 
   /* ---- toasts ---- */
   .toasts { @apply pointer-events-none fixed top-4 left-1/2 z-60 grid w-[min(440px,calc(100vw-32px))] -translate-x-1/2 gap-2; }
-  .toast { @apply pointer-events-auto flex items-center gap-3 rounded-2xl bg-ink px-4 py-3 text-sm font-semibold text-bg shadow-lift; animation: toast-in .18s ease-out; }
+  .toast { @apply pointer-events-auto flex items-center gap-3 rounded-2xl bg-ink px-4 py-3 text-sm font-medium text-bg shadow-lift; animation: toast-in .18s ease-out; }
   .toast.warn { @apply bg-amber-800 text-white; }
   .toast button { @apply ml-auto cursor-pointer rounded-lg border-0 bg-white/15 px-2.5 py-1 text-[13px] font-semibold text-inherit hover:bg-white/25; }
 
@@ -135,28 +180,32 @@
 
   /* ---- tables ---- */
   .table-wrap { @apply -mx-1 overflow-x-auto; }
-  table.table { @apply w-full border-collapse text-sm; }
-  .table th { @apply border-b border-line px-2 py-1.5 text-left text-xs font-semibold whitespace-nowrap text-muted; }
-  .table td { @apply border-b border-line p-2 align-top; }
+  table.table { @apply w-full border-separate border-spacing-0 text-sm; }
+  .table th { @apply sticky top-0 z-[1] border-b border-line bg-surface px-3 py-2 text-left text-[11px] font-semibold tracking-[0.06em] whitespace-nowrap text-faint uppercase; }
+  .table td { @apply border-b border-line px-3 py-2.5 align-top; }
+  .table tbody tr { @apply transition-colors hover:bg-subtle/60; }
   .table tr:last-child td { @apply border-b-0; }
   .table td.r, .table th.r { @apply text-right; }
-  .table tr.link { @apply cursor-pointer hover:bg-subtle; }
+  .table tr.link { @apply cursor-pointer; }
   .cell-input { @apply min-h-9 px-2 py-1; }
 
   /* ---- progress ---- */
-  .bar { @apply h-2 w-full min-w-12 overflow-hidden rounded-full bg-subtle; }
+  .bar { @apply h-1.5 w-full min-w-12 overflow-hidden rounded-full bg-subtle; }
   .fill { @apply h-full rounded-full bg-brand transition-[width] duration-300; }
-  .savebar { @apply sticky bottom-3 z-20 flex flex-wrap items-center gap-3 border-brand shadow-lift max-md:bottom-[4.75rem] max-md:gap-2 max-md:p-3; }
+  .savebar { @apply sticky bottom-3 z-20 flex flex-wrap items-center gap-3 border-brand/40 bg-surface/95 shadow-lift backdrop-blur max-md:bottom-[4.75rem] max-md:gap-2 max-md:p-3; }
   .savebar .btn { @apply max-md:min-h-9 max-md:px-3; }
 
   /* ---- the schedule editor ---- */
-  .slot { @apply grid min-w-0 content-start gap-1.5; }
-  .slot-title { @apply text-sm font-semibold; }
+  .slot { @apply grid min-w-0 content-start gap-1.5 rounded-xl border border-line bg-subtle/40 p-3; }
+  .slot-title { @apply text-[13px] font-semibold; }
   .slot-issue { @apply text-[12.5px] font-medium leading-snug; }
   .slot-issue.error { @apply text-bad; }
   .slot-issue.warning { @apply text-warn; }
-  .section-head { @apply mt-1 mb-2 flex items-center gap-2 text-sm font-bold; }
+  .section-head { @apply mt-1 mb-2 flex items-center gap-2 text-[13px] font-semibold tracking-[0.04em] text-muted uppercase; }
   .swatch { @apply inline-block size-2.5 flex-none rounded-full; }
+
+  /* ---- app frame ---- */
+  .nav-link { @apply flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-muted no-underline transition-colors hover:bg-subtle hover:text-ink aria-[current=page]:bg-brand-soft aria-[current=page]:font-semibold aria-[current=page]:text-brand-ink [&_svg]:size-[19px]; }
 }
 
 @keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } }

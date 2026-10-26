@@ -14,7 +14,7 @@ export function LoginForm({ next }: { next: string }) {
         <input className="input" name="password" type="password" autoComplete="current-password" required />
       </label>
       {error ? <div className="msg error">{error}</div> : null}
-      <button className="btn primary" disabled={busy}>Sign in</button>
+      <button className="btn primary mt-1 w-full" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
     </form>
   );
 }

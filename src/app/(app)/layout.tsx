@@ -27,24 +27,42 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     prisma.settings.findUnique({ where: { key: "slip_language" } }).catch((e) => { console.error(e); return null; }),
   ]);
   const language = (LANGUAGES as readonly string[]).includes(lang?.value ?? "") ? lang!.value! : LANGUAGES[0];
+  const initials = user.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join("") || "?";
   return (
-    <div className="min-h-dvh md:grid md:grid-cols-[240px_minmax(0,1fr)]">
-      <aside className="sticky top-0 hidden h-dvh flex-col gap-1 border-r border-line bg-surface px-3 py-5 md:flex">
-        <a className="mb-4 flex items-center gap-2.5 px-2 text-lg font-bold tracking-tight text-ink no-underline" href="/">
-          <img src="/icon.svg" alt="" className="size-8" />Meeting Scheduler
+    <div className="min-h-dvh md:grid md:grid-cols-[256px_minmax(0,1fr)]">
+      <aside className="sticky top-0 hidden h-dvh flex-col border-r border-line bg-surface px-3 py-5 md:flex">
+        <a className="mb-6 flex items-center gap-2.5 px-2 text-[15px] font-semibold tracking-tight text-ink no-underline" href="/">
+          <img src="/icon.svg" alt="" className="size-8 rounded-lg shadow-soft" />
+          <span className="leading-tight">Meeting Scheduler<span className="block text-xs font-normal text-muted">Assignments &amp; slips</span></span>
         </a>
+        <div className="eyebrow mb-2 px-3">Menu</div>
         <SideNav items={ITEMS} />
-        <div className="mt-auto grid gap-3 border-t border-line pt-4">
+        <div className="mt-auto grid gap-4 pt-4">
           <LanguagePick value={language} />
-          <div className="flex items-center justify-between gap-2 px-1">
-            <span className="truncate text-sm font-semibold">{user}</span>
+          <div className="flex items-center gap-2.5 rounded-xl border border-line bg-subtle/60 p-2">
+            <span className="avatar">{initials}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-semibold">{user}</span>
+              <span className="block text-xs text-muted">Signed in</span>
+            </span>
             <form action={signOutAction}>
-              <button className="btn ghost small" type="submit"><Icon name="logout" /> Sign out</button>
+              <button className="btn ghost small text-muted!" type="submit" title="Sign out" aria-label="Sign out"><Icon name="logout" /></button>
             </form>
           </div>
         </div>
       </aside>
-      <main className="mx-auto w-full max-w-6xl px-4 pt-5 pb-28 md:px-8 md:pt-9 md:pb-16">{children}</main>
+      <div className="min-w-0">
+        <header className="sticky top-0 z-30 flex items-center gap-2.5 border-b border-line bg-surface/90 px-4 py-2.5 backdrop-blur md:hidden">
+          <a href="/" className="flex items-center gap-2 text-[15px] font-semibold text-ink no-underline">
+            <img src="/icon.svg" alt="" className="size-7 rounded-lg" />Meeting Scheduler
+          </a>
+          <span className="avatar ml-auto size-8! text-xs">{initials}</span>
+          <form action={signOutAction}>
+            <button className="btn ghost small text-muted!" type="submit" aria-label="Sign out"><Icon name="logout" /></button>
+          </form>
+        </header>
+        <main className="mx-auto w-full max-w-6xl px-4 pt-5 pb-28 md:px-10 md:pt-10 md:pb-16">{children}</main>
+      </div>
       <TabBar items={ITEMS} />
     </div>
   );

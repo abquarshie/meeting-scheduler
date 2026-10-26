@@ -10,7 +10,7 @@ export function LanguagePick({ value }: { value: string }) {
   const [lang, setLang] = useState(value);
   return (
     <label className="field">
-      <span className="text-xs! text-muted">Slip language</span>
+      <span className="eyebrow px-1">Slip language</span>
       <select className="input" value={lang} disabled={busy}
         onChange={(e) => { const v = e.target.value; setLang(v); act(() => setLanguage(v)); }}>
         {LANGUAGES.map((l) => <option key={l}>{l}</option>)}
