@@ -99,7 +99,7 @@ export default async function Home() {
                     if (!part.length) return null;
                     const c = fillCounts(part);
                     return (
-                      <div key={section} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 text-sm sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto]">
+                      <div key={section} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 text-sm sm:grid-cols-[minmax(0,15rem)_minmax(0,1fr)_2.75rem]">
                         <span className="truncate text-white/85">{SECTION_TITLES[section]}</span>
                         <div className="hero-bar max-sm:order-last max-sm:col-span-2"><div style={{ width: `${c.needed ? (100 * c.filled) / c.needed : 0}%`, background: SECTION_COLORS[section] }} /></div>
                         <span className="num text-xs text-white/70">{c.filled}/{c.needed}</span>
@@ -167,13 +167,13 @@ export default async function Home() {
                     <Link key={key(m.date, m.type)} href={editHref(m.date, m.type)} className="row-link">
                       <span className="datebox"><b>{day}</b><span>{mon}</span></span>
                       <span className="grid min-w-0 flex-1 gap-1.5">
-                        <span className="flex items-center gap-2 text-sm">
-                          <span className="font-semibold">{m.type === MIDWEEK ? "Midweek" : "Weekend"}</span>
-                          <span className="truncate text-muted">{(m.type === MIDWEEK ? meta?.heading : talkText(meta)) || ""}</span>
+                        <span className="flex min-w-0 items-center gap-2 text-sm">
+                          <span className="flex-none font-semibold">{m.type === MIDWEEK ? "Midweek" : "Weekend"}</span>
+                          <span className="min-w-0 truncate text-muted" title={(m.type === MIDWEEK ? meta?.heading : talkText(meta)) || undefined}>{(m.type === MIDWEEK ? meta?.heading : talkText(meta)) || ""}</span>
                         </span>
                         <Bar pct={pct} label="Filled" />
                       </span>
-                      <span className={`pill ${open ? "warn" : "ok"}`}>{open ? `${open} open` : "Filled"}</span>
+                      <span className={`pill flex-none ${open ? "warn" : "ok"}`}>{open ? `${open} open` : "Filled"}</span>
                       <span className="chev"><Icon name="chevron" /></span>
                     </Link>
                   );
