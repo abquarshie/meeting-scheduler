@@ -52,7 +52,10 @@ export function Printing(props: {
           <div className="table-wrap">
             <table className="table">
               <thead><tr><th>Part</th><th>Assigned to</th><th>Assistant</th></tr></thead>
-              <tbody>{summary.rows.map((r, i) => <tr key={i}><td>{r.part}</td><td>{r.person}</td><td>{r.assistant}</td></tr>)}</tbody>
+              <tbody>{summary.rows.map((r, i) => {
+                const gap = (v: string) => v.startsWith("—") ? <span className="pill warn">{v.replace(/—/g, "").trim()}</span> : v;
+                return <tr key={i}><td>{r.part}</td><td className="font-medium">{gap(r.person)}</td><td>{gap(r.assistant)}</td></tr>;
+              })}</tbody>
             </table>
           </div>
           <Link className="btn mt-3" href={props.editHref}><Icon name="edit" /> Edit this schedule</Link>

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Icon } from "@/components/icons";
-import { Bar, Note, Stat } from "@/components/ui";
+import { Bar, Stat } from "@/components/ui";
 import { getUser } from "@/lib/auth";
 import { BACKUP_REMINDER_DAYS, LANGUAGES, MIDWEEK, SECTION_COLORS, SECTION_TITLES } from "@/lib/constants";
 import {
@@ -51,132 +51,137 @@ export default async function Home() {
   const backupDays = lastExport ? daysBetween(lastExport, now) : null;
 
   const next = upcoming[0];
+  // everything that wants a hand, newest worry first: setup gaps, a week not created, the backup
+  const attention: { text: string; href: string; tone: "warn" | "bad" | "accent"; icon: "warning" | "calendar" | "shield" | "add" }[] = [];
+  if (next && gap) attention.push({ text: `${gap.label} (${longDate(gap.meeting)}) has no schedule yet`, href: createHref(gap.meeting), tone: "warn", icon: "calendar" });
+  if (anySaved && (backupDays === null || backupDays >= BACKUP_REMINDER_DAYS)) {
+    attention.push({ text: backupDays === null ? "No backup downloaded yet. The database is the only copy of your schedules." : `Last backup was ${backupDays} days ago`, href: "/admin", tone: "bad", icon: "shield" });
+  }
+  for (const [what, href] of gaps) attention.push({ text: what, href, tone: "accent", icon: "add" });
+  const iconTone = { warn: "bg-warn-soft text-warn", bad: "bg-bad-soft text-bad", accent: "bg-brand-soft text-brand-ink" };
+
   return (
     <>
       <div className="page-head">
-        <h1 className="page-title">{greeting(user)}</h1>
-        <div className="page-sub">{longDate(now)} {now.slice(0, 4)}</div>
+        <div className="eyebrow">{longDate(now)} {now.slice(0, 4)}</div>
+        <h1 className="page-title mt-1">{greeting(user)}</h1>
       </div>
       <div className="stack">
-        {gaps.length ? (
-          <div className="card">
-            <h2 className="section-title">Still to set up</h2>
-            <div className="grid gap-2">
-              {gaps.map(([what, href]) => (
-                <div key={what} className="flex items-center justify-between gap-3 text-sm">
-                  <span>{what}</span><Link className="btn small" href={href}>Go</Link>
+        {!people.length ? (
+          <div className="hero">
+            <div className="text-sm text-white/70">Getting started</div>
+            <h2 className="mt-1 mb-2 text-2xl font-semibold tracking-tight">Add your participants first</h2>
+            <p className="mt-0 mb-5 max-w-lg text-sm text-white/75">Schedules are filled from the people you add, with the parts each one can take.</p>
+            <Link className="btn primary" href="/participants"><Icon name="add" /> Add participants</Link>
+          </div>
+        ) : next ? (() => {
+          const mrows = meetingRows(rows, next.date, next.type);
+          const meta = metas.get(key(next.date, next.type));
+          const { filled, needed } = fillCounts(mrows);
+          const open = needed - filled;
+          const detail = next.type === MIDWEEK ? meta?.heading : talkText(meta);
+          return (
+            <div className="hero">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm text-white/70">Next meeting · {next.type}</div>
+                  <h2 className="mt-1 mb-0 text-2xl font-semibold tracking-tight md:text-3xl">{longDate(next.date)}</h2>
+                  <div className="mt-1 text-sm text-white/70">{daysAway(next.date)}{detail ? ` · ${detail}` : ""}</div>
                 </div>
-              ))}
+                <span className={`pill ${open ? "bg-white/15! text-white!" : "bg-emerald-400/20! text-emerald-100!"}`}>
+                  <Icon name={open ? "clock" : "check"} />{open ? `${open} ${open === 1 ? "slot" : "slots"} open` : "Every part filled"}
+                </span>
+              </div>
+              <div className="mt-6 grid gap-6 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] md:items-end">
+                <div className="grid gap-3">
+                  {["Treasures", "Ministry", "Living", "Weekend"].map((section) => {
+                    const part = mrows.filter((r) => r.section === section);
+                    if (!part.length) return null;
+                    const c = fillCounts(part);
+                    return (
+                      <div key={section} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 text-sm sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto]">
+                        <span className="truncate text-white/85">{SECTION_TITLES[section]}</span>
+                        <div className="hero-bar max-sm:order-last max-sm:col-span-2"><div style={{ width: `${c.needed ? (100 * c.filled) / c.needed : 0}%`, background: SECTION_COLORS[section] }} /></div>
+                        <span className="num text-xs text-white/70">{c.filled}/{c.needed}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="btns md:justify-end">
+                  <Link className="btn primary" href={editHref(next.date, next.type)}><Icon name="edit" /> {open ? "Fill open slots" : "Edit schedule"}</Link>
+                  <Link className="btn" href={`/print?meeting=${encodeURIComponent(key(next.date, next.type))}`}><Icon name="print" /> Print slips</Link>
+                </div>
+              </div>
             </div>
-            <div className="caption">This disappears as each one is done.</div>
+          );
+        })() : (
+          <div className="hero">
+            <div className="text-sm text-white/70">{gap ? "Next workbook week" : "No meetings yet"}</div>
+            <h2 className="mt-1 mb-1 text-2xl font-semibold tracking-tight md:text-3xl">{gap ? longDate(gap.meeting) : "Create your first schedule"}</h2>
+            <p className="mt-0 mb-5 text-sm text-white/75">{gap ? `${gap.label} has no schedule yet.` : "Upload the workbook to get each week's parts, then create the first schedule."}</p>
+            <div className="btns">
+              <Link className="btn primary" href={gap ? createHref(gap.meeting) : "/schedule"}><Icon name="add" /> {gap ? "Create this week" : "Create a schedule"}</Link>
+              {gap ? null : <Link className="btn" href="/workbook"><Icon name="upload" /> Upload workbook</Link>}
+            </div>
+          </div>
+        )}
+
+        {people.length ? (
+          <div className="grid grid-cols-3 gap-2.5 md:gap-4">
+            {!soon.length && notCreated.length
+              ? <Stat label="Weeks not created" value={notCreated.length} icon="calendar" tone="warn" sub="in the next 4 weeks" />
+              : <Stat label="Open slots" value={openSoon} icon="clock" tone={openSoon ? "warn" : "ok"}
+                  sub={soon.length && notCreated.length ? `next 4 weeks · ${notCreated.length} week(s) not created` : "next 4 weeks"} />}
+            <Stat label="Active participants" value={people.filter((p) => p.active).length} icon="people" sub={`${people.length} in total`} />
+            <Stat label="Away or suspended" value={away.size} icon="away" sub="this week" />
           </div>
         ) : null}
 
-        {!people.length ? (
-          <div className="card">
-            <h2 className="section-title">Add your participants first</h2>
-            <p className="mt-0 text-sm">Schedules are filled from the people you add, with the parts each one can take.</p>
-            <Link className="btn primary" href="/participants">Add participants</Link>
-          </div>
-        ) : (
-          <>
-            <div className="card border-l-4 border-l-brand">
-              {next ? (() => {
-                const mrows = meetingRows(rows, next.date, next.type);
-                const meta = metas.get(key(next.date, next.type));
-                const { filled, needed } = fillCounts(mrows);
-                const open = needed - filled;
-                const detail = next.type === MIDWEEK ? meta?.heading : talkText(meta);
-                return (
-                  <div className="grid gap-5 md:grid-cols-[minmax(0,3fr)_minmax(0,1fr)]">
-                    <div>
-                      <div className="text-xl font-bold">{longDate(next.date)}</div>
-                      <div className="mb-3 text-sm text-muted">{next.type}, {daysAway(next.date)}{detail ? `. ${detail}` : ""}</div>
-                      <div className="grid gap-2">
-                        {["Treasures", "Ministry", "Living", "Weekend"].map((section) => {
-                          const part = mrows.filter((r) => r.section === section);
-                          if (!part.length) return null;
-                          const c = fillCounts(part);
-                          return (
-                            <div key={section} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] items-center gap-3 text-sm">
-                              <span className="flex items-center gap-2 truncate"><span className="swatch" style={{ background: SECTION_COLORS[section] }} />{SECTION_TITLES[section]}</span>
-                              <Bar pct={c.needed ? (100 * c.filled) / c.needed : 0} color={SECTION_COLORS[section]} label={section} />
-                              <span className="num text-xs text-muted">{c.filled} of {c.needed}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    <div className="grid content-start gap-2">
-                      <div className="num text-4xl font-bold">{open}</div>
-                      <div className="text-sm text-muted">{open ? (open === 1 ? "slot open" : "slots open") : "Every part is filled"}</div>
-                      <Link className={`btn ${open ? "primary" : ""}`} href={editHref(next.date, next.type)}><Icon name="edit" /> {open ? "Fill open slots" : "Edit schedule"}</Link>
-                      <Link className="btn" href={`/print?meeting=${encodeURIComponent(key(next.date, next.type))}`}><Icon name="print" /> Print slips</Link>
-                    </div>
-                  </div>
-                );
-              })() : gap ? (
-                <div className="grid gap-3">
-                  <div><div className="text-xl font-bold">{longDate(gap.meeting)}</div><div className="text-sm text-muted">{gap.label} has no schedule yet.</div></div>
-                  <Link className="btn primary w-fit" href={createHref(gap.meeting)}><Icon name="add" /> Create this week</Link>
-                </div>
-              ) : (
-                <div className="grid gap-3">
-                  <div><div className="text-xl font-bold">No meetings scheduled yet</div><div className="text-sm text-muted">Upload the workbook to get each week&apos;s parts, then create the first schedule.</div></div>
-                  <div className="btns"><Link className="btn primary" href="/schedule"><Icon name="add" /> Create a schedule</Link><Link className="btn" href="/workbook">Upload workbook</Link></div>
-                </div>
-              )}
-            </div>
-
-            {next && gap ? (
-              <Note><span className="flex flex-wrap items-center justify-between gap-2">{gap.label} ({longDate(gap.meeting)}) has no schedule yet.
-                <Link className="btn small" href={createHref(gap.meeting)}><Icon name="add" /> Create it</Link></span></Note>
-            ) : null}
-
-            {anySaved && (backupDays === null || backupDays >= BACKUP_REMINDER_DAYS) ? (
-              <Note tone="warn"><span className="flex flex-wrap items-center justify-between gap-2">
-                {backupDays === null ? "No backup file has been downloaded yet." : `Last backup was ${backupDays} days ago.`} The database is the only copy of your schedules until you take one.
-                <Link className="btn small" href="/admin">Back up now</Link></span></Note>
-            ) : null}
-
-            <div className="grid grid-cols-3 gap-3">
-              {!soon.length && notCreated.length
-                ? <Stat label="Weeks not yet created" value={notCreated.length} />
-                : <Stat label="Open slots, next 4 weeks" value={openSoon} />}
-              <Stat label="Active participants" value={people.filter((p) => p.active).length} />
-              <Stat label="Away or suspended this week" value={away.size} />
-            </div>
-            {soon.length && notCreated.length ? <div className="caption mt-0">{notCreated.length} week(s) in the next 4 weeks still have no schedule.</div> : null}
-
-            {upcoming.length > 1 ? (
-              <div className="card">
-                <h2 className="section-title">Coming up</h2>
-                <div className="table-wrap">
-                  <table className="table">
-                    <thead><tr><th>Date</th><th>Meeting</th><th>Week or talk</th><th>Filled</th><th className="r">Open</th><th /></tr></thead>
-                    <tbody>
-                      {upcoming.slice(1, 9).map((m) => {
-                        const meta = metas.get(key(m.date, m.type));
-                        const c = fillCounts(meetingRows(rows, m.date, m.type));
-                        const pct = c.needed ? Math.round((100 * c.filled) / c.needed) : 100;
-                        return (
-                          <tr key={key(m.date, m.type)}>
-                            <td className="whitespace-nowrap">{shortDay(m.date)}</td>
-                            <td>{m.type === MIDWEEK ? "Midweek" : "Weekend"}</td>
-                            <td>{(m.type === MIDWEEK ? meta?.heading : talkText(meta)) || ""}</td>
-                            <td className="min-w-28"><div className="flex items-center gap-2"><Bar pct={pct} label="Filled" /><span className="num text-xs text-muted">{pct}%</span></div></td>
-                            <td className="r num">{c.needed - c.filled}</td>
-                            <td className="r"><Link href={editHref(m.date, m.type)}>Open</Link></td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+        <div className={`grid gap-4 md:gap-5 ${attention.length && upcoming.length > 1 ? "lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]" : ""}`}>
+          {attention.length ? (
+            <div className="card">
+              <div className="card-head"><h2>Needs attention</h2><span className="pill warn">{attention.length}</span></div>
+              <div className="rows">
+                {attention.map((a) => (
+                  <Link key={a.text} href={a.href} className="row-link">
+                    <span className={`row-icon ${iconTone[a.tone]}`}><Icon name={a.icon} /></span>
+                    <span className="min-w-0 text-sm">{a.text}</span>
+                    <span className="chev"><Icon name="chevron" /></span>
+                  </Link>
+                ))}
               </div>
-            ) : null}
-          </>
-        )}
+            </div>
+          ) : null}
+
+          {upcoming.length > 1 ? (
+            <div className="card">
+              <div className="card-head"><h2>Coming up</h2><Link className="text-sm font-medium no-underline" href="/month">Month overview</Link></div>
+              <div className="rows">
+                {upcoming.slice(1, 9).map((m) => {
+                  const meta = metas.get(key(m.date, m.type));
+                  const c = fillCounts(meetingRows(rows, m.date, m.type));
+                  const pct = c.needed ? Math.round((100 * c.filled) / c.needed) : 100;
+                  const open = c.needed - c.filled;
+                  const [day, mon] = shortDay(m.date).split(" ").slice(1);
+                  return (
+                    <Link key={key(m.date, m.type)} href={editHref(m.date, m.type)} className="row-link">
+                      <span className="datebox"><b>{day}</b><span>{mon}</span></span>
+                      <span className="grid min-w-0 flex-1 gap-1.5">
+                        <span className="flex items-center gap-2 text-sm">
+                          <span className="font-semibold">{m.type === MIDWEEK ? "Midweek" : "Weekend"}</span>
+                          <span className="truncate text-muted">{(m.type === MIDWEEK ? meta?.heading : talkText(meta)) || ""}</span>
+                        </span>
+                        <Bar pct={pct} label="Filled" />
+                      </span>
+                      <span className={`pill ${open ? "warn" : "ok"}`}>{open ? `${open} open` : "Filled"}</span>
+                      <span className="chev"><Icon name="chevron" /></span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+        </div>
       </div>
     </>
   );

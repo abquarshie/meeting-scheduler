@@ -21,6 +21,11 @@ const PATHS = {
   copy: "M9 9h11v11H9z M5 15H4V4h11v1",
   warning: "M12 3 2 20h20L12 3Z M12 10v4 M12 17h0",
   check: "M5 12l5 5L20 7",
+  chevron: "M9 6l6 6-6 6",
+  clock: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z M12 7v5l3 2",
+  away: "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z M2 21v-1a6 6 0 0 1 10-4.5 M16 16l5 5 M21 16l-5 5",
+  shield: "M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z M9 12l2 2 4-4",
+  globe: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z M3 12h18 M12 3a14 14 0 0 1 0 18 M12 3a14 14 0 0 0 0 18",
 } as const;
 
 export type IconName = keyof typeof PATHS;

@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { MarkEventWeek } from "@/components/MarkEventWeek";
-import { Bar, Note, PageHead } from "@/components/ui";
+import { Icon } from "@/components/icons";
+import { Bar, Note, PageHead, Stat } from "@/components/ui";
 import { EVENT_TEXT, HALL_NAMES, MAIN_HALL, MIDWEEK } from "@/lib/constants";
 import {
   eventLabel, fillCounts, getEvents, getMeetingList, getMetas, getRows, getSettings, getWorkbook, key, meetingRows, savedMeetings,
@@ -63,21 +64,29 @@ export default async function MonthPage({ searchParams }: { searchParams: Promis
   return (
     <>
       <PageHead title="Month overview" sub="Every meeting this month, what is still open, and month-wide printing.">
-        <MonthPick months={list.map((x) => ({ value: x, label: monthLabel(x) }))} value={month} />
+        <div className="btns">
+          <MonthPick months={list.map((x) => ({ value: x, label: monthLabel(x) }))} value={month} />
+          <Link className="btn" href={`/print?month=${month}`}><Icon name="print" /> Print month</Link>
+        </div>
       </PageHead>
       <div className="stack">
+        <div className="grid grid-cols-3 gap-2.5 md:gap-4">
+          <Stat label="Meetings" value={lines.filter((l) => l.pct !== null).length} icon="calendar" sub={monthLabel(month)} />
+          <Stat label="Open slots" value={totalOpen} icon="clock" tone={totalOpen ? "warn" : "ok"} sub={totalOpen ? "still to fill" : "all filled"} />
+          <Stat label="Not created" value={toCreate.length} icon="add" tone={toCreate.length ? "warn" : undefined} sub="workbook weeks" />
+        </div>
         {lines.length ? (
           <div className="card">
             <div className="table-wrap">
               <table className="table">
-                <thead><tr><th>Date</th><th>Meeting</th><th>Filled</th><th className="r">Open slots</th><th>{HALL_NAMES.aux_1.replace(" 1", "")}</th><th>Heading</th></tr></thead>
+                <thead><tr><th>Date</th><th>Meeting</th><th>Filled</th><th className="r">Open</th><th>{HALL_NAMES.aux_1.replace(" 1", "")}</th><th>Heading</th></tr></thead>
                 <tbody>
                   {lines.map((l, i) => (
                     <tr key={i}>
                       <td className="whitespace-nowrap">{l.href ? <Link href={l.href}>{fmtDate(l.date)}</Link> : fmtDate(l.date)}</td>
                       <td>{l.meeting}</td>
                       <td className="min-w-28">{l.pct === null ? "" : <div className="flex items-center gap-2"><Bar pct={l.pct} label="Filled" /><span className="num text-xs text-muted">{l.pct}%</span></div>}</td>
-                      <td className="r num">{l.open ?? ""}</td>
+                      <td className="r">{l.open === null ? "" : <span className={`pill ${l.open ? "warn" : "ok"}`}>{l.open ? `${l.open} open` : "Filled"}</span>}</td>
                       <td>{l.aux}</td>
                       <td>{l.heading}</td>
                     </tr>
@@ -87,8 +96,6 @@ export default async function MonthPage({ searchParams }: { searchParams: Promis
             </div>
           </div>
         ) : <Note>Nothing scheduled this month yet.</Note>}
-        {lines.length ? (totalOpen ? <Note tone="warn">{totalOpen} slot(s) still open this month.</Note>
-          : !toCreate.length ? <Note tone="ok">Every slot this month is filled.</Note> : null) : null}
 
         {toCreate.length ? (
           <div className="card grid gap-3">
@@ -101,7 +108,6 @@ export default async function MonthPage({ searchParams }: { searchParams: Promis
           </div>
         ) : null}
 
-        <div><Link className="btn" href={`/print?month=${month}`}>Print this month</Link></div>
       </div>
     </>
   );
