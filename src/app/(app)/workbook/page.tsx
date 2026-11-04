@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { requireFull } from "@/lib/auth";
 import { PageHead } from "@/components/ui";
 import { getSettings, getWorkbook, setting } from "@/lib/data";
 import { WorkbookPage } from "./WorkbookPage";
@@ -6,6 +7,7 @@ import { WorkbookPage } from "./WorkbookPage";
 export const metadata: Metadata = { title: "Workbook PDF" };
 
 export default async function Page() {
+  await requireFull(); // not for a weekend-only user
   const [{ weeks, file }, settings] = await Promise.all([getWorkbook(), getSettings()]);
   return (
     <>

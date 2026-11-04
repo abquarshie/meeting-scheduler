@@ -13,7 +13,7 @@ import { monthLabel } from "@/lib/dates";
 type Opt = { value: string; label: string };
 
 export function Printing(props: {
-  scope: "meeting" | "month"; language: string; meetings: Opt[]; meeting: string; months: Opt[]; month: string;
+  weekendOnly: boolean; scope: "meeting" | "month"; language: string; meetings: Opt[]; meeting: string; months: Opt[]; month: string;
   chosen: string[]; chosenText: string; editHref: string;
   summary: null | { heading: string; talk: string; rows: { part: string; person: string; assistant: string }[] };
   slipCount: number; slipAux: number; hasS89: boolean; hasS140: boolean;
@@ -62,12 +62,14 @@ export function Printing(props: {
         </div>
       ) : null}
 
+      {props.weekendOnly ? <SlipsAndSheets {...props} /> : <>
       <nav className="tabs mb-0" aria-label="Sections">
         {[["print", "Slips & sheets"], ["export", "S-140 & CSV"], ["messages", "Messages"]].map(([k, l]) => (
           <button key={k} type="button" aria-current={tab === k ? "page" : undefined} onClick={() => setTab(k)}>{l}</button>
         ))}
       </nav>
       {tab === "print" ? <SlipsAndSheets {...props} /> : tab === "export" ? <Export {...props} /> : <Messages {...props} />}
+      </>}
     </div>
   );
 }
@@ -87,7 +89,7 @@ function SlipsAndSheets(p: Parameters<typeof Printing>[0]) {
   }
   return (
     <>
-      <div className="card grid gap-3">
+      {p.weekendOnly ? null : <div className="card grid gap-3">
         <h2 className="section-title mb-0">S-89 assignment slips</h2>
         {!p.slipCount ? <div className="empty">No student parts are assigned, so there are no slips to print.</div>
           : !p.hasS89 ? <Note tone="error">No blank S-89 has been uploaded for {p.language}. Add one under Admin → Official S-89 blank.</Note> : (
@@ -99,9 +101,9 @@ function SlipsAndSheets(p: Parameters<typeof Printing>[0]) {
               </button>
             </>
           )}
-      </div>
+      </div>}
       <div className="card grid gap-3">
-        <h2 className="section-title mb-0">Printable schedule</h2>
+        <h2 className="section-title mb-0">{p.weekendOnly ? "Weekend schedule sheet" : "Printable schedule"}</h2>
         {midweek.length > 1 ? (
           <label className="check"><input type="checkbox" checked={twoUp} onChange={(e) => setTwoUp(e.target.checked)} /> Two midweek weeks per sheet</label>
         ) : null}
@@ -116,13 +118,13 @@ function SlipsAndSheets(p: Parameters<typeof Printing>[0]) {
             <span className="msg hint">None ticked: just the meetings chosen above. Ticked months print as one continuous list under a single header.</span>
           </div>
         ) : null}
-        <div className="caption mt-0">The midweek and weekend sheets download separately.</div>
+        {p.weekendOnly ? null : <div className="caption mt-0">The midweek and weekend sheets download separately.</div>}
         <div className="btns">
-          <button type="button" className="btn" disabled={busy || !midweek.length}
+          {p.weekendOnly ? null : <button type="button" className="btn" disabled={busy || !midweek.length}
             onClick={() => act(() => download("sheet", { meetings: midweek.join(","), lang: p.language, compact: twoUp && midweek.length > 1 ? 1 : 0, stem }))}>
             <Icon name="print" /> Midweek schedule ({midweek.length})
-          </button>
-          <button type="button" className="btn" disabled={busy || !weekend.length}
+          </button>}
+          <button type="button" className={p.weekendOnly ? "btn primary" : "btn"} disabled={busy || !weekend.length}
             onClick={() => act(() => download("sheet", { meetings: weekend.join(","), lang: p.language, stem: weekendStem }))}>
             <Icon name="print" /> Weekend schedule ({weekend.length})
           </button>

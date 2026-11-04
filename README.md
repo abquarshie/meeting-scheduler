@@ -17,7 +17,10 @@ existing modules (`db.py`, `picking.py`, `sheets_pdf.py`, ...) run there unchang
    - `DATABASE_URL`: the Neon connection string (the pooled one).
    - `SESSION_SECRET`: a long random string, for example from `openssl rand -base64 32`.
    - `APP_PASSWORD`: the shared sign-in password. Or `APP_USERS` as `Name=password;Name2=password2` for one
-     password per person; names then show in the change log.
+     password per person; names then show in the change log. End someone's password with `:weekend`
+     (`Kofi=his-password:weekend`) to limit him to weekend meetings: he can create, edit, undo, delete and print
+     weekend schedules and use Public talks, and nothing else. Don't give him `APP_PASSWORD`, since the shared
+     password signs in anyone under any name with full access.
 3. Deploy.
 
 The function installs the packages in `api/requirements.txt` (not the root `requirements.txt`, which is the Streamlit

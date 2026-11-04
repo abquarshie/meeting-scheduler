@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { requireFull } from "@/lib/auth";
 import { signOutAction } from "@/actions/session";
 import { LanguagePick } from "@/components/LanguagePick";
 import { Icon } from "@/components/icons";
@@ -15,6 +16,7 @@ export const metadata: Metadata = { title: "Admin" };
 const TABS = [["data", "Data & backup"], ["settings", "Settings"], ["log", "Change log"]] as const;
 
 export default async function AdminPage({ searchParams }: { searchParams: Promise<{ tab?: string; who?: string }> }) {
+  await requireFull(); // not for a weekend-only user
   const sp = await searchParams;
   const tab = TABS.some(([k]) => k === sp.tab) ? sp.tab! : "data";
   const [settings, user] = await Promise.all([getSettings(), getUser()]);

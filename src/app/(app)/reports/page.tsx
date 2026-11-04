@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { requireFull } from "@/lib/auth";
 import { Note, PageHead } from "@/components/ui";
 import { CATEGORIES, HALL_NAMES, MAIN_HALL, ROLES } from "@/lib/constants";
 import { getPeople, getRows, suspensionText } from "@/lib/data";
@@ -12,6 +13,7 @@ const SPANS = ["3", "6", "12", "custom"] as const;
 type SP = { span?: string; from?: string; to?: string; future?: string; all?: string; cat?: string; person?: string };
 
 export default async function ReportsPage({ searchParams }: { searchParams: Promise<SP> }) {
+  await requireFull(); // not for a weekend-only user
   const [sp, people] = await Promise.all([searchParams, getPeople()]);
   const head = <PageHead title="Reports" sub="How often each person had a part, to spot anyone left out." />;
   if (!people.length) return <>{head}<Note>No participants yet.</Note></>;
