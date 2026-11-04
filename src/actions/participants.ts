@@ -1,6 +1,6 @@
 "use server";
-import { attempt, gaOn, logChange, needId, ok, Refusal, strings } from "@/lib/action";
-import { requireUser } from "@/lib/auth";
+import { attemptFull, gaOn, logChange, needId, ok, Refusal, strings } from "@/lib/action";
+import { requireFull } from "@/lib/auth";
 import { CATEGORIES, GROUPS, PRIVILEGES } from "@/lib/constants";
 import { addDays, isISODate, today } from "@/lib/dates";
 import { prisma } from "@/lib/db";
@@ -22,7 +22,7 @@ async function clean(input: PersonInput) {
 }
 
 export async function addPerson(input: PersonInput) {
-  return attempt(async (user) => {
+  return attemptFull(async (user) => {
     const p = await clean(input);
     const same = await prisma.students.count({ where: { name: { equals: p.name, mode: "insensitive" } } });
     await prisma.students.create({ data: { ...p, active: 1 } });
@@ -32,7 +32,7 @@ export async function addPerson(input: PersonInput) {
 }
 
 export async function updatePerson(id: number, input: PersonInput) {
-  return attempt(async (user) => {
+  return attemptFull(async (user) => {
     needId(id);
     const p = await clean(input);
     await prisma.$transaction(async (tx) => {
@@ -47,7 +47,7 @@ export async function updatePerson(id: number, input: PersonInput) {
 }
 
 export async function setSuspension(id: number, suspended: boolean, until: string | null) {
-  return attempt(async (user) => {
+  return attemptFull(async (user) => {
     needId(id);
     if (suspended && until && !isISODate(until)) throw new Refusal("Pick a valid end date.");
     await prisma.students.update({ where: { id }, data: { suspended: suspended ? 1 : 0, suspended_until: suspended ? until : null } });
@@ -58,7 +58,7 @@ export async function setSuspension(id: number, suspended: boolean, until: strin
 
 /** Meetings this person is already on from today (to the end date, if any): to reassign when suspending. */
 export async function upcomingFor(id: number, until: string | null) {
-  await requireUser();
+  await requireFull();
   if (!Number.isSafeInteger(id) || (until !== null && !isISODate(until))) return [];
   try {
     const rows = await prisma.schedules.findMany({
@@ -73,7 +73,7 @@ export async function upcomingFor(id: number, until: string | null) {
 }
 
 export async function addAway(id: number, start: string, end: string) {
-  return attempt(async (user) => {
+  return attemptFull(async (user) => {
     needId(id);
     if (!isISODate(start) || !isISODate(end || start)) throw new Refusal("Pick the first and last day.");
     const last = end && end >= start ? end : start;
@@ -90,7 +90,7 @@ export async function addAway(id: number, start: string, end: string) {
 }
 
 export async function clearAway(id: number) {
-  return attempt(async (user) => {
+  return attemptFull(async (user) => {
     await prisma.unavailable.deleteMany({ where: { student_id: needId(id) } });
     await logChange(user, "Away dates changed", `id ${id}: 0 day(s)`);
     return ok("Away dates cleared.");
@@ -98,7 +98,7 @@ export async function clearAway(id: number) {
 }
 
 export async function deletePerson(id: number) {
-  return attempt(async (user) => {
+  return attemptFull(async (user) => {
     needId(id);
     const used = await prisma.schedules.count({ where: { OR: [{ student_id: id }, { assistant_id: id }] } });
     if (used) throw new Refusal("This person has saved assignments. Untick Active instead so the history stays intact.");

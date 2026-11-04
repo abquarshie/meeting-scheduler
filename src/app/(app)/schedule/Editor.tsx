@@ -42,8 +42,8 @@ function sameFamily(people: Record<string, PersonInfo>, a: number | null, b: num
   return Boolean(fa) && fa === people[b]?.family;
 }
 
-export function Editor({ date, type, mode, saved }: {
-  date: string; type: string; mode: "new" | "edit"; saved: { date: string; type: string }[];
+export function Editor({ date, type, mode, saved, types = MEETING_TYPES }: {
+  date: string; type: string; mode: "new" | "edit"; saved: { date: string; type: string }[]; types?: readonly string[];
 }) {
   const router = useRouter();
   const [busy, act] = useAct();
@@ -128,7 +128,7 @@ export function Editor({ date, type, mode, saved }: {
         <div className="row2">
           <label className="field"><span>Meeting type</span>
             <select className="input" value={type} onChange={(e) => go(date, e.target.value)}>
-              {MEETING_TYPES.map((t) => <option key={t}>{t}</option>)}
+              {types.map((t) => <option key={t}>{t}</option>)}
             </select>
           </label>
           <label className="field"><span>Meeting date</span>

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { requireFull } from "@/lib/auth";
 import Link from "next/link";
 import { MarkEventWeek } from "@/components/MarkEventWeek";
 import { Icon } from "@/components/icons";
@@ -18,6 +19,7 @@ export const metadata: Metadata = { title: "Month overview" };
 type Line = { date: string; meeting: string; pct: number | null; open: number | null; aux: string; heading: string; href?: string };
 
 export default async function MonthPage({ searchParams }: { searchParams: Promise<{ m?: string }> }) {
+  await requireFull(); // not for a weekend-only user
   const [{ m }, saved, metas, settings, workbook, events] = await Promise.all([
     searchParams, getMeetingList(), getMetas(), getSettings(), getWorkbook(), getEvents(),
   ]);

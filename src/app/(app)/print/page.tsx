@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Note, PageHead } from "@/components/ui";
+import { getRole } from "@/lib/auth";
 import { LANGUAGES, MIDWEEK, WEEKEND } from "@/lib/constants";
 import { eventWeeks, getEvents, getMetas, getPeople, getRows, getSettings, key, meetingRows, savedMeetings, setting, templateNames } from "@/lib/data";
 import { fmtDate, monthLabel, relativeWeek, today, weekLabel, weekStart } from "@/lib/dates";
@@ -18,12 +19,16 @@ const partLabel = (r: { part_name: string | null; part_no: number | null; minute
 };
 
 export default async function PrintPage({ searchParams }: { searchParams: Promise<{ meeting?: string; month?: string }> }) {
-  const [sp, rows, metas, people, settings, templates, events] = await Promise.all([
-    searchParams, getRows(), getMetas(), getPeople(), getSettings(), templateNames(), getEvents(),
+  const [sp, allRows, metas, people, settings, templates, events, role] = await Promise.all([
+    searchParams, getRows(), getMetas(), getPeople(), getSettings(), templateNames(), getEvents(), getRole(),
   ]);
+  // a weekend-only user prints the weekend schedule sheet and nothing else
+  const weekendOnly = role === "weekend";
+  const rows = weekendOnly ? allRows.filter((r) => r.meeting_type === WEEKEND) : allRows;
   const meetings = savedMeetings(rows);
+  const title = weekendOnly ? "Weekend printing" : "Slips and printing";
   if (!meetings.length) {
-    return <><PageHead title="Slips and printing" /><Note>No schedules have been created yet.</Note></>;
+    return <><PageHead title={title} /><Note>No {weekendOnly ? "weekend " : ""}schedules have been created yet.</Note></>;
   }
   const language = (LANGUAGES as readonly string[]).includes(setting(settings, "slip_language")) ? setting(settings, "slip_language") : "English";
   const months = [...new Set(meetings.map((m) => m.date.slice(0, 7)))].sort().reverse();
@@ -70,9 +75,10 @@ export default async function PrintPage({ searchParams }: { searchParams: Promis
 
   return (
     <>
-      <PageHead title="Slips and printing" sub="Slips, schedule sheets, the S-140, the CSV and monthly messages, for one meeting or a whole month." />
+      <PageHead title={title} sub={weekendOnly ? "The weekend schedule sheet, for one meeting or a whole month."
+        : "Slips, schedule sheets, the S-140, the CSV and monthly messages, for one meeting or a whole month."} />
       <Printing
-        scope={scope} language={language}
+        weekendOnly={weekendOnly} scope={scope} language={language}
         meetings={meetings.map((m) => ({ value: key(m.date, m.type), label: `${fmtDate(m.date)} · ${m.type}` }))}
         meeting={key(meeting.date, meeting.type)} months={allMonths} month={month}
         chosen={chosen.map((m) => key(m.date, m.type))} chosenText={chosen.map((m) => `${fmtDate(m.date)} · ${m.type}`).join(", ")}

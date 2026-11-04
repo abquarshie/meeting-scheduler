@@ -1,6 +1,6 @@
 import "server-only";
 import { revalidatePath } from "next/cache";
-import { requireUser } from "./auth";
+import { requireUser, roleOf } from "./auth";
 import { prisma, type Tx } from "./db";
 
 export type Result = { ok: true; message: string } | { ok: false; error: string };
@@ -23,10 +23,13 @@ export function ok(message: string): Result {
   return { ok: true, message };
 }
 
-/** Runs a server action's work as the signed-in person, turning a refusal or a database error into a message. */
-export async function attempt(work: (user: string) => Promise<Result>): Promise<Result> {
+/** Runs a server action's work as the signed-in person, turning a refusal or a database error into a message.
+ *  attemptFull is the same for work a weekend-only user can't do (participants and app settings). */
+export async function attempt(work: (user: string) => Promise<Result>, full = false): Promise<Result> {
   try {
-    return await work(await requireUser());
+    const user = await requireUser();
+    if (full && roleOf(user) === "weekend") throw new Refusal("Your sign-in covers the weekend meeting only.");
+    return await work(user);
   } catch (e) {
     if (e instanceof Refusal) return { ok: false, error: e.message };
     const digest = (e as { digest?: string })?.digest;
@@ -34,6 +37,10 @@ export async function attempt(work: (user: string) => Promise<Result>): Promise<
     console.error(e);
     return { ok: false, error: "That didn't save. Please try again; if it keeps happening, the database may be unreachable." };
   }
+}
+
+export function attemptFull(work: (user: string) => Promise<Result>): Promise<Result> {
+  return attempt(work, true);
 }
 
 /** A line in the change log, in the same table and format as db.log_change. */

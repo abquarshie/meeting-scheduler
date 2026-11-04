@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { Icon } from "@/components/icons";
 import { Bar, Stat } from "@/components/ui";
-import { getUser } from "@/lib/auth";
-import { BACKUP_REMINDER_DAYS, LANGUAGES, MIDWEEK, SECTION_COLORS, SECTION_TITLES } from "@/lib/constants";
+import { getUser, roleOf } from "@/lib/auth";
+import { BACKUP_REMINDER_DAYS, LANGUAGES, MIDWEEK, SECTION_COLORS, SECTION_TITLES, WEEKEND } from "@/lib/constants";
 import {
   awayBetween, fillCounts, getEvents, getMetas, getPeople, getRows, getSettings, getWorkbook, isSuspended, key,
   meetingRows, savedMeetings, setting, templateNames, workbookStatus,
@@ -14,6 +14,7 @@ import { talkText } from "@/lib/text";
 const editHref = (date: string, type: string) =>
   `/schedule?${new URLSearchParams({ date, type, mode: "edit" }).toString()}`;
 const createHref = (date: string) => `/schedule?${new URLSearchParams({ date, type: MIDWEEK }).toString()}`;
+const weekendHref = `/schedule?${new URLSearchParams({ type: WEEKEND }).toString()}`;
 
 function greeting(name: string | null) {
   const hour = new Date().getUTCHours(); // Ghana is on UTC
@@ -29,16 +30,21 @@ export default async function Home() {
     templateNames(), prisma.schedules.findFirst({ select: { id: true } }),
   ]);
 
+  // a weekend-only user sees his meetings only, and none of the setup or backup reminders (those are the admin's)
+  const weekend = user !== null && roleOf(user) === "weekend";
+
   // what a new installation still needs before it can print
   const gaps: [string, string][] = [];
-  if (!people.length) gaps.push(["Add your participants", "/participants"]);
-  if (!setting(settings, "congregation")) gaps.push(["Set the congregation name; it heads every schedule sheet", "/admin?tab=settings"]);
-  if (!workbook.weeks.length) gaps.push(["Upload the meeting workbook so weeks get their real parts", "/workbook"]);
-  if (!LANGUAGES.some((l) => templates.has(`s89_${l}`))) gaps.push(["Upload the blank S-89; slips are printed on it", "/admin"]);
-  if (!LANGUAGES.some((l) => templates.has(`s140_${l}`))) gaps.push(["Upload the blank S-140 template for the monthly export", "/admin"]);
+  if (!weekend) {
+    if (!people.length) gaps.push(["Add your participants", "/participants"]);
+    if (!setting(settings, "congregation")) gaps.push(["Set the congregation name; it heads every schedule sheet", "/admin?tab=settings"]);
+    if (!workbook.weeks.length) gaps.push(["Upload the meeting workbook so weeks get their real parts", "/workbook"]);
+    if (!LANGUAGES.some((l) => templates.has(`s89_${l}`))) gaps.push(["Upload the blank S-89; slips are printed on it", "/admin"]);
+    if (!LANGUAGES.some((l) => templates.has(`s140_${l}`))) gaps.push(["Upload the blank S-140 template for the monthly export", "/admin"]);
+  }
 
-  const upcoming = savedMeetings(rows).filter((m) => m.date >= now).sort((a, b) => a.date.localeCompare(b.date) || a.type.localeCompare(b.type));
-  const toCreate = workbookStatus(workbook.weeks, rows, settings, events)
+  const upcoming = savedMeetings(rows).filter((m) => m.date >= now && (!weekend || m.type === WEEKEND)).sort((a, b) => a.date.localeCompare(b.date) || a.type.localeCompare(b.type));
+  const toCreate = weekend ? [] : workbookStatus(workbook.weeks, rows, settings, events)
     .filter((w) => w.status === "to create" && w.meeting >= now).sort((a, b) => a.meeting.localeCompare(b.meeting));
   const gap = toCreate[0];
 
@@ -54,7 +60,7 @@ export default async function Home() {
   // everything that wants a hand, newest worry first: setup gaps, a week not created, the backup
   const attention: { text: string; href: string; tone: "warn" | "bad" | "accent"; icon: "warning" | "calendar" | "shield" | "add" }[] = [];
   if (next && gap) attention.push({ text: `${gap.label} (${longDate(gap.meeting)}) has no schedule yet`, href: createHref(gap.meeting), tone: "warn", icon: "calendar" });
-  if (anySaved && (backupDays === null || backupDays >= BACKUP_REMINDER_DAYS)) {
+  if (!weekend && anySaved && (backupDays === null || backupDays >= BACKUP_REMINDER_DAYS)) {
     attention.push({ text: backupDays === null ? "No backup downloaded yet. The database is the only copy of your schedules." : `Last backup was ${backupDays} days ago`, href: "/admin", tone: "bad", icon: "shield" });
   }
   for (const [what, href] of gaps) attention.push({ text: what, href, tone: "accent", icon: "add" });
@@ -67,7 +73,13 @@ export default async function Home() {
         <h1 className="page-title mt-1">{greeting(user)}</h1>
       </div>
       <div className="stack">
-        {!people.length ? (
+        {!people.length && weekend ? (
+          <div className="hero">
+            <div className="text-sm text-white/70">Getting started</div>
+            <h2 className="mt-1 mb-2 text-2xl font-semibold tracking-tight">No participants yet</h2>
+            <p className="mt-0 mb-0 max-w-lg text-sm text-white/75">Weekend schedules are filled from the participants list, which the app&apos;s admin keeps.</p>
+          </div>
+        ) : !people.length ? (
           <div className="hero">
             <div className="text-sm text-white/70">Getting started</div>
             <h2 className="mt-1 mb-2 text-2xl font-semibold tracking-tight">Add your participants first</h2>
@@ -109,12 +121,19 @@ export default async function Home() {
                 </div>
                 <div className="btns md:justify-end">
                   <Link className="btn primary" href={editHref(next.date, next.type)}><Icon name="edit" /> {open ? "Fill open slots" : "Edit schedule"}</Link>
-                  <Link className="btn" href={`/print?meeting=${encodeURIComponent(key(next.date, next.type))}`}><Icon name="print" /> Print slips</Link>
+                  <Link className="btn" href={`/print?meeting=${encodeURIComponent(key(next.date, next.type))}`}><Icon name="print" /> {weekend ? "Print sheet" : "Print slips"}</Link>
                 </div>
               </div>
             </div>
           );
-        })() : (
+        })() : weekend ? (
+          <div className="hero">
+            <div className="text-sm text-white/70">No weekend meetings coming up</div>
+            <h2 className="mt-1 mb-1 text-2xl font-semibold tracking-tight md:text-3xl">Create the next weekend schedule</h2>
+            <p className="mt-0 mb-5 text-sm text-white/75">Pick the date, then the chairman, speaker, reader and prayers.</p>
+            <div className="btns"><Link className="btn primary" href={weekendHref}><Icon name="add" /> Create a weekend schedule</Link></div>
+          </div>
+        ) : (
           <div className="hero">
             <div className="text-sm text-white/70">{gap ? "Next workbook week" : "No meetings yet"}</div>
             <h2 className="mt-1 mb-1 text-2xl font-semibold tracking-tight md:text-3xl">{gap ? longDate(gap.meeting) : "Create your first schedule"}</h2>
@@ -155,7 +174,7 @@ export default async function Home() {
 
           {upcoming.length > 1 ? (
             <div className="card">
-              <div className="card-head"><h2>Coming up</h2><Link className="text-sm font-medium no-underline" href="/month">Month overview</Link></div>
+              <div className="card-head"><h2>Coming up</h2>{weekend ? null : <Link className="text-sm font-medium no-underline" href="/month">Month overview</Link>}</div>
               <div className="rows">
                 {upcoming.slice(1, 9).map((m) => {
                   const meta = metas.get(key(m.date, m.type));

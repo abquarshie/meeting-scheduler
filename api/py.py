@@ -126,6 +126,32 @@ def signed_in_name(cookie_header):
     return str(payload.get("n") or "")
 
 
+def weekend_only(name):
+    """True when APP_USERS gives this name the weekend-only role ("Name=password:weekend").
+    Mirrors src/lib/auth.ts: the role is read from the environment on every request."""
+    for pair in os.environ.get("APP_USERS", "").split(";"):
+        key, sep, value = pair.partition("=")
+        if sep and key and nfc(key) == nfc(name or ""):
+            return value.endswith(":weekend")
+    return False
+
+
+# Weekend-only users may reach these, and only for weekend meetings where a meeting is named
+WEEKEND_OPS = {"editor", "check", "suggest", "save", "undo", "delete"}
+WEEKEND_FREE = {"invitation", "outgoing_letter", "checklist", "checklist_pdf", "ping"}
+
+
+def _weekend_allowed(op, q, payload):
+    if op in WEEKEND_FREE:
+        return True
+    if op in WEEKEND_OPS:
+        return (payload if payload is not None else q).get("type") == WEEKEND
+    if op == "sheet":
+        meetings = _meetings_param(q)
+        return bool(meetings) and all(t == WEEKEND for _, t in meetings)
+    return False
+
+
 # ----------------------------------------------------------------- helpers
 def _int(value):
     if value is None or value == "":
@@ -778,6 +804,11 @@ def handle(method, path, headers, body):
         return 401, "application/json", b'{"error": "Please sign in again."}', {}
     st_shim.new_request(name)
     try:
+        payload = None
+        if method == "POST" and op in JSON_OPS and op not in BODY_OPS:
+            payload = json.loads((body or b"{}").decode("utf-8"))
+        if weekend_only(name) and not _weekend_allowed(op, q, payload):
+            raise Refused("Your sign-in covers the weekend meeting only.", 403)
         if method == "GET" and op in DOCS:
             data, ctype, file_name = DOCS[op](q)
             disposition = "inline" if ctype == PNG and q.get("inline") == "1" else "attachment"
@@ -789,7 +820,6 @@ def handle(method, path, headers, body):
         elif method == "POST" and op in BODY_OPS:
             result = BODY_OPS[op](q, body)
         elif method == "POST" and op in JSON_OPS:
-            payload = json.loads((body or b"{}").decode("utf-8"))
             result = JSON_OPS[op](payload)
         else:
             raise Refused("Unknown request.", 404)

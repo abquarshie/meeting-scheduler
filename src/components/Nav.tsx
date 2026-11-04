@@ -38,7 +38,7 @@ export function TabBar({ items }: { items: NavItem[] }) {
           <Icon name={i.icon} />{i.short ?? i.label}
         </Link>
       ))}
-      <details className="relative flex flex-1">
+      {more.length ? <details className="relative flex flex-1">
         <summary aria-current={inMore ? "page" : undefined}
           className="flex flex-1 cursor-pointer list-none flex-col items-center gap-0.5 rounded-lg py-1 text-[11px] font-medium text-faint aria-[current=page]:font-semibold aria-[current=page]:text-brand-ink [&_svg]:size-6">
           <Icon name="settings" />More
@@ -52,7 +52,7 @@ export function TabBar({ items }: { items: NavItem[] }) {
             </Link>
           ))}
         </div>
-      </details>
+      </details> : null}
     </nav>
   );
 }
