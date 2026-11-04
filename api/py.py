@@ -639,7 +639,7 @@ def doc_s140(q):
         raise Refused(f"No {language} S-140 template. Upload the blank .docx under Admin.")
     df = db.get_schedules()
     meetings = sorted(m for m in db.saved_meetings(df) if m[1] == MIDWEEK and m[0].startswith(month))
-    data, skipped = build_s140_data(meetings, df, db.get_setting("congregation"))
+    data, skipped = build_s140_data(meetings, df, db.get_setting("congregation"), [month], language)
     data["meeting_name"] = t.get("midweek_meeting", "Midweek Meeting")
     if not data["weeks"]:
         raise Refused("Nothing to fill for that month"
