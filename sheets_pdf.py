@@ -421,11 +421,40 @@ def _midweek_pdf(meetings, schedules_df, lang=None, compact=False):
             out.append(current)
         return out
 
-    for page_number, page_meetings in enumerate(sheets(list(meetings))):
+    event_style = ParagraphStyle("E", parent=st_["section"], fontSize=13, leading=17,
+                                 textColor=ACCENT)
+    midweek_name = lang.get("midweek_meeting", MIDWEEK)
+    def with_events(groups, events):
+        """An assembly or convention week is a line, not a sheet: it rides on
+        the sheet before it (or the first one, when it comes first)."""
+        if not groups:
+            return [events] if events else []
+        for day, kind in events:
+            target = next((g for g in reversed(groups) if g[0][0] < day), groups[0])
+            target.append((day, kind))
+            target.sort()
+        return groups
+
+    everything = with_event_days(meetings, MIDWEEK)
+    held = [m for m in everything if not m[1].startswith(EVENT)]
+    events = [m for m in everything if m[1].startswith(EVENT)]
+    for page_number, page_meetings in enumerate(with_events(sheets(held), events)):
         if page_number:
             story.append(PageBreak())
         banner_shown = None      # each sheet is headed by the meeting name
         for meeting_date, meeting_type in page_meetings:
+            if meeting_type.startswith(EVENT):
+                # an assembly or convention week: its date and label in its place
+                block = []
+                if midweek_name != banner_shown:
+                    block.append(_banner(midweek_name, congregation, width, st_))
+                    banner_shown = midweek_name
+                block += [Paragraph(xml_escape(fmt_date(meeting_date)), st_["when"]),
+                          Paragraph(xml_escape(event_text(meeting_type[len(EVENT):], name)),
+                                    event_style),
+                          Spacer(1, 10 if compact else 18)]
+                story.append(KeepTogether(block))
+                continue
             rows = meeting_rows(schedules_df, meeting_date, meeting_type)
             if rows.empty:
                 continue
@@ -525,19 +554,32 @@ def weekend_schedule_pdf(meetings, schedules_df, lang=None):
 EVENT = "event:"     # the meeting type given to an assembly/convention weekend
 
 
-def with_event_weekends(meetings):
-    """The weekend meetings plus, in date order, the weekend of every
-    assembly or convention week falling in the same months — as
-    (date, "event:assembly") — so the week reads as its label rather than
-    simply missing. A meeting saved inside such a week is left out."""
-    meetings = [m for m in meetings if not event_for(m[0])]
-    months = {d[:7] for d, _ in meetings}
-    offset = timedelta(days=meeting_day(WEEKEND))
+def event_days(months, meeting_type):
+    """[(date, kind)] for the day this meeting would have fallen in every
+    assembly or convention week, within these months ("YYYY-MM")."""
+    offset = timedelta(days=meeting_day(meeting_type))
+    out = []
     for monday, kind in event_weeks().items():
         day = (datetime.strptime(monday, "%Y-%m-%d").date() + offset).isoformat()
         if day[:7] in months:
-            meetings.append((day, EVENT + kind))
+            out.append((day, kind))
+    return sorted(out)
+
+
+def with_event_days(meetings, meeting_type):
+    """The meetings plus, in date order, this meeting's day in every
+    assembly or convention week falling in the same months — as
+    (date, "event:assembly") — so the week reads as its label rather than
+    simply missing. A meeting saved inside such a week is left out. The
+    weekend and the midweek sheets both show it."""
+    meetings = [m for m in meetings if not event_for(m[0])]
+    months = {d[:7] for d, _ in meetings}
+    meetings += [(day, EVENT + kind) for day, kind in event_days(months, meeting_type)]
     return sorted(meetings)
+
+
+def with_event_weekends(meetings):
+    return with_event_days(meetings, WEEKEND)
 
 
 def _weekend_table(meetings, schedules_df, words, st_, width, language="English"):
@@ -639,10 +681,21 @@ def _weekend_table(meetings, schedules_df, words, st_, width, language="English"
     return table
 
 
-def build_s140_data(meetings, schedules_df, congregation):
-    """Shape saved midweek meetings like the S-140 filler's data.json."""
+def build_s140_data(meetings, schedules_df, congregation, months=None, language="English"):
+    """Shape saved midweek meetings like the S-140 filler's data.json.
+
+    With months ("YYYY-MM"), every assembly or convention week in them is
+    added in its place as a week holding just its date and label."""
     weeks, skipped = [], []
-    for meeting_date, meeting_type in sorted(meetings):
+    events = dict(event_days(set(months), MIDWEEK)) if months else {}
+    meetings = sorted([m for m in meetings if not (events and event_for(m[0]))]
+                      + [(d, EVENT + k) for d, k in events.items()])
+    for meeting_date, meeting_type in meetings:
+        if meeting_type.startswith(EVENT):
+            weeks.append({"heading": fmt_date(meeting_date).upper(),
+                          "event": event_text(meeting_type[len(EVENT):], language),
+                          "aux": False})
+            continue
         rows = meeting_rows(schedules_df, meeting_date, meeting_type)
         meta = get_meeting_meta(meeting_date, meeting_type)
         week = {
@@ -699,6 +752,8 @@ def build_s140_data(meetings, schedules_df, congregation):
         week["aux"] = bool(aux_week)
         week["aux_group"] = clean_value(meta.get("aux_group"))
         weeks.append(week)
+    if all("event" in w for w in weeks):
+        weeks = []          # nothing saved: an S-140 of only labels isn't a schedule
     any_aux = any(w["aux"] for w in weeks)
     # "aux" keeps the auxiliary-classroom column (its caption and width)
     return {"congregation": congregation, "weeks": weeks, "aux": any_aux}, skipped

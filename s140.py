@@ -210,7 +210,7 @@ def fill_s140(template_bytes, data):
         b = date_rows[wi]
         blk = {k: trs[b + v] for k, v in OFF.items()}
         _S(trs[b], 0, w.get("heading", ""))
-        _S(trs[b], 2, w.get("chairman", ""))
+        _S(trs[b], 2, w.get("event") or w.get("chairman", ""))
 
         # The meeting and congregation head the whole document, once, on the
         # blank row above the first week's date. The date cell's formatting is
@@ -226,6 +226,14 @@ def fill_s140(template_bytes, data):
                 _set_styled(top[1], cong or "", date_props)
             elif top:
                 _set_styled(top[0], meeting_name, date_props)
+
+        if w.get("event"):
+            # an assembly or convention week: the date row holds its label, and
+            # the rest of the week's block goes
+            if len(_cells(trs[b])) >= 2:
+                _S(trs[b], 1, "")
+            drop += trs[b + 1:b + BLOCK_LEN]
+            continue
 
         # The counselor line. On the published blank this row is
         # [blank | "Asa 2 Ŋaawolɔ:" | name], so the name goes in the third cell

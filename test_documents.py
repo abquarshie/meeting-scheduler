@@ -996,3 +996,32 @@ def test_an_assembly_weekend_prints_its_label_and_the_week_message_too(core, peo
                     "Convention Week")
     assert core.week_overview_text(rows, "2026-10-14", "Ga").endswith(
         "\n\nKpokpaa wulu Nɔ Kpee Otsi")
+
+
+def test_an_assembly_week_shows_on_the_midweek_sheet_and_the_s140(core, people, s140_template):
+    """An assembly or convention week is on the midweek printouts too, in its
+    place, rather than simply missing."""
+    _full_week(core, people)                                  # Wed 16 September
+    core.mark_event_week("2026-09-23", "assembly")            # the week after
+    rows = core.get_schedules()
+    text = _text(core.generate_schedule_pdf([("2026-09-16", core.MIDWEEK)], rows))
+    flat = text.replace("\n", " ")
+    assert "Assembly Week" in flat
+    assert flat.index("16 September") < flat.index("23 September") < flat.index("Assembly Week")
+    ga = _text(core.generate_schedule_pdf([("2026-09-16", core.MIDWEEK)], rows,
+                                          core.TRANSLATIONS["Ga"])).replace("\n", " ")
+    assert "Kpokpaa Nɔ Kpee Otsi" in ga and "Assembly Week" not in ga
+
+    data, skipped = core.build_s140_data([("2026-09-16", core.MIDWEEK)], rows, "TEST CONG",
+                                         ["2026-09"], "English")
+    assert not skipped and [w.get("event") for w in data["weeks"]] == [None, "Assembly Week"]
+    doc = docx.Document(io.BytesIO(core.fill_s140(s140_template, data)))
+    cells = [c.text for r in doc.tables[0].rows for c in r.cells]
+    assert "Assembly Week" in cells
+    assert "Efua Osei/Ama Owusu" in cells                     # the saved week is whole
+    # the assembly week is just its date row: one week's parts, not two
+    assert sum("Bible Reading" in c for c in cells) == 1
+
+    # a month with only the assembly week has nothing to fill
+    data, _ = core.build_s140_data([], rows, "TEST CONG", ["2026-09"], "English")
+    assert data["weeks"] == []
