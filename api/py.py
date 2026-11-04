@@ -18,6 +18,7 @@ from http.server import BaseHTTPRequestHandler
 from http.cookies import SimpleCookie
 import json
 import os
+import re
 from pathlib import Path
 import sys
 import time
@@ -129,10 +130,13 @@ def signed_in_name(cookie_header):
 def weekend_only(name):
     """True when APP_USERS gives this name the weekend-only role ("Name=password:weekend").
     Mirrors src/lib/auth.ts: the role is read from the environment on every request."""
-    for pair in os.environ.get("APP_USERS", "").split(";"):
+    def unquote(text):
+        return text.strip().strip("\"'").strip()
+
+    for pair in unquote(os.environ.get("APP_USERS", "")).split(";"):
         key, sep, value = pair.partition("=")
-        if sep and key and nfc(key) == nfc(name or ""):
-            return value.endswith(":weekend")
+        if sep and unquote(key) and nfc(unquote(key)).lower() == nfc(name or "").lower():
+            return re.search(r"\s*:\s*weekend$", unquote(value), re.IGNORECASE) is not None
     return False
 
 

@@ -13,24 +13,29 @@ import { nfc } from "./text";
 // The name is what the change log records.
 
 export type Role = "full" | "weekend";
-const WEEKEND_SUFFIX = ":weekend";
+const WEEKEND_SUFFIX = /\s*:\s*weekend$/i;
+
+// names match whatever the capitals ("bernard" signs in as the "Bernard" in APP_USERS)
+const nameKey = (name: string) => nfc(name).toLowerCase();
+// stray spaces and quotes pasted into the Vercel value are ignored
+const unquote = (text: string) => text.trim().replace(/^["']+|["']+$/g, "").trim();
 
 function users(): Map<string, { password: string; role: Role }> {
   const out = new Map<string, { password: string; role: Role }>();
-  for (const pair of (process.env.APP_USERS ?? "").split(";")) {
+  for (const pair of unquote(process.env.APP_USERS ?? "").split(";")) {
     const at = pair.indexOf("=");
     if (at <= 0) continue;
-    const value = pair.slice(at + 1);
-    const weekend = value.endsWith(WEEKEND_SUFFIX);
-    out.set(nfc(pair.slice(0, at)), {
-      password: weekend ? value.slice(0, -WEEKEND_SUFFIX.length) : value, role: weekend ? "weekend" : "full",
+    const value = unquote(pair.slice(at + 1));
+    const weekend = WEEKEND_SUFFIX.test(value);
+    out.set(nameKey(unquote(pair.slice(0, at))), {
+      password: value.replace(WEEKEND_SUFFIX, "").trim(), role: weekend ? "weekend" : "full",
     });
   }
   return out;
 }
 
 export function roleOf(name: string): Role {
-  return users().get(nfc(name))?.role ?? "full";
+  return users().get(nameKey(name))?.role ?? "full";
 }
 
 export function signInConfigured(): boolean {
@@ -47,8 +52,8 @@ export function checkSignIn(nameIn: string, password: string): string | null {
   const name = nfc(nameIn);
   if (!name) return "Enter your name so changes can be credited to you.";
   if (!signInConfigured()) return "Sign-in isn't set up yet: add APP_PASSWORD to the app's environment variables.";
-  const own = users().get(name);
-  const ok = own !== undefined ? same(password, own.password) : same(password, process.env.APP_PASSWORD);
+  const own = users().get(nameKey(name));
+  const ok = own !== undefined ? same(password.trim(), own.password) : same(password, process.env.APP_PASSWORD);
   return ok ? null : "Wrong name or password.";
 }
 
