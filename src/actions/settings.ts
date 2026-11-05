@@ -75,7 +75,7 @@ export async function removeTemplate(name: string) {
 
 /** The meeting times the calendar feeds use, e.g. "18:30" or "6:30pm". Empty makes them all-day entries. */
 export async function saveCalendarTimes(midweek: string, weekend: string) {
-  return attempt(async (user) => {
+  return attemptFull(async (user) => {
     const m = nfc(midweek).slice(0, 20), w = nfc(weekend).slice(0, 20);
     for (const [label, t] of [["midweek", m], ["weekend", w]] as const) {
       if (t && !parseTime(t)) throw new Refusal(`Write the ${label} time like 18:30 or 6:30pm.`);

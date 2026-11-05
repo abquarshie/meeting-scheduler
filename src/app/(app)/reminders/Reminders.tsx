@@ -33,6 +33,7 @@ export function ReminderList({ cards }: { cards: Card[] }) {
               <Icon name="check" />{c.phone ? "WhatsApp" : "WhatsApp (pick the chat)"}
             </a>
             <button type="button" className="btn" onClick={() => copy(c.text, "Message")}><Icon name="copy" />Copy</button>
+            {c.cal ? <>
             <button type="button" className="btn" onClick={() => copy(`${window.location.origin}${c.cal}`, "Calendar link")}>
               <Icon name="calendar" />Calendar link
             </button>
@@ -40,6 +41,7 @@ export function ReminderList({ cards }: { cards: Card[] }) {
             <button type="button" className="btn" onClick={() => copy(`webcal://${window.location.host}${c.cal}`, "iPhone calendar link")}>
               <Icon name="calendar" />iPhone link
             </button>
+            </> : null}
           </div>
         </div>
       ))}
