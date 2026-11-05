@@ -36,6 +36,10 @@ export function ReminderList({ cards }: { cards: Card[] }) {
             <button type="button" className="btn" onClick={() => copy(`${window.location.origin}${c.cal}`, "Calendar link")}>
               <Icon name="calendar" />Calendar link
             </button>
+            {/* webcal:// makes an iPhone offer "Subscribe" instead of adding the parts once */}
+            <button type="button" className="btn" onClick={() => copy(`webcal://${window.location.host}${c.cal}`, "iPhone calendar link")}>
+              <Icon name="calendar" />iPhone link
+            </button>
           </div>
         </div>
       ))}
