@@ -2,7 +2,6 @@ import "server-only";
 import { EVENT_KINDS, EVENT_TEXT, GROUPS, MIDWEEK, PRIVILEGES, SAME_ROLE_GAP_DAYS, WEEKDAYS } from "./constants";
 import { addDays, fmtDate, today, weekStart } from "./dates";
 import { Prisma } from "@/generated/prisma/client";
-import { getPhones } from "./contacts";
 import { prisma } from "./db";
 import { nfc } from "./text";
 
@@ -10,7 +9,7 @@ import { nfc } from "./text";
 
 export type Person = {
   id: number; name: string; gender: string; privileges: string[]; groups: string[]; family: string | null;
-  active: boolean; suspended: boolean; suspendedUntil: string | null; phone: string;
+  active: boolean; suspended: boolean; suspendedUntil: string | null;
 };
 
 export function parsePrivileges(value: string | null): string[] {
@@ -23,13 +22,13 @@ export function parsePrivileges(value: string | null): string[] {
 }
 
 export async function getPeople(): Promise<Person[]> {
-  const [rows, phones] = await Promise.all([prisma.students.findMany(), getPhones()]);
+  const rows = await prisma.students.findMany();
   return rows
     .map((r) => ({
       id: r.id, name: r.name, gender: r.gender ?? "", privileges: parsePrivileges(r.privileges),
       groups: (r.groups ?? "").split(",").map((g) => g.trim()).filter((g) => (GROUPS as readonly string[]).includes(g)),
       family: nfc(r.family) || null, active: r.active === 1, suspended: Boolean(r.suspended),
-      suspendedUntil: r.suspended_until || null, phone: phones[String(r.id)] ?? "",
+      suspendedUntil: r.suspended_until || null,
     }))
     .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
 }

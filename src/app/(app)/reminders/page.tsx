@@ -1,11 +1,9 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { Empty, PageHead, Tabs } from "@/components/ui";
 import { getUser, roleOf } from "@/lib/auth";
 import { calPath } from "@/lib/calLink";
 import { WEEKEND } from "@/lib/constants";
-import { getPeople, getRows, getSettings, setting } from "@/lib/data";
-import { waNumber } from "@/lib/contacts";
+import { getRows, getSettings, setting } from "@/lib/data";
 import { addDays, longDate, today } from "@/lib/dates";
 import { reminderText, remindersFrom } from "@/lib/reminders";
 import { CalendarTimes, ReminderList, type Card } from "./Reminders";
@@ -17,35 +15,26 @@ export default async function RemindersPage({ searchParams }: { searchParams: Pr
   const sp = await searchParams;
   const days = sp.days === "14" ? 14 : 7;
   const now = today();
-  const [user, rows, people, settings] = await Promise.all([
-    getUser(), getRows({ from: now, to: addDays(now, days - 1) }), getPeople(), getSettings(),
+  const [user, rows, settings] = await Promise.all([
+    getUser(), getRows({ from: now, to: addDays(now, days - 1) }), getSettings(),
   ]);
   const weekendOnly = user !== null && roleOf(user) === "weekend";
-  const phone = new Map(people.map((p) => [p.id, p.phone]));
   const congregation = setting(settings, "congregation");
   const list = remindersFrom(weekendOnly ? rows.filter((r) => r.meeting_type === WEEKEND) : rows);
   const cards: Card[] = list.map((r) => {
     const text = reminderText(r, congregation);
-    const ph = phone.get(r.id) ?? "";
     return {
-      id: r.id, name: r.name, phone: ph, text, cal: weekendOnly ? "" : calPath(r.id), // calendar links are for full sign-ins only
-      wa: `https://wa.me/${waNumber(ph)}?text=${encodeURIComponent(text)}`,
+      id: r.id, name: r.name, text, cal: weekendOnly ? "" : calPath(r.id), // calendar links are for full sign-ins only
+      wa: `https://wa.me/?text=${encodeURIComponent(text)}`,
       lines: r.duties.map((d) => `${longDate(d.date)}: ${d.assisting ? `assisting ${d.with ?? ""} with ` : ""}${d.part}`),
     };
   });
-  const noNumber = cards.filter((c) => !waNumber(c.phone)).length;
 
   return (
     <>
       <PageHead title="Reminders" sub={`Everyone with a part coming up, with a ready WhatsApp message${weekendOnly ? "" : " and a calendar link for their phone"}.`} />
       <Tabs current={`/reminders?days=${days}`} tabs={SPANS.map(([d, label]) => ({ href: `/reminders?days=${d}`, label }))} />
       <div className="stack">
-        {noNumber ? (
-          <p className="m-0 text-sm text-muted">
-            {noNumber} of {cards.length} have no WhatsApp number saved, so WhatsApp asks you to pick the chat.{" "}
-            {weekendOnly ? null : <>Add numbers under <Link href="/participants?tab=edit">Participants</Link>.</>}
-          </p>
-        ) : null}
         {cards.length ? <ReminderList cards={cards} /> : <Empty>No one has a part in the next {days} days.</Empty>}
         {weekendOnly ? null : (
         <details className="card">

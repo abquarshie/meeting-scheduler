@@ -5,7 +5,7 @@ import { Icon } from "@/components/icons";
 import { useToast } from "@/components/Toaster";
 import { useAct } from "@/components/useAct";
 
-export type Card = { id: number; name: string; phone: string; wa: string; text: string; lines: string[]; cal: string };
+export type Card = { id: number; name: string; wa: string; text: string; lines: string[]; cal: string };
 
 export function ReminderList({ cards }: { cards: Card[] }) {
   const toast = useToast();
@@ -24,13 +24,12 @@ export function ReminderList({ cards }: { cards: Card[] }) {
         <div key={c.id} className={`card ${sent.has(c.id) ? "opacity-60" : ""}`}>
           <div className="card-head">
             <h2>{c.name}</h2>
-            <span className="text-xs text-muted">{c.phone || "no number saved"}</span>
           </div>
           <ul className="mt-0 mb-3 grid gap-1 pl-4 text-sm">{c.lines.map((l, i) => <li key={i}>{l}</li>)}</ul>
           <div className="flex flex-wrap gap-2">
             <a className="btn primary" href={c.wa} target="_blank" rel="noopener noreferrer"
               onClick={() => setSent((s) => new Set(s).add(c.id))}>
-              <Icon name="check" />{c.phone ? "WhatsApp" : "WhatsApp (pick the chat)"}
+              <Icon name="check" />WhatsApp
             </a>
             <button type="button" className="btn" onClick={() => copy(c.text, "Message")}><Icon name="copy" />Copy</button>
             {c.cal ? <>
