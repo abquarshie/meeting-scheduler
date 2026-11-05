@@ -6,14 +6,33 @@ import { longDate } from "./dates";
 export type PartRow = {
   id: number; meeting_date: string; meeting_type: string; part_name: string | null; part_no: number | null;
   student_id: number | null; assistant_id: number | null; person: string | null; assistant: string | null;
-  hall: string; visitor: string | null;
+  hall: string; visitor: string | null; role?: string | null; talk_title?: string | null;
 };
 
 export type Duty = { rowId: number; date: string; type: string; part: string; hall: string; with: string | null; assisting: boolean };
 export type Reminder = { id: number; name: string; duties: Duty[] };
 
 const meetingWord = (type: string) => (type === MIDWEEK ? "midweek meeting" : "weekend meeting");
-const partName = (r: PartRow) => (r.part_name ?? "").trim() || "a part";
+// Parts that carry a theme, and the name to show before it: "Public Talk - Why Fear the True God".
+const THEMED: Record<string, string> = {
+  "Public Talk": "Public Talk", "Treasures Talk": "Treasures Talk", "Living Part": "Living as Christians",
+  "Student Talk": "Talk",
+};
+const PUBLIC_TALK = "Public Talk";
+const bare = (s: string) => s.trim().replace(/^[“"‘']+|[”"’']+$/g, "").trim();
+
+/** The part's name, with its theme when it has one. Midweek themes are the workbook titles; the public talk's is
+ *  the talk title saved on the weekend meeting. */
+export function partName(r: Pick<PartRow, "part_name" | "role" | "talk_title">): string {
+  const title = (r.part_name ?? "").trim();
+  const label = r.role ? THEMED[r.role] : undefined;
+  if (r.role === PUBLIC_TALK) {
+    const theme = bare(r.talk_title ?? "");
+    return theme ? `${PUBLIC_TALK} - ${theme}` : PUBLIC_TALK;
+  }
+  if (label && title && !title.toLowerCase().includes(label.toLowerCase())) return `${label} - ${bare(title)}`;
+  return title || "a part";
+}
 const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name;
 
 /** Everyone with a part or assisting in the rows given, earliest first. Visiting speakers are left out. */
@@ -51,6 +70,8 @@ export function reminderText(r: Reminder, congregation: string): string {
     ...lines, "", "Thank you, and please let us know quickly if you can't make it."].join("\n");
 }
 
+const KINGDOM_HALL = "Kingdom Hall";
+
 // ---- calendar -------------------------------------------------------------------------------------------------------
 
 /** "18:30", "6:30pm", "6.30 pm", "7pm" -> [18, 30]; null when it can't be read. */
@@ -64,7 +85,7 @@ export function parseTime(text: string | null | undefined): [number, number] | n
   return h < 24 && min < 60 ? [h, min] : null;
 }
 
-const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/;/g, "\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
 const two = (n: number) => String(n).padStart(2, "0");
 /** Long lines folded at 75 octets (RFC 5545), counting bytes so Ga letters aren't split badly. */
 function fold(line: string): string {
@@ -80,7 +101,7 @@ function fold(line: string): string {
 }
 
 /** One person's parts as an iCalendar feed. Times are local Ghana time (UTC, all year), so they're written in UTC. */
-export function calendar(r: Reminder | null, name: string, opts: { midweek: string; weekend: string; place: string; congregation: string }): string {
+export function calendar(r: Reminder | null, name: string, opts: { midweek: string; weekend: string; congregation: string }): string {
   const stamp = new Date().toISOString().replace(/[-:]/g, "").slice(0, 15) + "Z";
   const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Meeting Scheduler//EN", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
     `X-WR-CALNAME:${esc(`Meeting assignments: ${name}`)}`, "X-WR-TIMEZONE:Africa/Accra", "REFRESH-INTERVAL;VALUE=DURATION:PT12H"];
@@ -97,7 +118,7 @@ export function calendar(r: Reminder | null, name: string, opts: { midweek: stri
     const summary = d.assisting ? `Assisting ${d.with ?? ""}: ${d.part}` : d.part;
     lines.push(`SUMMARY:${esc(summary.trim())}`,
       `DESCRIPTION:${esc(`${meetingWord(d.type)[0].toUpperCase()}${meetingWord(d.type).slice(1)}${opts.congregation ? `, ${opts.congregation}` : ""}: ${dutyLine(d)}.`)}`);
-    if (opts.place) lines.push(`LOCATION:${esc(opts.place)}`);
+    lines.push(`LOCATION:${esc(KINGDOM_HALL)}`);
     // a nudge the evening before
     lines.push("BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${esc(summary.trim())}`, "TRIGGER:-PT18H", "END:VALARM", "END:VEVENT");
   }

@@ -19,7 +19,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ token: str
     const mine = remindersFrom(rows).find((r) => r.id === id) ?? null;
     const body = calendar(mine, person.name, {
       midweek: setting(settings, "midweek_time"), weekend: setting(settings, "weekend_time") || setting(settings, "meeting_time"),
-      place: setting(settings, "hall_address"), congregation: setting(settings, "congregation"),
+      congregation: setting(settings, "congregation"),
     });
     return new Response(body, {
       headers: {
