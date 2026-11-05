@@ -39,9 +39,9 @@ signed in for 30 days; with the shared `APP_PASSWORD`, for 7.
 ## Reminders and calendar links
 
 **Reminders** (in the menu, and linked from Home when anyone has a part in the next 7 days) lists everyone with a part
-in the next 7 or 14 days, with a ready WhatsApp message and a **Calendar link**. WhatsApp numbers are entered on each
-participant (Participants → Edit) and kept as one JSON row in `settings` (`participant_phones`), so the Python app's
-tables are unchanged.
+in the next 7 or 14 days, with a ready WhatsApp message and a **Calendar link**. The app keeps no participant phone
+numbers: the WhatsApp button opens WhatsApp with the message ready, and you pick the chat. (The only number it keeps is
+the Talk Coordinator's, for the public talk letters.)
 
 A calendar link is `/cal/<id>-<signature>.ics` (10 characters of signature; older 20-character links still work), signed with `SESSION_SECRET` (changing the secret retires every link).
 It needs no sign-in, so a phone or Google Calendar ("From URL") can subscribe and pick up new and changed parts by

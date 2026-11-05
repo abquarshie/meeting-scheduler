@@ -45,11 +45,6 @@ function PersonForm({ initial, families, submit, button, withActive }: {
           <span className="msg hint">Leave empty for an adult publisher.</span>
         </div>
       </div>
-      <label className="field max-w-xs"><span>WhatsApp number</span>
-        <input className="input" type="tel" inputMode="tel" placeholder="024 123 4567" maxLength={24} value={p.phone ?? ""}
-          onChange={(e) => setP({ ...p, phone: e.target.value })} />
-        <span className="msg hint">Optional. Used for the reminders on Home.</span>
-      </label>
       <div className="row2 rounded-xl border border-line p-3">
         <label className="field"><span>Family</span>
           <select className="input" value={p.family ?? NO_FAMILY} onChange={(e) => setP({ ...p, family: e.target.value === NO_FAMILY ? null : e.target.value })}>
@@ -97,7 +92,7 @@ export function People({ people, families, tab, selected, last, used, away }: {
       {tab === "add" ? (
         <div className="card">
           <PersonForm key={addKey} families={families} button="Add participant"
-            initial={{ name: "", gender: "Brother", privileges: [], groups: [], family: null, phone: "" }}
+            initial={{ name: "", gender: "Brother", privileges: [], groups: [], family: null }}
             submit={(p) => act(() => addPerson(p), () => { setAddKey((k) => k + 1); router.refresh(); })} />
         </div>
       ) : tab === "edit" ? (
@@ -141,7 +136,7 @@ function Edit({ people, families, id, used, away, pick, busy, act }: {
       </label>
       <div className="card">
         <PersonForm key={p.id} families={families} button="Save changes" withActive
-          initial={{ name: p.name, gender: p.gender || "Brother", privileges: p.privileges, groups: p.groups, family: p.family, active: p.active, phone: p.phone }}
+          initial={{ name: p.name, gender: p.gender || "Brother", privileges: p.privileges, groups: p.groups, family: p.family, active: p.active }}
           submit={(x) => act(() => updatePerson(p.id, x), refresh)} />
       </div>
 
