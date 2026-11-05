@@ -1,0 +1,51 @@
+name: Check
+
+# Runs on every pull request (and on main) so a broken change never reaches Vercel: the Next.js type check and
+# build, and the Python tests (the scheduling rules and every document) against a throwaway Postgres.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # placeholders: the build never connects to the database
+      DATABASE_URL: postgresql://user:password@localhost:5432/db
+      SESSION_SECRET: ci-only-not-a-real-secret-0123
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: meetings
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ci" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      # each test makes and uses its own schema in this throwaway database (conftest.py), never Neon
+      MEETING_DSN: postgresql://ci:ci@localhost:5432/meetings
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest -q

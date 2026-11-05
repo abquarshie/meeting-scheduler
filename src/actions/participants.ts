@@ -3,12 +3,22 @@ import { attemptFull, gaOn, logChange, needId, ok, Refusal, strings } from "@/li
 import { requireFull } from "@/lib/auth";
 import { CATEGORIES, GROUPS, PRIVILEGES } from "@/lib/constants";
 import { addDays, isISODate, today } from "@/lib/dates";
+import { cleanPhone, setPhone, waNumber } from "@/lib/contacts";
 import { prisma } from "@/lib/db";
 import { gaSubstitutes, nfc } from "@/lib/text";
 
 // The same writes as db.add_student, update_student, set_suspension, set_unavailable and delete_student.
 
-export type PersonInput = { name: string; gender: string; privileges: string[]; groups: string[]; family: string | null; active?: boolean };
+export type PersonInput = {
+  name: string; gender: string; privileges: string[]; groups: string[]; family: string | null; active?: boolean; phone?: string;
+};
+
+/** A typed number, refused with a message if WhatsApp couldn't use it. */
+function checkedPhone(v: unknown): string {
+  const phone = cleanPhone(v);
+  if (phone && !waNumber(phone)) throw new Refusal("Check the WhatsApp number: use 024 123 4567 or +233 24 123 4567.");
+  return phone;
+}
 
 async function clean(input: PersonInput) {
   const ga = await gaOn();
@@ -25,7 +35,8 @@ export async function addPerson(input: PersonInput) {
   return attemptFull(async (user) => {
     const p = await clean(input);
     const same = await prisma.students.count({ where: { name: { equals: p.name, mode: "insensitive" } } });
-    await prisma.students.create({ data: { ...p, active: 1 } });
+    const made = await prisma.students.create({ data: { ...p, active: 1 }, select: { id: true } });
+    if (input.phone !== undefined) await setPhone(made.id, checkedPhone(input.phone));
     await logChange(user, "Participant added", p.name);
     return ok(same ? `There was already someone called ${p.name}; added anyway.` : `Added ${p.name}.`);
   });
@@ -37,6 +48,7 @@ export async function updatePerson(id: number, input: PersonInput) {
     const p = await clean(input);
     await prisma.$transaction(async (tx) => {
       await tx.students.update({ where: { id }, data: { ...p, active: input.active ? 1 : 0 } });
+      if (input.phone !== undefined) await setPhone(id, checkedPhone(input.phone), tx);
       // keep the name snapshot on old schedules in step with the rename
       await tx.schedules.updateMany({ where: { student_id: id }, data: { assigned_person: p.name } });
       await tx.schedules.updateMany({ where: { assistant_id: id }, data: { assistant_name: p.name } });
@@ -103,6 +115,7 @@ export async function deletePerson(id: number) {
     const used = await prisma.schedules.count({ where: { OR: [{ student_id: id }, { assistant_id: id }] } });
     if (used) throw new Refusal("This person has saved assignments. Untick Active instead so the history stays intact.");
     const p = await prisma.students.delete({ where: { id } });
+    await setPhone(id, "");
     await logChange(user, "Participant deleted", `id ${id}`);
     return ok(`${p.name} deleted.`);
   });

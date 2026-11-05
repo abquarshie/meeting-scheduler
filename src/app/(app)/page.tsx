@@ -9,6 +9,7 @@ import {
 } from "@/lib/data";
 import { addDays, daysAway, daysBetween, longDate, shortDay, today } from "@/lib/dates";
 import { prisma } from "@/lib/db";
+import { remindersFrom } from "@/lib/reminders";
 import { talkText } from "@/lib/text";
 
 const editHref = (date: string, type: string) =>
@@ -58,11 +59,15 @@ export default async function Home() {
 
   const next = upcoming[0];
   // everything that wants a hand, newest worry first: setup gaps, a week not created, the backup
-  const attention: { text: string; href: string; tone: "warn" | "bad" | "accent"; icon: "warning" | "calendar" | "shield" | "add" }[] = [];
+  const attention: { text: string; href: string; tone: "warn" | "bad" | "accent"; icon: "warning" | "calendar" | "shield" | "add" | "clock" }[] = [];
   if (next && gap) attention.push({ text: `${gap.label} (${longDate(gap.meeting)}) has no schedule yet`, href: createHref(gap.meeting), tone: "warn", icon: "calendar" });
   if (!weekend && anySaved && (backupDays === null || backupDays >= BACKUP_REMINDER_DAYS)) {
     attention.push({ text: backupDays === null ? "No backup downloaded yet. The database is the only copy of your schedules." : `Last backup was ${backupDays} days ago`, href: "/admin", tone: "bad", icon: "shield" });
   }
+  // the people with a part in the next seven days, for the WhatsApp reminders
+  const remindRows = rows.filter((r) => r.meeting_date >= now && r.meeting_date <= addDays(now, 6) && (!weekend || r.meeting_type === WEEKEND));
+  const toRemind = remindersFrom(remindRows).length;
+  if (toRemind) attention.push({ text: `Remind the ${toRemind} ${toRemind === 1 ? "person" : "people"} with a part in the next 7 days`, href: "/reminders", tone: "accent", icon: "clock" });
   for (const [what, href] of gaps) attention.push({ text: what, href, tone: "accent", icon: "add" });
   const iconTone = { warn: "bg-warn-soft text-warn", bad: "bg-bad-soft text-bad", accent: "bg-brand-soft text-brand-ink" };
 

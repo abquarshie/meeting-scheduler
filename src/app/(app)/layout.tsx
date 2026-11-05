@@ -13,6 +13,7 @@ const ITEMS: NavItem[] = [
   { href: "/month", label: "Month overview", short: "Month", icon: "calendar", phone: true },
   { href: "/schedule", label: "Create or edit", short: "Edit", icon: "edit", phone: true },
   { href: "/print", label: "Slips and printing", short: "Print", icon: "print", phone: true },
+  { href: "/reminders", label: "Reminders", icon: "clock" },
   { href: "/talks", label: "Public talks", icon: "mic" },
   { href: "/participants", label: "Participants", short: "People", icon: "people", phone: true },
   { href: "/workbook", label: "Workbook PDF", icon: "book" },
@@ -26,6 +27,7 @@ const WEEKEND_ITEMS: NavItem[] = [
   { href: "/schedule", label: "Create or edit", short: "Edit", icon: "edit", phone: true },
   { href: "/print", label: "Weekend printing", short: "Print", icon: "print", phone: true },
   { href: "/talks", label: "Public talks", short: "Talks", icon: "mic", phone: true },
+  { href: "/reminders", label: "Reminders", icon: "clock" },
 ];
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {

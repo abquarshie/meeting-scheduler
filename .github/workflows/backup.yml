@@ -1,0 +1,32 @@
+name: Nightly backup
+
+# Saves a full copy of the Neon database every night as a downloadable file on this workflow's run page
+# (Actions → Nightly backup → a run → Artifacts). Copies are kept for 30 days.
+#
+# One-time setup: in GitHub, Settings → Secrets and variables → Actions → New repository secret,
+# name it BACKUP_DATABASE_URL and paste Neon's DIRECT connection string (the host without "-pooler").
+# To restore a copy into an empty database: pg_restore --no-owner -d "<connection string>" backup.dump
+on:
+  schedule:
+    - cron: "30 2 * * *" # 02:30 UTC every day
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container: postgres:18 # pg_dump 18 reads any older server too
+    steps:
+      - name: Dump the database
+        env:
+          DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then echo "::error::Add the BACKUP_DATABASE_URL secret first (see the top of this file)."; exit 1; fi
+          pg_dump --format=custom --no-owner --no-privileges --dbname="$DATABASE_URL" --file=backup.dump
+          ls -lh backup.dump
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.event.repository.name }}-${{ github.run_id }}
+          path: backup.dump
+          retention-days: 30
+          if-no-files-found: error
