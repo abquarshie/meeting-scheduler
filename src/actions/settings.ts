@@ -3,6 +3,7 @@ import { attempt, attemptFull, logChange, needId, ok, Refusal, setSetting } from
 import { LANGUAGES, SAME_ROLE_GAP_DAYS, WEEKDAYS } from "@/lib/constants";
 import { prisma } from "@/lib/db";
 import { nfc } from "@/lib/text";
+import { parseTime } from "@/lib/reminders";
 
 export async function setLanguage(language: string) {
   return attemptFull(async () => {
@@ -69,5 +70,21 @@ export async function removeTemplate(name: string) {
     await prisma.templates.deleteMany({ where: { name } });
     await logChange(user, "Blank form removed", name);
     return ok("Removed.");
+  });
+}
+
+/** The meeting times the calendar feeds use, e.g. "18:30" or "6:30pm". Empty makes them all-day entries. */
+export async function saveCalendarTimes(midweek: string, weekend: string) {
+  return attempt(async (user) => {
+    const m = nfc(midweek).slice(0, 20), w = nfc(weekend).slice(0, 20);
+    for (const [label, t] of [["midweek", m], ["weekend", w]] as const) {
+      if (t && !parseTime(t)) throw new Refusal(`Write the ${label} time like 18:30 or 6:30pm.`);
+    }
+    await prisma.$transaction(async (tx) => {
+      await setSetting("midweek_time", m, tx);
+      await setSetting("weekend_time", w, tx);
+    });
+    await logChange(user, "Calendar times changed", `midweek ${m || "—"}, weekend ${w || "—"}`);
+    return ok("Saved. Calendars pick up the new times the next time they refresh.");
   });
 }

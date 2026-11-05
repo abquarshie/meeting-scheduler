@@ -30,6 +30,30 @@ Vercel's 500 MB limit.
 Files uploaded through the web app (workbook PDF, blank forms, a backup to restore) must be under about 4 MB, the
 Vercel request limit.
 
+## Sign-in
+
+Five wrong passwords lock sign-in for a minute. The count lives in the `settings` table (`signin_fails`,
+`signin_locked`), so it holds across Vercel's instances. Someone who signs in with their own `APP_USERS` password stays
+signed in for 30 days; with the shared `APP_PASSWORD`, for 7.
+
+## Reminders and calendar links
+
+**Reminders** (in the menu, and linked from Home when anyone has a part in the next 7 days) lists everyone with a part
+in the next 7 or 14 days, with a ready WhatsApp message and a **Calendar link**. WhatsApp numbers are entered on each
+participant (Participants → Edit) and kept as one JSON row in `settings` (`participant_phones`), so the Python app's
+tables are unchanged.
+
+A calendar link is `/cal/<id>-<signature>.ics`, signed with `SESSION_SECRET` (changing the secret retires every link).
+It needs no sign-in, so a phone or Google Calendar ("From URL") can subscribe and pick up new and changed parts by
+itself, with an alert the evening before. The meeting start times for it are set on the Reminders page
+(`midweek_time`, `weekend_time`); without them the entries are all-day.
+
+## Checks and backups
+
+`.github/workflows/check.yml` runs on every pull request: the Next.js type check and build, and the Python tests
+(`pytest`) against a throwaway Postgres. `.github/workflows/backup.yml` saves a full `pg_dump` every night, kept 30 days
+on the run page; it needs a `BACKUP_DATABASE_URL` repository secret (Neon's direct connection string).
+
 ## The database
 
 The tables are created and upgraded by the Python app (`db.init_db`). `prisma/schema.prisma` is read from the

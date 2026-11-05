@@ -57,10 +57,18 @@ export function checkSignIn(nameIn: string, password: string): string | null {
   return ok ? null : "Wrong name or password.";
 }
 
+/** Someone signing in with the shared APP_PASSWORD (not their own APP_USERS one) stays signed in for a week, not 30 days. */
+export const SHARED_SESSION_DAYS = 7;
+
+export function sessionDays(name: string): number {
+  return users().has(nameKey(name)) ? SESSION_DAYS : SHARED_SESSION_DAYS;
+}
+
 export async function startSession(name: string): Promise<void> {
-  (await cookies()).set(COOKIE, makeToken(nfc(name)), {
+  const days = sessionDays(name);
+  (await cookies()).set(COOKIE, makeToken(nfc(name), days), {
     httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/",
-    maxAge: SESSION_DAYS * 86400,
+    maxAge: days * 86400,
   });
 }
 
