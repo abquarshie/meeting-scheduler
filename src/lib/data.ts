@@ -55,6 +55,8 @@ export type Row = {
   minutes: number | null; section: string | null; role: string | null; student_part: number; needs_assistant: number;
   student_id: number | null; assistant_id: number | null; sort_order: number; hall: string; visitor: string | null;
   visitor_congregation: string | null; person: string | null; assistant: string | null;
+  /** The public talk's theme, from the meeting (weekend only). */
+  talk_title: string | null;
 };
 
 /** Saved parts with the names joined in, newest meeting first (db._schedules). Pass a date range or a person to read
@@ -72,10 +74,11 @@ export async function getRows(only: { from?: string; to?: string; person?: numbe
            sc.student_id, sc.assistant_id, COALESCE(sc.sort_order, 0) AS sort_order,
            COALESCE(sc.hall, 'main_hall') AS hall, sc.visitor, sc.visitor_congregation,
            COALESCE(sc.visitor, s.name, sc.assigned_person) AS person,
-           COALESCE(a.name, sc.assistant_name) AS assistant
+           COALESCE(a.name, sc.assistant_name) AS assistant, NULLIF(TRIM(m.talk_title), '') AS talk_title
       FROM schedules sc
       LEFT JOIN students s ON s.id = sc.student_id
       LEFT JOIN students a ON a.id = sc.assistant_id
+      LEFT JOIN meetings m ON m.meeting_date = sc.meeting_date AND m.meeting_type = sc.meeting_type
       ${filter}
      ORDER BY sc.meeting_date DESC, sc.meeting_type, sc.sort_order, sc.id`;
   return rows.map((r) => ({ ...r, person: r.person || null, assistant: r.assistant || null }));
