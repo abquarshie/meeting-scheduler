@@ -48,7 +48,7 @@ It needs no sign-in, so a phone or Google Calendar ("From URL") can subscribe an
 itself, with an alert the evening before. The meeting start times for it are set on the Reminders page
 (`midweek_time`, `weekend_time`); without them the entries are all-day. The **iPhone link** button copies the same
 address as `webcal://…`: tapped on an iPhone it offers "Subscribe", where the `https://` link only imports the parts
-once.
+once. A weekend-only sign-in sees the reminders without the calendar buttons and can't change the times.
 
 ## Checks and backups
 

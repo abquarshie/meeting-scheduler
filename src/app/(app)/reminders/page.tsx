@@ -28,7 +28,7 @@ export default async function RemindersPage({ searchParams }: { searchParams: Pr
     const text = reminderText(r, congregation);
     const ph = phone.get(r.id) ?? "";
     return {
-      id: r.id, name: r.name, phone: ph, text, cal: calPath(r.id),
+      id: r.id, name: r.name, phone: ph, text, cal: weekendOnly ? "" : calPath(r.id), // calendar links are for full sign-ins only
       wa: `https://wa.me/${waNumber(ph)}?text=${encodeURIComponent(text)}`,
       lines: r.duties.map((d) => `${longDate(d.date)}: ${d.assisting ? `assisting ${d.with ?? ""} with ` : ""}${d.part}`),
     };
@@ -37,7 +37,7 @@ export default async function RemindersPage({ searchParams }: { searchParams: Pr
 
   return (
     <>
-      <PageHead title="Reminders" sub="Everyone with a part coming up, with a ready WhatsApp message and a calendar link for their phone." />
+      <PageHead title="Reminders" sub={`Everyone with a part coming up, with a ready WhatsApp message${weekendOnly ? "" : " and a calendar link for their phone"}.`} />
       <Tabs current={`/reminders?days=${days}`} tabs={SPANS.map(([d, label]) => ({ href: `/reminders?days=${d}`, label }))} />
       <div className="stack">
         {noNumber ? (
@@ -47,6 +47,7 @@ export default async function RemindersPage({ searchParams }: { searchParams: Pr
           </p>
         ) : null}
         {cards.length ? <ReminderList cards={cards} /> : <Empty>No one has a part in the next {days} days.</Empty>}
+        {weekendOnly ? null : (
         <details className="card">
           <summary>Calendar links</summary>
           <p className="mt-0 text-sm text-muted">
@@ -58,6 +59,7 @@ export default async function RemindersPage({ searchParams }: { searchParams: Pr
           </p>
           <CalendarTimes midweek={setting(settings, "midweek_time")} weekend={setting(settings, "weekend_time") || setting(settings, "meeting_time")} />
         </details>
+        )}
       </div>
     </>
   );
