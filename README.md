@@ -46,7 +46,9 @@ tables are unchanged.
 A calendar link is `/cal/<id>-<signature>.ics`, signed with `SESSION_SECRET` (changing the secret retires every link).
 It needs no sign-in, so a phone or Google Calendar ("From URL") can subscribe and pick up new and changed parts by
 itself, with an alert the evening before. The meeting start times for it are set on the Reminders page
-(`midweek_time`, `weekend_time`); without them the entries are all-day.
+(`midweek_time`, `weekend_time`); without them the entries are all-day. The **iPhone link** button copies the same
+address as `webcal://…`: tapped on an iPhone it offers "Subscribe", where the `https://` link only imports the parts
+once.
 
 ## Checks and backups
 

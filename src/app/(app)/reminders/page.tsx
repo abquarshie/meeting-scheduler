@@ -50,9 +50,11 @@ export default async function RemindersPage({ searchParams }: { searchParams: Pr
         <details className="card">
           <summary>Calendar links</summary>
           <p className="mt-0 text-sm text-muted">
-            Each person&apos;s Calendar link is a feed of all their parts. Opened on a phone (or added in Google Calendar under
-            &ldquo;From URL&rdquo;), new and changed parts appear by themselves, with an alert the evening before. Set the
-            meeting times so entries have the right hours; without them they show as all-day.
+            Each person&apos;s Calendar link is a feed of all their parts. Once subscribed, new and changed parts appear by
+            themselves, with an alert the evening before. On Android, add the Calendar link in Google Calendar under
+            &ldquo;From URL&rdquo;. On an iPhone, send the iPhone link instead: tapping it offers &ldquo;Subscribe&rdquo;
+            (the plain link only adds the parts once). Set the meeting times so entries have the right hours; without
+            them they show as all-day.
           </p>
           <CalendarTimes midweek={setting(settings, "midweek_time")} weekend={setting(settings, "weekend_time") || setting(settings, "meeting_time")} />
         </details>
