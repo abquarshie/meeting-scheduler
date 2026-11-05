@@ -43,7 +43,7 @@ in the next 7 or 14 days, with a ready WhatsApp message and a **Calendar link**.
 participant (Participants → Edit) and kept as one JSON row in `settings` (`participant_phones`), so the Python app's
 tables are unchanged.
 
-A calendar link is `/cal/<id>-<signature>.ics`, signed with `SESSION_SECRET` (changing the secret retires every link).
+A calendar link is `/cal/<id>-<signature>.ics` (10 characters of signature; older 20-character links still work), signed with `SESSION_SECRET` (changing the secret retires every link).
 It needs no sign-in, so a phone or Google Calendar ("From URL") can subscribe and pick up new and changed parts by
 itself, with an alert the evening before. The meeting start times for it are set on the Reminders page
 (`midweek_time`, `weekend_time`); without them the entries are all-day. The **iPhone link** button copies the same
