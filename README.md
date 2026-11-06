@@ -72,3 +72,7 @@ npm run dev                   # Next.js on localhost:3000 (forwards /api/py to t
 ```
 
 The Streamlit app still runs with `streamlit run app.py`. Python tests: `MEETING_DSN=postgres://... pytest`.
+
+## What's new
+
+When the app opens after an update, a "What's new" card lists the changes once on each phone or computer. Every pull request that changes something people will notice adds an entry at the top of `src/lib/whats-new.ts` with the next id, the date and a few plain sentences.
