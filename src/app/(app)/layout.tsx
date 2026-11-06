@@ -5,6 +5,7 @@ import { SideNav, TabBar, type NavItem } from "@/components/Nav";
 import { requireUser, roleOf } from "@/lib/auth";
 import { LANGUAGES } from "@/lib/constants";
 import { prisma } from "@/lib/db";
+import { WhatsNew } from "@/components/WhatsNew";
 
 export const dynamic = "force-dynamic"; // always the latest schedules
 
@@ -76,6 +77,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <main className="mx-auto w-full max-w-6xl px-4 pt-5 pb-28 md:px-10 md:pt-10 md:pb-16">{children}</main>
       </div>
       <TabBar items={items} />
+      <WhatsNew />
     </div>
   );
 }
