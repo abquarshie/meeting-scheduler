@@ -5,6 +5,10 @@ export type News = { id: number; date: string; title: string; items: string[] };
 
 export const NEWS: News[] = [
   {
+    id: 3, date: "2026-11-09", title: "Weekend schedule columns",
+    items: ["The weekend schedule now reads: date, speaker, talk title, chairman, opening prayer, reader."],
+  },
+  {
     id: 2, date: "2026-11-06", title: "What's new",
     items: ["This card tells you about updates the first time you open the app after a change."],
   },

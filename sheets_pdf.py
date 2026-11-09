@@ -504,9 +504,9 @@ def weekend_schedule_pdf(meetings, schedules_df, lang=None):
     split across two pages. Text and spacing are the same whatever the
     number of months.
 
-    Laid out like the talk schedule the congregation posts: date · chairman ·
-    opening prayer · the public talk (theme, speaker) · the Watchtower Study
-    (reader). There is no closing prayer column: the speaker says it.
+    Columns: date · the public talk (speaker, talk title) · chairman ·
+    opening prayer · the Watchtower Study (reader). There is no closing
+    prayer column: the speaker says it.
     """
     lang = lang or TRANSLATIONS["English"]
     words = GA_WORDS if _lang_name(lang) == "Ga" else EN_WORDS
@@ -590,11 +590,12 @@ def _weekend_table(meetings, schedules_df, words, st_, width, language="English"
 
     years = sorted({d[:4] for d, _ in meetings}) or [str(date.today().year)]
     year = years[0] if len(years) == 1 else f"{years[0]}–{years[-1][2:]}"
+    # date · speaker, talk title · chairman · opening prayer · reader
     data = [
-        [p(year, st_["head"]), p(words["chairman"], st_["head"]),
-         p(words["opening_prayer"], st_["head"]), p(words["public_talk"], st_["group"]),
-         "", p(words["watchtower"], st_["group"])],
-        ["", "", "", p(words["theme"], st_["head"]), p(words["speaker"], st_["head"]),
+        [p(year, st_["head"]), p(words["public_talk"], st_["group"]), "",
+         p(words["chairman"], st_["head"]), p(words["opening_prayer"], st_["head"]),
+         p(words["watchtower"], st_["group"])],
+        ["", p(words["speaker"], st_["head"]), p(words["theme"], st_["head"]), "", "",
          p(words["reader"], st_["head"])],
     ]
 
@@ -642,18 +643,18 @@ def _weekend_table(meetings, schedules_df, words, st_, width, language="English"
         last_month = meeting_date[:7]
         data.append([
             p(f"{day:%b} {day.day}", st_["date"]),
+            Paragraph(speaker, st_["cell"]),
+            p(theme or UNFILLED, st_["cell"]),
             p(names(rows[rows["role"] == "Weekend Chairman"]), st_["cell"]),
             p(names(rows[rows["role"] == "Prayer"], lambda r: not is_closing(r)),
               st_["cell"]),
-            p(theme or UNFILLED, st_["cell"]),
-            Paragraph(speaker, st_["cell"]),
             p(names(rows[rows["role"] == "Watchtower Reader"]), st_["cell"]),
         ])
 
     # the printed list's columns, with the theme given the width it needs for
     # the longest titles to take two lines rather than three — what lets two
     # five-weekend months share a sheet at full size
-    grid = [1100, 2050, 2050, 5300, 2800, 2100]     # date fits "May 31" on one line
+    grid = [1100, 2800, 5300, 2050, 2050, 2100]     # date fits "May 31" on one line
     table = Table(data, colWidths=[width * g / sum(grid) for g in grid],
                   repeatRows=0)          # headings once, at the very top
     divider = []
@@ -665,12 +666,13 @@ def _weekend_table(meetings, schedules_df, words, st_, width, language="English"
             ("BOTTOMPADDING", (0, i - 1), (-1, i - 1), 9),
         ]
     table.setStyle(TableStyle([
-        ("SPAN", (0, 0), (0, 1)), ("SPAN", (1, 0), (1, 1)), ("SPAN", (2, 0), (2, 1)),
+        ("SPAN", (0, 0), (0, 1)), ("SPAN", (3, 0), (3, 1)), ("SPAN", (4, 0), (4, 1)),
     ] + [("SPAN", (1, i), (-1, i)) for i in event_rows] + [
-        ("SPAN", (3, 0), (4, 0)),
+        ("SPAN", (1, 0), (2, 0)),         # Public talk over speaker and title
         ("VALIGN", (0, 0), (-1, 1), "BOTTOM"),
         ("VALIGN", (0, 2), (-1, -1), "MIDDLE"),
-        ("LINEBELOW", (3, 0), (-1, 0), 0.5, RULE),
+        ("LINEBELOW", (1, 0), (2, 0), 0.5, RULE),
+        ("LINEBELOW", (5, 0), (5, 0), 0.5, RULE),
         ("LINEBELOW", (0, 1), (-1, 1), 1.2, WEEKEND_INK),
         ("LINEBELOW", (0, 2), (-1, -1), 0.4, RULE),
         ("TOPPADDING", (0, 0), (-1, -1), 5),

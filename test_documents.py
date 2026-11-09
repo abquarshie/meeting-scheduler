@@ -218,14 +218,14 @@ def _weekend_with_guest(core, people):
 
 
 def test_weekend_sheet_columns_and_guest(core, people):
-    """Date, chairman, opening prayer, the talk (theme, speaker) and the
+    """Date, the talk (speaker, title), chairman, opening prayer and the
     Watchtower reader; the guest speaker is marked. No closing prayer and no
     conductor — they're kept on the schedule, not on the board."""
     _weekend_with_guest(core, people)
     text = _text(core.generate_schedule_pdf([("2026-09-27", core.WEEKEND)],
                                             core.get_schedules()))
-    order = ["Chairman", "Opening Prayer", "Public Talk", "Watchtower Study",
-             "Theme", "Speaker", "Reader"]
+    order = ["Public Talk", "Chairman", "Opening Prayer", "Watchtower Study",
+             "Speaker", "Theme", "Reader"]
     for word in order + ["Guest speaker", "Sep 27"]:
         assert word in text, word
     assert [text.index(w) for w in order] == sorted(text.index(w) for w in order)
