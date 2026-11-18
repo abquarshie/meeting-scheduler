@@ -9,11 +9,11 @@ import { reminderText, remindersFrom } from "@/lib/reminders";
 import { CalendarTimes, ReminderList, type Card } from "./Reminders";
 
 export const metadata: Metadata = { title: "Reminders" };
-const SPANS = [["7", "Next 7 days"], ["14", "Next 14 days"]] as const;
+const SPANS = [["7", "Next 7 days"], ["14", "Next 14 days"], ["30", "Next 30 days"]] as const;
 
 export default async function RemindersPage({ searchParams }: { searchParams: Promise<{ days?: string }> }) {
   const sp = await searchParams;
-  const days = sp.days === "14" ? 14 : 7;
+  const days = sp.days === "30" ? 30 : sp.days === "14" ? 14 : 7;
   const now = today();
   const [user, rows, settings] = await Promise.all([
     getUser(), getRows({ from: now, to: addDays(now, days - 1) }), getSettings(),
